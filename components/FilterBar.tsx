@@ -1,0 +1,81 @@
+'use client';
+
+import { formatearPeriodo } from '@/lib/business-logic';
+
+interface FilterBarProps {
+  oficinas: string[];
+  entidades: string[];
+  periodos: string[];
+  filtroOficina: string;
+  filtroEntidad: string;
+  filtroPeriodo: string;
+  onOficina: (v: string) => void;
+  onEntidad: (v: string) => void;
+  onPeriodo: (v: string) => void;
+  onLimpiar: () => void;
+}
+
+export default function FilterBar({
+  oficinas,
+  entidades,
+  periodos,
+  filtroOficina,
+  filtroEntidad,
+  filtroPeriodo,
+  onOficina,
+  onEntidad,
+  onPeriodo,
+  onLimpiar,
+}: FilterBarProps) {
+  return (
+    <div className="bg-white px-4 py-3 flex items-center gap-2.5 flex-wrap border-b border-[var(--vg-border)]">
+      <span className="text-[12px] font-semibold text-[var(--vg-text2)]">🔍 Filtrar:</span>
+      {periodos.length > 1 && (
+        <select
+          value={filtroPeriodo}
+          onChange={(e) => onPeriodo(e.target.value)}
+          className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
+        >
+          <option value="">Todos los periodos</option>
+          {periodos.map((p) => (
+            <option key={p} value={p}>
+              {formatearPeriodo(p)}
+            </option>
+          ))}
+        </select>
+      )}
+      <select
+        value={filtroOficina}
+        onChange={(e) => onOficina(e.target.value)}
+        className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
+      >
+        <option value="">Todas las oficinas</option>
+        {oficinas.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+      <select
+        value={filtroEntidad}
+        onChange={(e) => onEntidad(e.target.value)}
+        className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
+      >
+        <option value="">Todas las entidades</option>
+        {entidades.map((e) => (
+          <option key={e} value={e}>
+            {e}
+          </option>
+        ))}
+      </select>
+      {(filtroOficina || filtroEntidad || filtroPeriodo) && (
+        <button
+          onClick={onLimpiar}
+          className="text-[12px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 hover:bg-[var(--vg-bg)]"
+        >
+          ✕ Limpiar
+        </button>
+      )}
+    </div>
+  );
+}

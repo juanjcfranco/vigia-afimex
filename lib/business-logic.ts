@@ -1,0 +1,444 @@
+import { Guia } from './types';
+
+// ============================================================
+// Helper de codificación segura para mailto: links.
+// URLSearchParams codifica espacios como '+', pero los clientes
+// de correo (mailto:) requieren '%20'. Esta función corrige eso.
+// ============================================================
+export function buildMailtoUrl(to: string, params: { cc?: string; subject: string; body: string }): string {
+  const encode = (s: string) => encodeURIComponent(s).replace(/%20/g, '%20');
+  const parts: string[] = [];
+  if (params.cc) parts.push(`cc=${encode(params.cc)}`);
+  parts.push(`subject=${encode(params.subject)}`);
+  parts.push(`body=${encode(params.body)}`);
+  return `mailto:${to}?${parts.join('&')}`;
+}
+
+// ============================================================
+// Helpers de clasificación de guías
+// ============================================================
+
+export function isDevolucion(estado: string | null): boolean {
+  return (estado || '').toUpperCase().trim() === 'DEVOLUCION';
+}
+
+export function isEntregada(estado: string | null): boolean {
+  return (estado || '').toUpperCase().trim() === 'ENTREGADA';
+}
+
+export function isPredoc(estado: string | null): boolean {
+  return (estado || '').toUpperCase().trim().startsWith('PRE-DOC');
+}
+
+export function isCancelada(estado: string | null): boolean {
+  const e = (estado || '').toUpperCase().trim();
+  return e === 'CANCELADA' || e === 'CANCELADO' || e === 'CANCELADA POR CLIENTE';
+}
+
+export function isEnRuta(estado: string | null): boolean {
+  return (estado || '').toUpperCase().trim() === 'EN RUTA';
+}
+
+// Usado SOLO para el módulo "Resumen" (mantiene el criterio de Calificación
+// cuando existe, como respaldo, porque ahí se reporta el indicador oficial)
+export function isAbierta(g: Pick<Guia, 'estado_guia' | 'calificacion' | 'es_predoc' | 'es_devolucion'>): boolean {
+  if (g.calificacion) return g.calificacion.toUpperCase().trim() === 'ABIERTA';
+  return !g.es_predoc && !g.es_devolucion && !isEntregada(g.estado_guia);
+}
+
+// Usado en el módulo "Guías Abiertas / En Tránsito": se basa PURAMENTE en el
+// estado de la guía, ignorando Calificación. Es "abierta" cualquier guía que
+// no esté entregada, devuelta, cancelada o pre-documentada.
+export function isAbiertaPorEstado(g: Pick<Guia, 'estado_guia' | 'es_predoc' | 'es_devolucion'>): boolean {
+  if (g.es_predoc || g.es_devolucion) return false;
+  if (isEntregada(g.estado_guia)) return false;
+  if (isCancelada(g.estado_guia)) return false;
+  return true;
+}
+
+// Una guía cuenta como "entrega efectiva" solo si está ENTREGADA y NO es,
+// de ninguna forma, un retorno: ni explícito (es_retorno) ni un posible
+// retorno de otro periodo (mismo Cliente_Paga y Nombre_Destinatario).
+export function esEntregaEfectiva(
+  g: Pick<Guia, 'estado_guia' | 'es_predoc' | 'es_retorno' | 'es_posible_retorno_otro_periodo'>
+): boolean {
+  if (g.es_predoc || g.es_retorno || g.es_posible_retorno_otro_periodo) return false;
+  return isEntregada(g.estado_guia);
+}
+
+// Una guía es "retorno" en sentido amplio (para conteos de retorno) si es
+// explícitamente un retorno O un posible retorno de otro periodo.
+export function esRetornoAmplio(g: Pick<Guia, 'es_retorno' | 'es_posible_retorno_otro_periodo'>): boolean {
+  return g.es_retorno || g.es_posible_retorno_otro_periodo;
+}
+
+// ============================================================
+// Formatea un periodo YYYY-MM a texto legible ("Mayo 2026")
+// ============================================================
+const MESES_ES = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+];
+
+export function formatearPeriodo(yyyyMm: string | null | undefined): string {
+  if (!yyyyMm) return 'No especificado';
+  const [anio, mes] = yyyyMm.split('-');
+  const idx = parseInt(mes, 10) - 1;
+  if (idx < 0 || idx > 11 || !anio) return yyyyMm;
+  const nombre = MESES_ES[idx];
+  return `${nombre.charAt(0).toUpperCase()}${nombre.slice(1)} ${anio}`;
+}
+
+// ============================================================
+// Facturación: tarifas por tipo de guía
+// ============================================================
+export const TARIFA_ENTREGA_ORIGINAL = 100; // guía original entregada
+export const TARIFA_RETORNO_ENTREGADO = 40; // guía de retorno entregada
+
+export interface ItemFacturable {
+  guia: string;
+  tipo: 'ENTREGA_ORIGINAL' | 'DEVOLUCION' | 'POSIBLE_RETORNO_OTRO_PERIODO' | 'RETORNO_ENTREGADO';
+  tarifa: number;
+  oficina: string;
+  entidad: string;
+  mes: string; // YYYY-MM
+  fecha: string | null;
+}
+
+// Determina qué guías son facturables y a qué tarifa.
+// - ENTREGA_ORIGINAL ($100): guía original entregada, no devolución, no retorno
+// - DEVOLUCION ($40): toda guía marcada como DEVOLUCION se factura al autorizarse,
+//   sin importar si el retorno físico ya llegó o sigue pendiente
+// - POSIBLE_RETORNO_OTRO_PERIODO ($40): guías con mismo Cliente_Paga=Nombre_Destinatario
+//   sin vínculo explícito en este corte; KPI separado, no se duplica con DEVOLUCION
+// - RETORNO_ENTREGADO ($100): cuando el paquete de retorno YA llegó físicamente
+//   (retorno_estado = ENTREGADA), se cobra el viaje de regreso completo
+export function calcularItemsFacturables(guias: Guia[], tarifas?: { tarifa_entrega_original: number; tarifa_devolucion: number; tarifa_retorno_entregado: number; tarifa_posible_retorno: number }): ItemFacturable[] {
+  const T_ENTREGA = tarifas?.tarifa_entrega_original ?? TARIFA_ENTREGA_ORIGINAL;
+  const T_DEV = tarifas?.tarifa_devolucion ?? TARIFA_RETORNO_ENTREGADO;
+  const T_RETORNO = tarifas?.tarifa_retorno_entregado ?? TARIFA_ENTREGA_ORIGINAL;
+  const T_POSIBLE = tarifas?.tarifa_posible_retorno ?? TARIFA_RETORNO_ENTREGADO;
+
+  const items: ItemFacturable[] = [];
+
+  guias.forEach((g) => {
+    if (g.es_devolucion) {
+      const fecha = g.f_historia;
+      items.push({
+        guia: g.guia,
+        tipo: 'DEVOLUCION',
+        tarifa: T_DEV,
+        oficina: g.oficina_destino || 'SIN OFICINA',
+        entidad: g.entidad_destinatario || 'SIN ENTIDAD',
+        mes: (fecha || '').slice(0, 7),
+        fecha,
+      });
+
+      if ((g.retorno_estado || '').toUpperCase() === 'ENTREGADA') {
+        const fechaRetorno = g.retorno_f_entrega || fecha;
+        items.push({
+          guia: g.guia,
+          tipo: 'RETORNO_ENTREGADO',
+          tarifa: T_RETORNO,
+          oficina: g.oficina_destino || 'SIN OFICINA',
+          entidad: g.entidad_destinatario || 'SIN ENTIDAD',
+          mes: (fechaRetorno || '').slice(0, 7),
+          fecha: fechaRetorno,
+        });
+      }
+    } else if (g.es_posible_retorno_otro_periodo) {
+      const fecha = g.f_entrega || g.f_historia;
+      items.push({
+        guia: g.guia,
+        tipo: 'POSIBLE_RETORNO_OTRO_PERIODO',
+        tarifa: T_POSIBLE,
+        oficina: g.oficina_destino || 'SIN OFICINA',
+        entidad: g.entidad_destinatario || 'SIN ENTIDAD',
+        mes: (fecha || '').slice(0, 7),
+        fecha,
+      });
+    } else if (!g.es_predoc && !g.es_retorno && isEntregada(g.estado_guia)) {
+      const fecha = g.f_entrega || g.f_historia;
+      items.push({
+        guia: g.guia,
+        tipo: 'ENTREGA_ORIGINAL',
+        tarifa: T_ENTREGA,
+        oficina: g.oficina_destino || 'SIN OFICINA',
+        entidad: g.entidad_destinatario || 'SIN ENTIDAD',
+        mes: (fecha || '').slice(0, 7),
+        fecha,
+      });
+    }
+  });
+
+  return items;
+}
+
+// ============================================================
+// Nivel de alerta según días sin movimiento (basado en F_Historia)
+// ============================================================
+export interface NivelAlerta {
+  nivel: 'normal' | 'alerta' | 'investigacion' | 'critico';
+  etiqueta: string;
+  color: string;
+}
+
+export function nivelAlertaPorDias(dias: number | null): NivelAlerta {
+  if (dias === null) return { nivel: 'normal', etiqueta: '', color: '#94A3B8' };
+  if (dias >= 14) return { nivel: 'critico', etiqueta: 'Estado crítico: se requiere acción inmediata', color: '#DC2626' };
+  if (dias >= 7) return { nivel: 'investigacion', etiqueta: 'Iniciar investigación inmediata', color: '#7C3AED' };
+  if (dias >= 3) return { nivel: 'alerta', etiqueta: 'Alerta de guía sin movimiento', color: '#EA7C1A' };
+  return { nivel: 'normal', etiqueta: '', color: '#94A3B8' };
+}
+
+// ============================================================
+// Extrae las excepciones no vacías de una guía, en orden
+// ============================================================
+export function getExcepciones(g: Pick<Guia, 'excepcion_1' | 'excepcion_2' | 'excepcion_3' | 'excepcion_4' | 'excepcion_5'>): string[] {
+  return [g.excepcion_1, g.excepcion_2, g.excepcion_3, g.excepcion_4, g.excepcion_5]
+    .map((e) => (e || '').trim())
+    .filter(Boolean);
+}
+
+// Quita el sufijo numérico (" 2", " 3") para agrupar por excepción "base"
+function baseExcepcion(e: string): string {
+  return e.replace(/\s+\d+$/, '').trim().toUpperCase();
+}
+
+// ============================================================
+// REGLA DE ACCIÓN — replica la lógica getAccion() del HTML original
+// ============================================================
+export function calcularAccion(
+  g: Pick<Guia, 'excepcion_1' | 'excepcion_2' | 'excepcion_3' | 'excepcion_4' | 'excepcion_5'>,
+  catalogoMap: Record<string, string>
+): string {
+  const excs = getExcepciones(g);
+  if (!excs.length) return '';
+
+  const upper = excs.map((e) => e.toUpperCase());
+
+  // REGLA 0: cualquier excepción de robo → POSIBLE INDEMNIZACIÓN
+  if (upper.some((e) => e.includes('ROBO'))) return 'POSIBLE INDEMNIZACIÓN';
+
+  // REGLA 0b: COD RECHAZADO en la cadena → DEVOLVER_COD
+  if (upper.some((e) => e.includes('COD RECHAZADO'))) return 'DEVOLVER_COD';
+
+  // REGLA 0c: CLIENTE CANCELO → DEVOLVER_COD
+  if (upper.some((e) => e === 'CLIENTE CANCELO')) return 'DEVOLVER_COD';
+
+  // REGLA 1: contar ocurrencias por excepción "base" — 3+ veces → DEVOLVER
+  const counts: Record<string, number> = {};
+  excs.forEach((e) => {
+    const base = baseExcepcion(e);
+    counts[base] = (counts[base] || 0) + 1;
+  });
+  const baseConTresOMas = Object.entries(counts).find(([, n]) => n >= 3);
+  if (baseConTresOMas) return 'DEVOLVER';
+
+  // REGLA 2: usar el catálogo según la ÚLTIMA excepción de la cadena
+  const ultima = excs[excs.length - 1];
+  const accionCatalogo = catalogoMap[ultima.toUpperCase()];
+  if (accionCatalogo) return accionCatalogo;
+
+  // REGLA 3: si la última excepción no está en catálogo, marcar para investigar
+  return 'INVESTIGAR';
+}
+
+// ============================================================
+// Días sin movimiento — calculado contra hoy
+// ============================================================
+export function calcularDiasSinMovimiento(fechaUltimoMovimiento: string | null): number | null {
+  if (!fechaUltimoMovimiento) return null;
+  const fecha = new Date(fechaUltimoMovimiento);
+  if (isNaN(fecha.getTime())) return null;
+  const hoy = new Date();
+  const diffMs = hoy.getTime() - fecha.getTime();
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+
+// ============================================================
+// Efectividad: Entregadas / (Entregadas + Devoluciones + Abiertas)
+// ============================================================
+export function calcularEfectividad(entregadas: number, devoluciones: number, abiertas: number): number | null {
+  const total = entregadas + devoluciones + abiertas;
+  if (total <= 0) return null;
+  return Number(((entregadas / total) * 100).toFixed(1));
+}
+
+export function colorEfectividad(pct: number | null): string {
+  if (pct === null) return '#9CA3AF';
+  if (pct >= 70) return '#0B9B67';
+  if (pct >= 50) return '#EA7C1A';
+  return '#DC2626';
+}
+
+// ============================================================
+// Parsing del Excel a filas normalizadas (usado en /api/cargas/import)
+// ============================================================
+export interface FilaExcelCruda {
+  Guia?: string | number;
+  Cliente_Paga?: string;
+  Descripcion?: string;
+  Oficina_Origen?: string;
+  Estado_Guia?: string;
+  Oficina_Destino?: string;
+  Estado_Destinatario?: string;
+  Ciudad_Destinatario?: string;
+  F_Historia?: string;
+  F_Documentacion?: string;
+  F_Entrega?: string;
+  FPE?: string;
+  Nombre_Recibio?: string;
+  Nombre_Destinatario?: string;
+  D_Tipo_Domicilio?: string;
+  COD?: number | string;
+  Calificacion?: string;
+  Tipo_Entrega?: string;
+  Tipo_Guia?: string;
+  Excepcion_1?: string;
+  Excepcion_2?: string;
+  Excepcion_3?: string;
+  Excepcion_4?: string;
+  Excepcion_5?: string;
+  Retorno?: string | number;
+  'Estado Retorno'?: string;
+  'Entrega Retorno'?: string;
+  [key: string]: unknown;
+}
+
+function parseFechaExcel(v: unknown): string | null {
+  if (v === null || v === undefined || v === '') return null;
+
+  // Date object (SheetJS con dateNF)
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return null;
+    const y = v.getFullYear();
+    const m = String(v.getMonth() + 1).padStart(2, '0');
+    const d = String(v.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  // Número serial de Excel (días desde 1900-01-01, con el bug del año bisiesto de 1900)
+  if (typeof v === 'number' && v > 40000 && v < 60000) {
+    // Convertir serial a fecha usando la misma referencia que Excel
+    const msPerDay = 86400000;
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    const d = new Date(excelEpoch.getTime() + v * msPerDay);
+    if (isNaN(d.getTime())) return null;
+    const y = d.getUTCFullYear();
+    const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const da = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${mo}-${da}`;
+  }
+
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (!s) return null;
+    // ISO ya válido
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    // DD-MM-YYYY (formato MX)
+    const m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (m) {
+      const [, dd, mm, yy] = m;
+      return `${yy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+    }
+    return null;
+  }
+  return null;
+}
+
+// ============================================================
+// Construye el conjunto de números de guía que son "guías de retorno":
+// aquellos que aparecen en la columna Retorno de OTRA fila del archivo.
+// Debe correrse sobre TODAS las filas antes de normalizar individualmente.
+// ============================================================
+export function construirSetDeRetornos(rows: FilaExcelCruda[]): Set<string> {
+  const set = new Set<string>();
+  rows.forEach((r) => {
+    const ret = r.Retorno;
+    if (ret !== undefined && ret !== '') {
+      // Los números pueden venir como float (123.0) desde Excel; normalizamos
+      const num = String(ret).trim().replace(/\.0$/, '');
+      if (num) set.add(num);
+    }
+  });
+  return set;
+}
+
+export function normalizarFila(
+  r: FilaExcelCruda,
+  catalogoMap: Record<string, string>,
+  retornoNumSet: Set<string>
+) {
+  const guia = String(r.Guia ?? '').trim();
+  const nombreRecibio = String(r.Nombre_Recibio ?? '').trim();
+  const nombreDestinatario = String(r.Nombre_Destinatario ?? '').trim();
+  const clientePaga = String(r.Cliente_Paga ?? '').trim();
+  const estado = String(r.Estado_Guia ?? '').trim();
+
+  const esDevolucion = isDevolucion(estado);
+  const esPredoc = isPredoc(estado);
+  // Esta fila ES una guía de retorno EXPLÍCITA si su propio número de guía
+  // aparece en la columna Retorno de alguna otra fila del archivo.
+  const esRetorno = retornoNumSet.has(guia);
+
+  // Posible retorno de otro periodo: Cliente_Paga == Nombre_Destinatario
+  // (el remitente y el destinatario son el mismo nombre), pero SIN vínculo
+  // explícito en este archivo. No se cuenta dos veces con es_retorno.
+  const mismoNombreClienteDestinatario =
+    !!clientePaga && !!nombreDestinatario && clientePaga.toUpperCase() === nombreDestinatario.toUpperCase();
+  const esPosibleRetornoOtroPeriodo = mismoNombreClienteDestinatario && !esRetorno;
+
+  const excepciones = {
+    excepcion_1: String(r.Excepcion_1 ?? '').trim() || null,
+    excepcion_2: String(r.Excepcion_2 ?? '').trim() || null,
+    excepcion_3: String(r.Excepcion_3 ?? '').trim() || null,
+    excepcion_4: String(r.Excepcion_4 ?? '').trim() || null,
+    excepcion_5: String(r.Excepcion_5 ?? '').trim() || null,
+  };
+
+  const accion = calcularAccion(excepciones, catalogoMap);
+  const fHistoria = parseFechaExcel(r.F_Historia);
+  const dias = calcularDiasSinMovimiento(fHistoria);
+
+  // El campo Retorno (en la guía original/devolución) es la referencia
+  // al número de guía de retorno asociado, no una guía separada en sí.
+  const retornoGuiaRaw = r.Retorno;
+  const retornoGuia =
+    retornoGuiaRaw !== undefined && retornoGuiaRaw !== ''
+      ? String(retornoGuiaRaw).trim().replace(/\.0$/, '')
+      : null;
+
+  return {
+    guia,
+    cliente: String(r.Cliente_Paga ?? '').trim() || null,
+    descripcion: String(r.Descripcion ?? '').trim() || null,
+    of_origen: String(r.Oficina_Origen ?? '').trim() || null,
+    oficina_destino: String(r.Oficina_Destino ?? '').trim() || null,
+    entidad_destinatario: String(r.Estado_Destinatario ?? '').trim() || null,
+    ciudad_destinatario: String(r.Ciudad_Destinatario ?? '').trim() || null,
+    estado_guia: estado || null,
+    tipo_entrega: String(r.Tipo_Entrega ?? '').trim() || null,
+    tipo_guia: String(r.Tipo_Guia ?? '').trim() || null,
+    f_documentacion: parseFechaExcel(r.F_Documentacion),
+    f_historia: fHistoria,
+    f_entrega: parseFechaExcel(r.F_Entrega),
+    fpe: parseFechaExcel(r.FPE),
+    nombre_recibio: nombreRecibio || null,
+    nombre_destinatario: nombreDestinatario || null,
+    d_tipo_domicilio: String(r.D_Tipo_Domicilio ?? '').trim() || null,
+    cod: r.COD !== undefined && r.COD !== '' ? Number(r.COD) : null,
+    calificacion: String(r.Calificacion ?? '').trim().toUpperCase() || null,
+    ...excepciones,
+    retorno_guia: retornoGuia,
+    retorno_estado: String(r['Estado Retorno'] ?? '').trim() || null,
+    // La fecha de entrega del retorno viene de la columna "Entrega Retorno"
+    retorno_f_entrega: parseFechaExcel(r['Entrega Retorno']),
+    es_retorno: esRetorno,
+    es_posible_retorno_otro_periodo: esPosibleRetornoOtroPeriodo,
+    es_devolucion: esDevolucion,
+    es_predoc: esPredoc,
+    accion_recomendada: accion || null,
+    dias_sin_movimiento: dias,
+  };
+}
