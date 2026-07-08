@@ -138,7 +138,7 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
 
   return (
     <div className="p-5 space-y-5">
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-10 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-11 gap-3">
         <KpiCard
           title="Total (sin duplicadas)"
           value={kpis.totalSinDuplicadas.toLocaleString('es-MX')}
@@ -198,7 +198,7 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
           value={kpis.tiempoEntrega.promedioDias !== null ? `${kpis.tiempoEntrega.promedioDias} días` : '—'}
           subtitle={
             kpis.tiempoEntrega.muestras
-              ? `Mediana: ${kpis.tiempoEntrega.medianaDias} días · Doc. → Entrega · n=${kpis.tiempoEntrega.muestras.toLocaleString('es-MX')}`
+              ? `Mediana: ${kpis.tiempoEntrega.medianaDias} días · Entregadas: ${kpis.tiempoEntrega.muestrasEntregadas.toLocaleString('es-MX')} · Abiertas (a hoy): ${kpis.tiempoEntrega.muestrasAbiertas.toLocaleString('es-MX')}`
               : 'Sin datos suficientes'
           }
           accentColor="#0891B2"

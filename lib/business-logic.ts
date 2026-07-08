@@ -337,32 +337,71 @@ export function diasEntreFechas(inicio: string | null, fin: string | null): numb
 export interface TiempoPromedioEntrega {
   promedioDias: number | null;
   medianaDias: number | null;
-  muestras: number; // guías con ambas fechas válidas, usadas en el cálculo
+  muestras: number; // total de guías usadas en el cálculo (entregadas + abiertas)
+  muestrasEntregadas: number;
+  muestrasAbiertas: number;
 }
 
 // Calcula el tiempo promedio (y mediana) de entrega, en días, desde
-// F_Documentacion hasta F_Confirmacion. Solo considera guías que son
-// "entrega efectiva": ENTREGADAS y que no sean, de ninguna forma, un
-// retorno (ni explícito ni posible retorno de otro periodo), y que además
-// tengan ambas fechas válidas. La mediana se incluye junto al promedio
-// porque unos pocos casos extremos (guías con fechas mal capturadas)
-// pueden inflar el promedio; la mediana da un segundo dato más robusto.
+// F_Documentacion. Incluye DOS grupos de guías (ninguna de las dos es
+// retorno ni predoc, en ningún caso):
+//
+// 1. Entregadas: días hasta F_Confirmacion (tiempo real ya conocido).
+// 2. Abiertas: guías que no son entregadas, ni devolución, ni canceladas
+//    — siguen en tránsito. Para estas se usa la fecha de HOY en vez de
+//    una fecha de confirmación que todavía no existe. Si se excluyeran
+//    del cálculo, el KPI solo reflejaría qué tan rápido se entrega lo
+//    que YA se entregó, sin castigar lo que lleva mucho tiempo atorado
+//    sin resolverse — que es justo lo que este indicador debe capturar.
+//
+// La mediana se incluye junto al promedio porque unos pocos casos
+// extremos (guías con fechas mal capturadas, o abiertas desde hace
+// meses) pueden inflar el promedio; la mediana da un segundo dato más
+// robusto.
 export function calcularTiempoPromedioEntrega(
   guias: Pick<
     Guia,
-    'estado_guia' | 'es_predoc' | 'es_retorno' | 'es_posible_retorno_otro_periodo' | 'f_documentacion' | 'f_confirmacion'
+    | 'estado_guia'
+    | 'es_predoc'
+    | 'es_retorno'
+    | 'es_posible_retorno_otro_periodo'
+    | 'es_devolucion'
+    | 'f_documentacion'
+    | 'f_confirmacion'
   >[]
 ): TiempoPromedioEntrega {
-  const dias = guias
-    .filter((g) => esEntregaEfectiva(g))
-    .map((g) => diasEntreFechas(g.f_documentacion, g.f_confirmacion))
-    .filter((d): d is number => d !== null);
+  const hoyIso = new Date().toISOString().slice(0, 10);
+  const diasEntregadas: number[] = [];
+  const diasAbiertas: number[] = [];
 
-  if (!dias.length) return { promedioDias: null, medianaDias: null, muestras: 0 };
+  guias.forEach((g) => {
+    // Ninguna guía de retorno (explícita o posible de otro periodo) ni
+    // pre-documentada entra a este cálculo, en ningún grupo.
+    if (g.es_predoc || g.es_retorno || g.es_posible_retorno_otro_periodo) return;
 
-  const promedio = dias.reduce((a, b) => a + b, 0) / dias.length;
+    if (isEntregada(g.estado_guia)) {
+      const dias = diasEntreFechas(g.f_documentacion, g.f_confirmacion);
+      if (dias !== null) diasEntregadas.push(dias);
+      return;
+    }
 
-  const ordenados = [...dias].sort((a, b) => a - b);
+    // No entregada: devoluciones y canceladas quedan fuera del cálculo
+    // (no son "tiempo de entrega" en tránsito, son otro desenlace).
+    if (g.es_devolucion || isCancelada(g.estado_guia)) return;
+
+    // El resto son guías abiertas: se mide contra hoy.
+    const dias = diasEntreFechas(g.f_documentacion, hoyIso);
+    if (dias !== null) diasAbiertas.push(dias);
+  });
+
+  const todos = [...diasEntregadas, ...diasAbiertas];
+  if (!todos.length) {
+    return { promedioDias: null, medianaDias: null, muestras: 0, muestrasEntregadas: 0, muestrasAbiertas: 0 };
+  }
+
+  const promedio = todos.reduce((a, b) => a + b, 0) / todos.length;
+
+  const ordenados = [...todos].sort((a, b) => a - b);
   const mitad = Math.floor(ordenados.length / 2);
   const mediana =
     ordenados.length % 2 !== 0 ? ordenados[mitad] : (ordenados[mitad - 1] + ordenados[mitad]) / 2;
@@ -370,7 +409,9 @@ export function calcularTiempoPromedioEntrega(
   return {
     promedioDias: Number(promedio.toFixed(1)),
     medianaDias: Number(mediana.toFixed(1)),
-    muestras: dias.length,
+    muestras: todos.length,
+    muestrasEntregadas: diasEntregadas.length,
+    muestrasAbiertas: diasAbiertas.length,
   };
 }
 
