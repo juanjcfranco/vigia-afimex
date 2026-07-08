@@ -12,6 +12,7 @@ export function useVigiaData() {
   const [error, setError] = useState<string | null>(null);
 
   // Filtros globales (compartidos entre módulos)
+  const [filtroCliente, setFiltroCliente] = useState<string>('');
   const [filtroOficina, setFiltroOficina] = useState<string>('');
   const [filtroEntidad, setFiltroEntidad] = useState<string>('');
   const [filtroPeriodo, setFiltroPeriodo] = useState<string>('');
@@ -39,7 +40,7 @@ export function useVigiaData() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/guias?carga_id=${cargaId}&limit=20000`);
+      const res = await fetch(`/api/guias?carga_id=${cargaId}`);
       const json = await res.json();
       if (json.guias) setGuias(json.guias);
       else setError(json.error || 'Error desconocido');
@@ -61,6 +62,7 @@ export function useVigiaData() {
 
   const guiasFiltradas = useMemo(() => {
     return guias.filter((g) => {
+      if (filtroCliente && g.cliente !== filtroCliente) return false;
       if (filtroOficina && g.oficina_destino !== filtroOficina) return false;
       if (filtroEntidad && g.entidad_destinatario !== filtroEntidad) return false;
       if (filtroPeriodo) {
@@ -69,8 +71,12 @@ export function useVigiaData() {
       }
       return true;
     });
-  }, [guias, filtroOficina, filtroEntidad, filtroPeriodo]);
+  }, [guias, filtroCliente, filtroOficina, filtroEntidad, filtroPeriodo]);
 
+  const clientes = useMemo(
+    () => [...new Set(guias.map((g) => g.cliente).filter(Boolean))].sort() as string[],
+    [guias]
+  );
   const oficinas = useMemo(
     () => [...new Set(guias.map((g) => g.oficina_destino).filter(Boolean))].sort() as string[],
     [guias]
@@ -97,7 +103,16 @@ export function useVigiaData() {
     const predoc = guiasFiltradas.filter((g) => g.es_predoc).length;
     const retornosEntregados = guiasRetorno.filter((g) => isEntregada(g.estado_guia)).length;
 
-    // Misma fórmula que ResumenModule: Entregadas / (Entregadas + Devoluciones + Abiertas)
+    // Retornos abiertos: devoluciones con guía de retorno referenciada cuyo
+    // retorno_estado todavía no es ENTREGADA. No cuentan como "guías
+    // abiertas" (esas son solo guías originales en tránsito), pero sí
+    // entran al cálculo de efectividad como pendiente/no efectivo.
+    const devolucionesConRetorno = guiasOriginales.filter((g) => g.es_devolucion && g.retorno_guia);
+    const retornosAbiertos = devolucionesConRetorno.filter(
+      (g) => (g.retorno_estado || '').toUpperCase() !== 'ENTREGADA'
+    ).length;
+
+    // Misma fórmula que ResumenModule: Entregadas / (Entregadas + Devoluciones + Abiertas + Retornos Abiertos)
     const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
 
     return {
@@ -105,6 +120,7 @@ export function useVigiaData() {
       totalOriginales: guiasOriginales.length,
       totalRetornos: guiasRetorno.length,
       retornosEntregados,
+      retornosAbiertos,
       entregadas,
       devoluciones,
       abiertas,
@@ -113,6 +129,19 @@ export function useVigiaData() {
     };
   }, [guiasFiltradas]);
 
+  const eliminarCarga = useCallback(
+    async (id: string) => {
+      const res = await fetch(`/api/cargas?id=${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'No se pudo eliminar la carga');
+      // Si borramos la carga activa, limpia la selección para que se
+      // reasigne a la carga más reciente que quede.
+      if (id === cargaActivaId) setCargaActivaId(null);
+      await cargarListaCargas(true);
+    },
+    [cargaActivaId, cargarListaCargas]
+  );
+
   const cargaActiva = cargas.find((c) => c.id === cargaActivaId) || null;
 
   return {
@@ -120,16 +149,20 @@ export function useVigiaData() {
     cargaActiva,
     cargaActivaId,
     setCargaActivaId,
+    eliminarCarga,
     guias,
     guiasFiltradas,
     loading,
     error,
+    filtroCliente,
+    setFiltroCliente,
     filtroOficina,
     setFiltroOficina,
     filtroEntidad,
     setFiltroEntidad,
     filtroPeriodo,
     setFiltroPeriodo,
+    clientes,
     oficinas,
     entidades,
     periodos,
