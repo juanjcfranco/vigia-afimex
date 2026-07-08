@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, colorEfectividad, calcularEfectividad, getExcepciones, esRetornoAmplio } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, colorEfectividad, calcularEfectividad, getExcepciones, esRetornoAmplio, calcularTiempoPromedioEntrega } from '@/lib/business-logic';
 import KpiCard from '@/components/KpiCard';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
@@ -50,7 +50,20 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
     const entregadas = guiasOriginales.filter((g) => isEntregada(g.estado_guia)).length;
     const devoluciones = guiasOriginales.filter((g) => g.es_devolucion).length;
     const abiertas = guiasOriginales.filter((g) => isAbiertaPorEstado(g)).length;
+
+    // "Retornos abiertos": devoluciones cuyo paquete de retorno TODAVÍA no
+    // llega (retorno_estado distinto de ENTREGADA). No son "guías abiertas"
+    // (esas son guías originales en tránsito) — son un bucket aparte, pero
+    // sí cuentan como pendiente/no efectivo para el cálculo de efectividad.
+    // (Es el mismo número que guiasRetornoPendientes, calculado aquí antes
+    // para poder usarlo en calcularEfectividad.)
+    const retornosAbiertos = devolucionesConRetorno.length - guiasRetornoEntregadas;
+
     const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
+
+    // Tiempo promedio (y mediana) de entrega, en días, desde F_Documentacion
+    // hasta F_Entrega — solo guías entregadas que no son retorno.
+    const tiempoEntrega = calcularTiempoPromedioEntrega(guias);
 
     // "Total sin duplicadas": originales (ya sin predoc) + posible retorno + predoc
     // Para que el cuadre de filas sea transparente
@@ -63,7 +76,8 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
       guiasRetornoConFilaPropia,
       totalGuiasRetorno: devolucionesConRetorno.length,
       guiasRetornoEntregadas,
-      guiasRetornoPendientes: devolucionesConRetorno.length - guiasRetornoEntregadas,
+      guiasRetornoPendientes: retornosAbiertos,
+      retornosAbiertos,
       totalPosibleRetornoOtroPeriodo: posibleRetornoOtroPeriodo.length,
       posibleRetornoEntregados,
       entregadas,
@@ -71,6 +85,7 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
       abiertas,
       predoc,
       efectividad,
+      tiempoEntrega,
     };
   }, [guias]);
 
@@ -123,7 +138,7 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
 
   return (
     <div className="p-5 space-y-5">
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-9 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-10 gap-3">
         <KpiCard
           title="Total (sin duplicadas)"
           value={kpis.totalSinDuplicadas.toLocaleString('es-MX')}
@@ -151,7 +166,7 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
         <KpiCard
           title="Guías de Retorno"
           value={kpis.totalGuiasRetorno.toLocaleString('es-MX')}
-          subtitle={`Referenciadas por devolución · Entregados: ${kpis.guiasRetornoEntregadas} · Pendientes: ${kpis.guiasRetornoPendientes}`}
+          subtitle={`Referenciadas por devolución · Entregados: ${kpis.guiasRetornoEntregadas} · Abiertos: ${kpis.retornosAbiertos}`}
           accentColor="#7C3AED"
         />
         <KpiCard
@@ -163,14 +178,30 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
         <KpiCard
           title="Abiertas"
           value={kpis.abiertas.toLocaleString('es-MX')}
-          subtitle="En proceso"
+          subtitle="Guías originales en proceso (no incluye retornos)"
           accentColor="#EA7C1A"
+        />
+        <KpiCard
+          title="Retornos Abiertos"
+          value={kpis.retornosAbiertos.toLocaleString('es-MX')}
+          subtitle="Devoluciones cuyo paquete de retorno aún no llega"
+          accentColor="#9333EA"
         />
         <KpiCard
           title="Efectividad"
           value={kpis.efectividad !== null ? `${kpis.efectividad}%` : '—'}
           subtitle="Ent. / (Ent.+Dev.+Ab.)"
           accentColor={colorEfectividad(kpis.efectividad)}
+        />
+        <KpiCard
+          title="Tiempo Prom. de Entrega"
+          value={kpis.tiempoEntrega.promedioDias !== null ? `${kpis.tiempoEntrega.promedioDias} días` : '—'}
+          subtitle={
+            kpis.tiempoEntrega.muestras
+              ? `Mediana: ${kpis.tiempoEntrega.medianaDias} días · Doc. → Entrega · n=${kpis.tiempoEntrega.muestras.toLocaleString('es-MX')}`
+              : 'Sin datos suficientes'
+          }
+          accentColor="#0891B2"
         />
         <KpiCard
           title="Pre-Documentadas"
@@ -185,6 +216,11 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
           <strong className="text-[var(--vg-text)]">Cuadre (Guías Originales):</strong> {kpis.entregadas.toLocaleString('es-MX')}{' '}
           entregadas + {kpis.devoluciones.toLocaleString('es-MX')} devoluciones + {kpis.abiertas.toLocaleString('es-MX')}{' '}
           abiertas + {kpis.predoc.toLocaleString('es-MX')} predoc = {kpis.totalOriginales.toLocaleString('es-MX')}
+        </span>
+        <span>
+          <strong className="text-[var(--vg-text)]">Efectividad:</strong> {kpis.entregadas.toLocaleString('es-MX')} entregadas /
+          ({kpis.entregadas.toLocaleString('es-MX')} + {kpis.devoluciones.toLocaleString('es-MX')} devoluciones +{' '}
+          {kpis.abiertas.toLocaleString('es-MX')} abiertas) · Retornos abiertos ({kpis.retornosAbiertos.toLocaleString('es-MX')}) se muestran aparte, sin afectar este %
         </span>
         <span>
           <strong className="text-[var(--vg-text)]">Total sin duplicadas:</strong> {kpis.totalOriginales.toLocaleString('es-MX')}{' '}

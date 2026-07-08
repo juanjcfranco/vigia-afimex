@@ -35,6 +35,7 @@ create table if not exists guias (
   f_documentacion date,
   f_historia date,
   f_entrega date,
+  f_confirmacion date,          -- fecha de confirmación de entrega (usada para el KPI de tiempo promedio)
   fpe date,                    -- fecha promesa de entrega
 
   nombre_recibio text,

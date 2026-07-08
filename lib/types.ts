@@ -17,6 +17,7 @@ export interface Guia {
   f_documentacion: string | null;
   f_historia: string | null;
   f_entrega: string | null;
+  f_confirmacion: string | null;
   fpe: string | null;
 
   nombre_recibio: string | null;
@@ -93,10 +94,16 @@ export interface CierreOperativo {
   generado_por: string | null;
 }
 
+export interface GuiaDetalleAcuse {
+  guia: string;
+  f_historia: string | null;
+}
+
 export interface AlertaLog {
   id: string;
   oficina: string;
   guias_incluidas: string[];
+  guias_detalle: GuiaDetalleAcuse[] | null;
   total_guias: number;
   enviado_a: string | null;
   enviado_en: string;

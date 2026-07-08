@@ -111,8 +111,12 @@ export interface ItemFacturable {
 //   sin importar si el retorno físico ya llegó o sigue pendiente
 // - POSIBLE_RETORNO_OTRO_PERIODO ($40): guías con mismo Cliente_Paga=Nombre_Destinatario
 //   sin vínculo explícito en este corte; KPI separado, no se duplica con DEVOLUCION
-// - RETORNO_ENTREGADO ($100): cuando el paquete de retorno YA llegó físicamente
-//   (retorno_estado = ENTREGADA), se cobra el viaje de regreso completo
+// - RETORNO_ENTREGADO ($100): se cobra en cuanto el retorno queda GENERADO
+//   (la guía de devolución trae un número de guía de retorno asignado,
+//   campo `retorno_guia`) — no se espera a que el paquete llegue
+//   físicamente de vuelta (`retorno_estado = ENTREGADA`). El nombre interno
+//   del tipo se mantiene por compatibilidad, pero en la UI se muestra como
+//   "Retornos Generados".
 export function calcularItemsFacturables(guias: Guia[], tarifas?: { tarifa_entrega_original: number; tarifa_devolucion: number; tarifa_retorno_entregado: number; tarifa_posible_retorno: number }): ItemFacturable[] {
   const T_ENTREGA = tarifas?.tarifa_entrega_original ?? TARIFA_ENTREGA_ORIGINAL;
   const T_DEV = tarifas?.tarifa_devolucion ?? TARIFA_RETORNO_ENTREGADO;
@@ -134,16 +138,19 @@ export function calcularItemsFacturables(guias: Guia[], tarifas?: { tarifa_entre
         fecha,
       });
 
-      if ((g.retorno_estado || '').toUpperCase() === 'ENTREGADA') {
-        const fechaRetorno = g.retorno_f_entrega || fecha;
+      // Se factura el retorno en cuanto SE GENERA (queda asignado un número
+      // de guía de retorno), no cuando el paquete físicamente llega de
+      // vuelta. `retorno_guia` se asigna al momento de la devolución, así
+      // que la fecha de facturación es la misma que la de la devolución.
+      if (g.retorno_guia) {
         items.push({
           guia: g.guia,
           tipo: 'RETORNO_ENTREGADO',
           tarifa: T_RETORNO,
           oficina: g.oficina_destino || 'SIN OFICINA',
           entidad: g.entidad_destinatario || 'SIN ENTIDAD',
-          mes: (fechaRetorno || '').slice(0, 7),
-          fecha: fechaRetorno,
+          mes: (fecha || '').slice(0, 7),
+          fecha,
         });
       }
     } else if (g.es_posible_retorno_otro_periodo) {
@@ -205,9 +212,62 @@ function baseExcepcion(e: string): string {
   return e.replace(/\s+\d+$/, '').trim().toUpperCase();
 }
 
+// Top N valores de un campo (oficina, entidad, ciudad, etc.) por cantidad
+// de guías, útil para rankings tipo "top oficinas con más excepciones".
+export function topPorCampo<T>(
+  lista: T[],
+  obtenerValor: (item: T) => string | null | undefined,
+  top: number = 10
+): Array<{ key: string; count: number }> {
+  const conteo: Record<string, number> = {};
+  lista.forEach((item) => {
+    const v = (obtenerValor(item) || '').trim();
+    if (!v) return;
+    conteo[v] = (conteo[v] || 0) + 1;
+  });
+  return Object.entries(conteo)
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, top);
+}
+
 // ============================================================
 // REGLA DE ACCIÓN — replica la lógica getAccion() del HTML original
 // ============================================================
+
+// Normaliza un nombre de excepción para comparar: quita acentos, mayúsculas,
+// colapsa espacios. Los exports de OPS a veces vienen sin acentos
+// (ej. "FALTA NUMERO" en vez de "FALTA NÚMERO") y sin esto el cruce contra
+// el catálogo fallaba silenciosamente y la guía caía en INVESTIGAR.
+export function normalizarClave(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+// Lee un campo de la fila cruda probando varios nombres posibles de columna,
+// sin importar mayúsculas/minúsculas ni espacios extra. Necesario porque el
+// export de OPS no es consistente entre clientes/cortes: a veces la columna
+// se llama "Estado Retorno", a veces "Estado retorno", etc.
+export function campoInsensible(r: FilaExcelCruda, ...candidatos: string[]): unknown {
+  for (const c of candidatos) {
+    if (r[c] !== undefined && r[c] !== null && r[c] !== '') return r[c];
+  }
+  // Si ninguno calzó exacto, busca entre las claves reales de la fila
+  // comparando de forma normalizada (sin acentos, mayúsculas, espacios).
+  const objetivos = candidatos.map((c) => normalizarClave(c));
+  for (const key of Object.keys(r)) {
+    if (objetivos.includes(normalizarClave(key))) {
+      const v = r[key];
+      if (v !== undefined && v !== null && v !== '') return v;
+    }
+  }
+  return undefined;
+}
+
 export function calcularAccion(
   g: Pick<Guia, 'excepcion_1' | 'excepcion_2' | 'excepcion_3' | 'excepcion_4' | 'excepcion_5'>,
   catalogoMap: Record<string, string>
@@ -236,8 +296,9 @@ export function calcularAccion(
   if (baseConTresOMas) return 'DEVOLVER';
 
   // REGLA 2: usar el catálogo según la ÚLTIMA excepción de la cadena
+  // (normalizado: el export de OPS a veces pierde acentos, ej. "FALTA NUMERO")
   const ultima = excs[excs.length - 1];
-  const accionCatalogo = catalogoMap[ultima.toUpperCase()];
+  const accionCatalogo = catalogoMap[normalizarClave(ultima)];
   if (accionCatalogo) return accionCatalogo;
 
   // REGLA 3: si la última excepción no está en catálogo, marcar para investigar
@@ -254,6 +315,63 @@ export function calcularDiasSinMovimiento(fechaUltimoMovimiento: string | null):
   const hoy = new Date();
   const diffMs = hoy.getTime() - fecha.getTime();
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+
+// ============================================================
+// Tiempo promedio de entrega: días entre F_Documentacion y F_Entrega
+// ============================================================
+
+// Diferencia en días entre dos fechas 'YYYY-MM-DD'. Devuelve null si
+// falta alguna fecha, si alguna es inválida, o si la fecha de entrega
+// es anterior a la de documentación (dato sucio: se descarta en vez de
+// contarlo como negativo, para no distorsionar el promedio).
+export function diasEntreFechas(inicio: string | null, fin: string | null): number | null {
+  if (!inicio || !fin) return null;
+  const dIni = new Date(inicio);
+  const dFin = new Date(fin);
+  if (isNaN(dIni.getTime()) || isNaN(dFin.getTime())) return null;
+  const dias = Math.round((dFin.getTime() - dIni.getTime()) / (1000 * 60 * 60 * 24));
+  return dias >= 0 ? dias : null;
+}
+
+export interface TiempoPromedioEntrega {
+  promedioDias: number | null;
+  medianaDias: number | null;
+  muestras: number; // guías con ambas fechas válidas, usadas en el cálculo
+}
+
+// Calcula el tiempo promedio (y mediana) de entrega, en días, desde
+// F_Documentacion hasta F_Confirmacion. Solo considera guías que son
+// "entrega efectiva": ENTREGADAS y que no sean, de ninguna forma, un
+// retorno (ni explícito ni posible retorno de otro periodo), y que además
+// tengan ambas fechas válidas. La mediana se incluye junto al promedio
+// porque unos pocos casos extremos (guías con fechas mal capturadas)
+// pueden inflar el promedio; la mediana da un segundo dato más robusto.
+export function calcularTiempoPromedioEntrega(
+  guias: Pick<
+    Guia,
+    'estado_guia' | 'es_predoc' | 'es_retorno' | 'es_posible_retorno_otro_periodo' | 'f_documentacion' | 'f_confirmacion'
+  >[]
+): TiempoPromedioEntrega {
+  const dias = guias
+    .filter((g) => esEntregaEfectiva(g))
+    .map((g) => diasEntreFechas(g.f_documentacion, g.f_confirmacion))
+    .filter((d): d is number => d !== null);
+
+  if (!dias.length) return { promedioDias: null, medianaDias: null, muestras: 0 };
+
+  const promedio = dias.reduce((a, b) => a + b, 0) / dias.length;
+
+  const ordenados = [...dias].sort((a, b) => a - b);
+  const mitad = Math.floor(ordenados.length / 2);
+  const mediana =
+    ordenados.length % 2 !== 0 ? ordenados[mitad] : (ordenados[mitad - 1] + ordenados[mitad]) / 2;
+
+  return {
+    promedioDias: Number(promedio.toFixed(1)),
+    medianaDias: Number(mediana.toFixed(1)),
+    muestras: dias.length,
+  };
 }
 
 // ============================================================
@@ -287,6 +405,7 @@ export interface FilaExcelCruda {
   F_Historia?: string;
   F_Documentacion?: string;
   F_Entrega?: string;
+  F_Confirmacion?: string;
   FPE?: string;
   Nombre_Recibio?: string;
   Nombre_Destinatario?: string;
@@ -301,8 +420,11 @@ export interface FilaExcelCruda {
   Excepcion_4?: string;
   Excepcion_5?: string;
   Retorno?: string | number;
-  'Estado Retorno'?: string;
-  'Entrega Retorno'?: string;
+  // Nombres reales de columna en el export OPS (verificado contra
+  // OPS_MERQ_010726.xlsx): "Estado retorno" en minúscula, y NO existe
+  // "Entrega Retorno" — la fecha viene en "Ult Mov Retorno".
+  'Estado retorno'?: string;
+  'Ult Mov Retorno'?: string;
   [key: string]: unknown;
 }
 
@@ -365,6 +487,20 @@ export function construirSetDeRetornos(rows: FilaExcelCruda[]): Set<string> {
   return set;
 }
 
+// Convierte el valor crudo de la columna COD a número, sin importar el
+// formato con el que venga (algunos exports de OPS traen solo el número,
+// otros vienen como texto con prefijo/formato de moneda, ej. "COD$790.00").
+// Number() sobre ese texto da NaN, lo que hacía que todos los totales de
+// COD salieran en $0.
+export function parseCOD(raw: unknown): number | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+  const limpio = String(raw).replace(/[^0-9.-]/g, '');
+  if (!limpio) return null;
+  const n = Number(limpio);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function normalizarFila(
   r: FilaExcelCruda,
   catalogoMap: Record<string, string>,
@@ -423,17 +559,22 @@ export function normalizarFila(
     f_documentacion: parseFechaExcel(r.F_Documentacion),
     f_historia: fHistoria,
     f_entrega: parseFechaExcel(r.F_Entrega),
+    // El export de OPS puede traer esta columna como "F_Confirmacion" o
+    // "F_Confirmación" (con acento) según el corte — campoInsensible cubre
+    // ambas variantes igual que se hace con "Estado retorno".
+    f_confirmacion: parseFechaExcel(campoInsensible(r, 'F_Confirmacion', 'F_Confirmación')),
     fpe: parseFechaExcel(r.FPE),
     nombre_recibio: nombreRecibio || null,
     nombre_destinatario: nombreDestinatario || null,
     d_tipo_domicilio: String(r.D_Tipo_Domicilio ?? '').trim() || null,
-    cod: r.COD !== undefined && r.COD !== '' ? Number(r.COD) : null,
+    cod: parseCOD(r.COD),
     calificacion: String(r.Calificacion ?? '').trim().toUpperCase() || null,
     ...excepciones,
     retorno_guia: retornoGuia,
-    retorno_estado: String(r['Estado Retorno'] ?? '').trim() || null,
-    // La fecha de entrega del retorno viene de la columna "Entrega Retorno"
-    retorno_f_entrega: parseFechaExcel(r['Entrega Retorno']),
+    retorno_estado: String(campoInsensible(r, 'Estado retorno', 'Estado Retorno') ?? '').trim() || null,
+    // La fecha de entrega del retorno viene de la columna "Ult Mov Retorno"
+    // (el export real no trae ninguna columna "Entrega Retorno")
+    retorno_f_entrega: parseFechaExcel(campoInsensible(r, 'Ult Mov Retorno', 'Ult mov retorno')),
     es_retorno: esRetorno,
     es_posible_retorno_otro_periodo: esPosibleRetornoOtroPeriodo,
     es_devolucion: esDevolucion,
