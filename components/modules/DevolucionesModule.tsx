@@ -5,20 +5,33 @@ import { Guia } from '@/lib/types';
 import KpiCard from '@/components/KpiCard';
 import BulkSearch from '@/components/BulkSearch';
 import { exportToExcel, exportToPDF } from '@/lib/export';
+import { getExcepciones, topPorCampo, calcularResumenDevoluciones } from '@/lib/business-logic';
+import TopListPanel from '@/components/TopListPanel';
 
-export default function DevolucionesModule({ guias }: { guias: Guia[] }) {
+type VistaTop = 'oficina' | 'entidad' | 'ciudad';
+
+export default function DevolucionesModule({ guias, guiasTodas }: { guias: Guia[]; guiasTodas?: Guia[] }) {
   const [filtroEstado, setFiltroEstado] = useState<'' | 'completado' | 'pendiente'>('');
   const [bulkGuias, setBulkGuias] = useState<string[] | null>(null);
+  const [vistaTop, setVistaTop] = useState<VistaTop>('oficina');
 
   const devoluciones = useMemo(() => guias.filter((g) => g.es_devolucion), [guias]);
 
+  // IMPORTANTE: el mapa de retornos se construye con el set COMPLETO de
+  // guías (sin el filtro de oficina/entidad/etc. aplicado), no con `guias`
+  // (ya filtradas). El retorno de una devolución casi siempre está en una
+  // oficina distinta a la de la devolución (ej. devolución en CHIHUAHUA,
+  // retorno en SAN LUIS POTOSI) — si se filtra por oficina, esa fila del
+  // retorno se cae del set y el cruce sale vacío aunque la devolución sí
+  // esté visible. Se usa `guiasTodas` (fallback a `guias` si no se pasó)
+  // exclusivamente para este cruce.
   const retornoPorGuia = useMemo(() => {
     const map = new Map<string, Guia>();
-    guias.forEach((g) => {
+    (guiasTodas ?? guias).forEach((g) => {
       if (g.es_retorno) map.set(g.guia, g);
     });
     return map;
-  }, [guias]);
+  }, [guiasTodas, guias]);
 
   // KPIs consistentes con Resumen y Facturación: "Retornos" = 1 por cada
   // devolución (referenciado vía columna Retorno), no las filas físicas que
@@ -62,6 +75,39 @@ export default function DevolucionesModule({ guias }: { guias: Guia[] }) {
 
   const totalCOD = useMemo(() => filas.reduce((sum, x) => sum + (x.dev.cod || 0), 0), [filas]);
 
+  // Resumen KPI de devoluciones: por oficina destino, entidad y motivo
+  // (última excepción de la cadena, agrupando AUSENCIA/AUSENCIA 2/
+  // AUSENCIA 3 en una sola categoría — igual que en el módulo Excepciones).
+  const kpiDevoluciones = useMemo(() => calcularResumenDevoluciones(devoluciones, 10), [devoluciones]);
+
+  const campoDeVistaTop: Record<VistaTop, keyof Guia> = {
+    oficina: 'oficina_destino',
+    entidad: 'entidad_destinatario',
+    ciudad: 'ciudad_destinatario',
+  };
+  const topUbicaciones = useMemo(
+    () => topPorCampo(devoluciones, (g) => g[campoDeVistaTop[vistaTop]] as string | null, 10),
+    [devoluciones, vistaTop]
+  );
+  // Excepción principal (la que causó la devolución con más frecuencia) por ubicación del top
+  const excepcionPrincipalPorUbicacion = useMemo(() => {
+    const campo = campoDeVistaTop[vistaTop];
+    const map: Record<string, string> = {};
+    topUbicaciones.forEach(({ key }) => {
+      const counts: Record<string, number> = {};
+      devoluciones
+        .filter((g) => (g[campo] as string) === key)
+        .forEach((g) => {
+          const excs = getExcepciones(g);
+          const ultima = excs[excs.length - 1];
+          if (ultima) counts[ultima] = (counts[ultima] || 0) + 1;
+        });
+      const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      map[key] = top ? `${top[0]} (${top[1]})` : '—';
+    });
+    return map;
+  }, [devoluciones, topUbicaciones, vistaTop]);
+
   const columnasExport = [
     { header: 'Guía Original', value: (x: (typeof filas)[0]) => x.dev.guia },
     { header: 'Descripción', value: (x: (typeof filas)[0]) => x.dev.descripcion || '' },
@@ -103,6 +149,72 @@ export default function DevolucionesModule({ guias }: { guias: Guia[] }) {
           subtitle="Aún no llegan"
           accentColor="#EA7C1A"
         />
+      </div>
+
+      <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+        <div className="font-bold text-[12.5px] mb-0.5">KPI de Devoluciones</div>
+        <div className="text-[10.5px] text-[var(--vg-text2)] mb-2">
+          Top 10 por oficina destino, entidad y motivo (última excepción de la cadena, agrupando variantes como
+          AUSENCIA / AUSENCIA 2 / AUSENCIA 3 en una sola categoría)
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <TopListPanel
+            title="Top 10 por Oficina Destino"
+            items={kpiDevoluciones.porOficina}
+            total={kpiDevoluciones.total}
+            accentColor="#DC2626"
+          />
+          <TopListPanel
+            title="Top 10 por Entidad"
+            items={kpiDevoluciones.porEntidad}
+            total={kpiDevoluciones.total}
+            accentColor="#EA7C1A"
+          />
+          <TopListPanel
+            title="Top 10 Motivos"
+            items={kpiDevoluciones.porMotivo}
+            total={kpiDevoluciones.total}
+            accentColor="#7C3AED"
+          />
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div className="font-bold text-[12.5px]">Top con más devoluciones</div>
+          <div className="flex gap-1 bg-[var(--vg-bg)] p-1 rounded-md">
+            {(['oficina', 'entidad', 'ciudad'] as VistaTop[]).map((v) => (
+              <button
+                key={v}
+                onClick={() => setVistaTop(v)}
+                className={`text-[11px] font-semibold px-2.5 py-1 rounded capitalize ${
+                  vistaTop === v ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2">
+          {topUbicaciones.map(({ key, count }, i) => (
+            <div key={key} className="border border-[var(--vg-border)] rounded-md px-2.5 py-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-[var(--vg-text2)]">#{i + 1}</span>
+                <span className="text-[15px] font-bold text-[var(--vg-red)]">{count}</span>
+              </div>
+              <div className="text-[12px] font-bold truncate" title={key}>
+                {key}
+              </div>
+              <div className="text-[10.5px] text-[var(--vg-text3)] truncate" title={excepcionPrincipalPorUbicacion[key]}>
+                Excepción: {excepcionPrincipalPorUbicacion[key]}
+              </div>
+            </div>
+          ))}
+          {!topUbicaciones.length && (
+            <div className="text-[11px] text-[var(--vg-text3)] py-2">Sin datos para este corte</div>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">

@@ -2,7 +2,8 @@
 
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, colorEfectividad, calcularEfectividad, getExcepciones, esRetornoAmplio, calcularTiempoPromedioEntrega } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, colorEfectividad, calcularEfectividad, getExcepciones, esRetornoAmplio, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones } from '@/lib/business-logic';
+import TopListPanel from '@/components/TopListPanel';
 import KpiCard from '@/components/KpiCard';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
@@ -126,6 +127,13 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
       .map(([name, total]) => ({ name, total }));
   }, [guias]);
 
+  // Resumen sencillo de excepciones y devoluciones (Top 5, agrupando
+  // cadenas como AUSENCIA/AUSENCIA 2/AUSENCIA 3 en una sola categoría) —
+  // misma lógica que el módulo Excepciones y Devoluciones, en versión
+  // reducida para una lectura rápida desde Resumen.
+  const resumenExcepciones = useMemo(() => calcularResumenExcepciones(guias, 5), [guias]);
+  const resumenDevoluciones = useMemo(() => calcularResumenDevoluciones(guias, 5), [guias]);
+
   const estadosChartData = useMemo(
     () => estados.map(([name, value]) => ({ name, value, color: ESTADO_COLORS[name] || '#94A3B8' })),
     [estados]
@@ -232,6 +240,22 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
           + {kpis.guiasRetornoConFilaPropia.toLocaleString('es-MX')} retorno (fila propia, duplicada) ={' '}
           {kpis.totalFilas.toLocaleString('es-MX')} filas
         </span>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <TopListPanel
+          title="Resumen de Excepciones — Top 5 por Tipo"
+          subtitle="Agrupa cadenas (AUSENCIA, AUSENCIA 2, AUSENCIA 3 = una sola categoría)"
+          items={resumenExcepciones.porTipo}
+          total={resumenExcepciones.total}
+          accentColor="#7C3AED"
+        />
+        <TopListPanel
+          title="Resumen de Devoluciones — Top 5 por Oficina Destino"
+          items={resumenDevoluciones.porOficina}
+          total={resumenDevoluciones.total}
+          accentColor="#DC2626"
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

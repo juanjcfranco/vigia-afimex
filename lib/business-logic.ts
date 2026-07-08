@@ -207,8 +207,11 @@ export function getExcepciones(g: Pick<Guia, 'excepcion_1' | 'excepcion_2' | 'ex
     .filter(Boolean);
 }
 
-// Quita el sufijo numérico (" 2", " 3") para agrupar por excepción "base"
-function baseExcepcion(e: string): string {
+// Quita el sufijo numérico (" 2", " 3") para agrupar por excepción "base".
+// Exportada porque se reutiliza en el KPI de excepciones (y en el de
+// motivos de devolución) para agrupar cadenas como AUSENCIA / AUSENCIA 2 /
+// AUSENCIA 3 en una sola categoría "AUSENCIA".
+export function baseExcepcion(e: string): string {
   return e.replace(/\s+\d+$/, '').trim().toUpperCase();
 }
 
@@ -229,6 +232,109 @@ export function topPorCampo<T>(
     .map(([key, count]) => ({ key, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, top);
+}
+
+// Cuenta, agrupando por baseExcepcion(), la ÚLTIMA excepción de la cadena
+// de cada guía (la vigente). Es la pieza compartida detrás del "Top 10 por
+// Tipo" del módulo Excepciones y del "Top 10 Motivos" de Devoluciones —
+// en ambos casos AUSENCIA / AUSENCIA 2 / AUSENCIA 3 cuentan como una sola
+// categoría "AUSENCIA".
+function topTiposAgrupados<T extends Pick<Guia, 'excepcion_1' | 'excepcion_2' | 'excepcion_3' | 'excepcion_4' | 'excepcion_5'>>(
+  lista: T[],
+  top: number = 10
+): Array<{ key: string; count: number }> {
+  const conteo: Record<string, number> = {};
+  lista.forEach((g) => {
+    const excs = getExcepciones(g);
+    const ultima = excs[excs.length - 1];
+    if (!ultima) return;
+    const base = baseExcepcion(ultima);
+    conteo[base] = (conteo[base] || 0) + 1;
+  });
+  return Object.entries(conteo)
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, top);
+}
+
+// ============================================================
+// KPI de Excepciones — usado en el módulo Excepciones, y en versión
+// resumida en Resumen y Efectividad.
+//
+// La agrupación por "tipo" (AUSENCIA, AUSENCIA 2, AUSENCIA 3 → AUSENCIA)
+// aplica SOLO a este cálculo — el resto del módulo Excepciones (tabla,
+// filtro, ranking general por ubicación) sigue mostrando cada variante
+// de la cadena por separado, sin agrupar.
+// ============================================================
+export interface ResumenExcepciones {
+  total: number; // guías consideradas (excluye predoc, canceladas, en ruta; requiere al menos 1 excepción)
+  porTipo: Array<{ key: string; count: number }>; // agrupado por baseExcepcion — esta ES el "Top 10 de excepciones"
+  porOficina: Array<{ key: string; count: number }>;
+  porEntidad: Array<{ key: string; count: number }>;
+}
+
+export function calcularResumenExcepciones(
+  guias: Pick<
+    Guia,
+    | 'estado_guia'
+    | 'es_predoc'
+    | 'oficina_destino'
+    | 'entidad_destinatario'
+    | 'excepcion_1'
+    | 'excepcion_2'
+    | 'excepcion_3'
+    | 'excepcion_4'
+    | 'excepcion_5'
+  >[],
+  top: number = 10
+): ResumenExcepciones {
+  const relevantes = guias.filter(
+    (g) => !g.es_predoc && !isCancelada(g.estado_guia) && !isEnRuta(g.estado_guia) && getExcepciones(g).length > 0
+  );
+
+  return {
+    total: relevantes.length,
+    porTipo: topTiposAgrupados(relevantes, top),
+    porOficina: topPorCampo(relevantes, (g) => g.oficina_destino, top),
+    porEntidad: topPorCampo(relevantes, (g) => g.entidad_destinatario, top),
+  };
+}
+
+// ============================================================
+// Resumen de Devoluciones — mismo espíritu que ResumenExcepciones, para
+// el módulo Devoluciones y sus versiones resumidas en Resumen y
+// Efectividad. "porMotivo" agrupa la última excepción de la cadena igual
+// que en excepciones (AUSENCIA / AUSENCIA 2 / AUSENCIA 3 → AUSENCIA).
+// ============================================================
+export interface ResumenDevoluciones {
+  total: number;
+  porOficina: Array<{ key: string; count: number }>;
+  porEntidad: Array<{ key: string; count: number }>;
+  porMotivo: Array<{ key: string; count: number }>;
+}
+
+export function calcularResumenDevoluciones(
+  guias: Pick<
+    Guia,
+    | 'es_devolucion'
+    | 'oficina_destino'
+    | 'entidad_destinatario'
+    | 'excepcion_1'
+    | 'excepcion_2'
+    | 'excepcion_3'
+    | 'excepcion_4'
+    | 'excepcion_5'
+  >[],
+  top: number = 10
+): ResumenDevoluciones {
+  const devoluciones = guias.filter((g) => g.es_devolucion);
+
+  return {
+    total: devoluciones.length,
+    porOficina: topPorCampo(devoluciones, (g) => g.oficina_destino, top),
+    porEntidad: topPorCampo(devoluciones, (g) => g.entidad_destinatario, top),
+    porMotivo: topTiposAgrupados(devoluciones, top),
+  };
 }
 
 // ============================================================
