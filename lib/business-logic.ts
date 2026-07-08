@@ -428,7 +428,7 @@ export interface FilaExcelCruda {
   [key: string]: unknown;
 }
 
-function parseFechaExcel(v: unknown): string | null {
+export function parseFechaExcel(v: unknown): string | null {
   if (v === null || v === undefined || v === '') return null;
 
   // Date object (SheetJS con dateNF)
@@ -485,6 +485,58 @@ export function construirSetDeRetornos(rows: FilaExcelCruda[]): Set<string> {
     }
   });
   return set;
+}
+
+// ============================================================
+// Detecta el cliente y el periodo (mes) de una carga a partir de las
+// filas crudas del Excel, cuando no se especificaron manualmente. Vive
+// aquí (no en la ruta de la API) porque desde que el Excel se procesa en
+// el navegador (para no toparse con el límite de tamaño de payload de
+// Vercel), esta lógica corre en el cliente antes de crear la carga.
+// ============================================================
+export interface DeteccionCarga {
+  cliente: string;
+  periodo: string | null;
+}
+
+export function detectarClienteYPeriodo(
+  rows: FilaExcelCruda[],
+  clienteManual: string | null,
+  periodoManual: string | null
+): DeteccionCarga {
+  // Cliente: si el archivo trae varios clientes distintos mezclados
+  // (Cliente_Paga no es uniforme), no lo etiquetamos con el de la primera
+  // fila nada más (sería engañoso en Historial) — se marca como
+  // "VARIOS (N)". El dato real de cada guía sigue siendo correcto por
+  // fila (columna `cliente` en la tabla `guias`), esto solo afecta la
+  // etiqueta de la carga.
+  const clientesDistintos = new Set(
+    rows.map((r) => String(r.Cliente_Paga ?? '').trim()).filter(Boolean)
+  );
+  const cliente =
+    clienteManual ||
+    (clientesDistintos.size > 1
+      ? `VARIOS (${clientesDistintos.size})`
+      : String(rows[0]?.Cliente_Paga ?? '').trim() || 'SIN CLIENTE');
+
+  // Periodo: si no se especificó manualmente, se deriva automáticamente
+  // del mes más frecuente en F_Documentacion (YYYY-MM). Usa parseFechaExcel
+  // para soportar fechas como objeto Date, número serial de Excel, o texto
+  // en formato MX/ISO — no solo texto ya formateado.
+  let periodo = periodoManual;
+  if (!periodo) {
+    const conteoMeses: Record<string, number> = {};
+    rows.forEach((r) => {
+      const iso = parseFechaExcel(r.F_Documentacion);
+      if (!iso) return;
+      const mes = iso.slice(0, 7);
+      conteoMeses[mes] = (conteoMeses[mes] || 0) + 1;
+    });
+    const mesesOrdenados = Object.entries(conteoMeses).sort((a, b) => b[1] - a[1]);
+    periodo = mesesOrdenados[0]?.[0] || null;
+  }
+
+  return { cliente, periodo };
 }
 
 // Convierte el valor crudo de la columna COD a número, sin importar el

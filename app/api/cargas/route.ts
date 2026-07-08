@@ -1,121 +1,86 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as XLSX from 'xlsx';
 import { supabaseAdmin } from '@/lib/supabase';
-import { normalizarFila, FilaExcelCruda, construirSetDeRetornos } from '@/lib/business-logic';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
+// ============================================================
+// Crea el registro de la carga (metadatos únicamente).
+//
+// El Excel ya NO se sube aquí como archivo binario: se lee y normaliza
+// en el navegador (ver UploadModal.tsx) y las guías normalizadas se
+// mandan aparte, en bloques, a POST /api/cargas/guias. Esto es necesario
+// porque los Serverless Functions de Vercel tienen un límite fijo de
+// 4.5 MB por solicitud — un Excel real de varios clientes juntos supera
+// eso fácilmente, y mandarlo completo de un jalón hacía que la subida
+// fallara en producción (aunque funcionara en local, donde ese límite
+// no existe).
+// ============================================================
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData();
-    const file = formData.get('file') as File | null;
-    const periodo = (formData.get('periodo') as string) || null;
-    const cliente = (formData.get('cliente') as string) || null;
+    const body = await req.json();
+    const { nombre_archivo, cliente, periodo, total_filas, forzar } = body as {
+      nombre_archivo?: string;
+      cliente?: string;
+      periodo?: string | null;
+      total_filas?: number;
+      forzar?: boolean;
+    };
 
-    if (!file) {
-      return NextResponse.json({ error: 'No se recibió ningún archivo' }, { status: 400 });
-    }
-
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const wb = XLSX.read(buffer, { type: 'buffer' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows: FilaExcelCruda[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
-
-    if (!rows.length) {
-      return NextResponse.json({ error: 'El archivo no contiene filas' }, { status: 400 });
+    if (!nombre_archivo) {
+      return NextResponse.json({ error: 'Falta nombre_archivo' }, { status: 400 });
     }
 
     const db = supabaseAdmin();
 
-    // 1. Cargar catálogo de excepciones para calcular acciones
-    const { data: catalogo, error: catError } = await db
-      .from('excepciones_catalogo')
-      .select('nombre, accion')
-      .eq('activo', true);
+    // Candado anti-duplicados: si el mismo archivo (mismo nombre y mismo
+    // número de filas) ya se cargó en los últimos 30 minutos, se avisa en
+    // vez de crear otra carga en silencio. Evita el problema de subir el
+    // mismo Excel varias veces mientras se hacen pruebas y terminar con
+    // guías duplicadas. Para forzar la carga de todos modos (ej. sí es
+    // una corrección real), el cliente puede mandar forzar=true.
+    if (!forzar) {
+      const haceTreintaMin = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const { data: reciente } = await db
+        .from('cargas')
+        .select('id, creado_en, total_guias')
+        .eq('nombre_archivo', nombre_archivo)
+        .gte('creado_en', haceTreintaMin)
+        .order('creado_en', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    if (catError) throw catError;
-
-    const catalogoMap: Record<string, string> = {};
-    (catalogo || []).forEach((c) => {
-      catalogoMap[c.nombre.toUpperCase()] = c.accion;
-    });
-
-    // 2. Determinar cliente: del form o detectado en los datos
-    const clienteDetectado =
-      cliente || String(rows[0]?.Cliente_Paga ?? '').trim() || 'SIN CLIENTE';
-
-    // 2b. Determinar periodo: si no se especificó manualmente, se deriva
-    // automáticamente del mes más frecuente en F_Documentacion (YYYY-MM)
-    let periodoFinal = periodo;
-    if (!periodoFinal) {
-      const conteoMeses: Record<string, number> = {};
-      rows.forEach((r) => {
-        const raw = String(r.F_Documentacion ?? '').trim();
-        if (!raw) return;
-        // Formato esperado DD-MM-YYYY (MX) o YYYY-MM-DD (ISO)
-        let mes: string | null = null;
-        if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
-          mes = raw.slice(0, 7);
-        } else {
-          const m = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-          if (m) {
-            const [, , mm, yyyy] = m;
-            mes = `${yyyy}-${mm.padStart(2, '0')}`;
-          }
-        }
-        if (mes) conteoMeses[mes] = (conteoMeses[mes] || 0) + 1;
-      });
-      const mesesOrdenados = Object.entries(conteoMeses).sort((a, b) => b[1] - a[1]);
-      periodoFinal = mesesOrdenados[0]?.[0] || null;
+      if (reciente) {
+        return NextResponse.json(
+          {
+            error: 'archivo_duplicado',
+            message: `Este archivo (${nombre_archivo}) ya se cargó hace poco (${new Date(
+              reciente.creado_en
+            ).toLocaleTimeString('es-MX')}, ${reciente.total_guias} guías). ` +
+              `Si de verdad quieres cargarlo de nuevo, confirma para forzar la carga.`,
+            carga_previa_id: reciente.id,
+          },
+          { status: 409 }
+        );
+      }
     }
 
-    // 3. Crear registro de carga
     const { data: cargaData, error: cargaError } = await db
       .from('cargas')
       .insert({
-        cliente: clienteDetectado,
-        nombre_archivo: file.name,
-        periodo: periodoFinal,
-        total_guias: rows.length,
+        cliente: cliente || 'SIN CLIENTE',
+        nombre_archivo,
+        periodo: periodo || null,
+        total_guias: total_filas || 0,
       })
       .select()
       .single();
 
     if (cargaError) throw cargaError;
-    const cargaId = cargaData.id;
 
-    // 4. Normalizar todas las filas
-    // Primero: identificar qué números de guía son "guías de retorno"
-    // (su número aparece en la columna Retorno de otra fila)
-    const retornoNumSet = construirSetDeRetornos(rows);
-
-    const guiasNormalizadas = rows
-      .map((r) => normalizarFila(r, catalogoMap, retornoNumSet))
-      .filter((g) => g.guia); // descarta filas sin número de guía
-
-    // 5. Insertar en lotes de 500 (límite práctico de Supabase)
-    const BATCH = 500;
-    let insertadas = 0;
-    for (let i = 0; i < guiasNormalizadas.length; i += BATCH) {
-      const lote = guiasNormalizadas.slice(i, i + BATCH).map((g) => ({
-        ...g,
-        carga_id: cargaId,
-      }));
-      const { error: insertError } = await db.from('guias').insert(lote);
-      if (insertError) throw insertError;
-      insertadas += lote.length;
-    }
-
-    return NextResponse.json({
-      ok: true,
-      carga_id: cargaId,
-      cliente: clienteDetectado,
-      total_filas: rows.length,
-      guias_insertadas: insertadas,
-    });
+    return NextResponse.json({ ok: true, carga_id: cargaData.id });
   } catch (err: unknown) {
-    console.error('Error importando Excel:', err);
+    console.error('Error creando carga:', err);
     const message = err instanceof Error ? err.message : 'Error desconocido';
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -131,4 +96,24 @@ export async function GET() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ cargas: data });
+}
+
+// Borra una carga y todas sus guías asociadas.
+// Uso: DELETE /api/cargas?id=<carga_id>
+export async function DELETE(req: NextRequest) {
+  const id = req.nextUrl.searchParams.get('id');
+  if (!id) {
+    return NextResponse.json({ error: 'Falta el parámetro id' }, { status: 400 });
+  }
+
+  const db = supabaseAdmin();
+
+  // Primero las guías (dependen de carga_id), luego la carga.
+  const { error: errGuias } = await db.from('guias').delete().eq('carga_id', id);
+  if (errGuias) return NextResponse.json({ error: errGuias.message }, { status: 500 });
+
+  const { error: errCarga } = await db.from('cargas').delete().eq('id', id);
+  if (errCarga) return NextResponse.json({ error: errCarga.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true });
 }
