@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina, ACCION_COLORS } from '@/lib/types';
-import { isAbierta, getExcepciones } from '@/lib/business-logic';
+import { isAbierta, accionEfectiva } from '@/lib/business-logic';
 import AlertaPreviewModal from '@/components/AlertaPreviewModal';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
@@ -38,7 +38,12 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
     return guias.filter((g) => {
       if (g.es_predoc || g.es_devolucion) return false;
       if (g.estado_guia === 'ENTREGADA') return false;
-      return isAbierta(g) && getExcepciones(g).length > 0 && g.accion_recomendada;
+      // Con excepción y acción del catálogo, o sin excepción pero con
+      // suficientes días sin movimiento como para necesitar atención de
+      // todos modos — ver accionEfectiva() en business-logic.ts. Así una
+      // guía varada que nunca recibió una excepción también puede
+      // alertarse, no solo las que sí tienen una registrada.
+      return isAbierta(g) && !!accionEfectiva(g);
     });
   }, [guias]);
 
@@ -55,7 +60,8 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
   const conteoPorAccion = useMemo(() => {
     const counts: Record<string, number> = {};
     guiasConAccion.forEach((g) => {
-      if (g.accion_recomendada) counts[g.accion_recomendada] = (counts[g.accion_recomendada] || 0) + 1;
+      const a = accionEfectiva(g);
+      if (a) counts[a] = (counts[a] || 0) + 1;
     });
     return counts;
   }, [guiasConAccion]);
@@ -89,7 +95,7 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
   }
 
   function abrirAlertaPorAccion(accion: string) {
-    const lista = guiasConAccion.filter((g) => g.accion_recomendada === accion);
+    const lista = guiasConAccion.filter((g) => accionEfectiva(g) === accion);
     if (!lista.length) {
       setMensaje(`Sin guías con acción "${accion}".`);
       return;

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina, ACCION_COLORS } from '@/lib/types';
-import { getExcepciones, isEntregada, isCancelada, isEnRuta, nivelAlertaPorDias } from '@/lib/business-logic';
+import { isEntregada, isCancelada, isEnRuta, nivelAlertaPorDias, accionEfectiva } from '@/lib/business-logic';
 import AccionBadge from '@/components/AccionBadge';
 import AlertaDiasBadge from '@/components/AlertaDiasBadge';
 import BulkSearch from '@/components/BulkSearch';
@@ -35,19 +35,23 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
       if (isEntregada(g.estado_guia)) return false;
       if (isCancelada(g.estado_guia)) return false;
       if (isEnRuta(g.estado_guia)) return false;
-      return getExcepciones(g).length > 0 && !!g.accion_recomendada;
+      // Con excepción y acción del catálogo, o sin excepción pero con
+      // suficientes días sin movimiento como para necesitar atención de
+      // todos modos (ver accionEfectiva en business-logic.ts).
+      return !!accionEfectiva(g);
     });
   }, [guias]);
 
   const acciones = useMemo(
-    () => [...new Set(base.map((g) => g.accion_recomendada).filter(Boolean))] as string[],
+    () => [...new Set(base.map((g) => accionEfectiva(g)).filter(Boolean))] as string[],
     [base]
   );
 
   const kpisPorAccion = useMemo(() => {
     const counts: Record<string, number> = {};
     base.forEach((g) => {
-      if (g.accion_recomendada) counts[g.accion_recomendada] = (counts[g.accion_recomendada] || 0) + 1;
+      const a = accionEfectiva(g);
+      if (a) counts[a] = (counts[a] || 0) + 1;
     });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [base]);
@@ -60,7 +64,7 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
 
   const filas = useMemo(() => {
     let f = base;
-    if (filtroAccion) f = f.filter((g) => g.accion_recomendada === filtroAccion);
+    if (filtroAccion) f = f.filter((g) => accionEfectiva(g) === filtroAccion);
     if (bulkGuias && bulkGuias.length) {
       const set = new Set(bulkGuias.map((g) => g.toUpperCase()));
       f = f.filter((g) => set.has(g.guia.toUpperCase()));
@@ -107,7 +111,7 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
       case 'ultmov':
         return g.f_historia;
       case 'accion':
-        return g.accion_recomendada;
+        return accionEfectiva(g);
       case 'exc1':
         return g.excepcion_1;
       case 'exc2':
@@ -130,7 +134,7 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
     { header: 'Entidad', value: (g: Guia) => g.entidad_destinatario || '' },
     { header: 'Días sin Mov.', value: (g: Guia) => g.dias_sin_movimiento ?? '' },
     { header: 'Últ. Mov.', value: (g: Guia) => g.f_historia || '' },
-    { header: 'Acción', value: (g: Guia) => g.accion_recomendada || '' },
+    { header: 'Acción', value: (g: Guia) => accionEfectiva(g) },
     { header: 'Exc.1', value: (g: Guia) => g.excepcion_1 || '' },
     { header: 'Exc.2', value: (g: Guia) => g.excepcion_2 || '' },
     { header: 'Exc.3', value: (g: Guia) => g.excepcion_3 || '' },
@@ -299,7 +303,7 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
                     </td>
                     <td>{g.f_historia || '—'}</td>
                     <td>
-                      <AccionBadge accion={g.accion_recomendada} />
+                      <AccionBadge accion={accionEfectiva(g)} />
                       {esDevolver && (
                         <div className="text-[9px] text-[var(--vg-text3)] mt-0.5">No reprogramable</div>
                       )}

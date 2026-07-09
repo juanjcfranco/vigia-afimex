@@ -199,6 +199,28 @@ export function nivelAlertaPorDias(dias: number | null): NivelAlerta {
 }
 
 // ============================================================
+// Acción efectiva de una guía: la del catálogo si existe (calculada al
+// momento de la carga, a partir de sus excepciones), y si no hay ninguna
+// —el caso de una guía LISTO PARA ENTREGAR / EN ALMACEN sin ninguna
+// excepción registrada— cae a una acción derivada de sus días sin
+// movimiento. Esto importa porque `accion_recomendada` se calcula UNA
+// SOLA VEZ al importar el Excel (a partir de las excepciones, que no
+// cambian), mientras que "días sin movimiento" se recalcula cada vez que
+// se abre el panel (cambia todos los días) — sin este fallback, una guía
+// que se queda quieta sin que nunca le registren una excepción nunca
+// aparecería en Acciones ni se podría alertar sobre ella, aunque lleve
+// semanas varada.
+export function accionEfectiva(
+  g: Pick<Guia, 'accion_recomendada' | 'dias_sin_movimiento'>
+): string {
+  if (g.accion_recomendada) return g.accion_recomendada;
+  const nivel = nivelAlertaPorDias(g.dias_sin_movimiento).nivel;
+  if (nivel === 'critico' || nivel === 'investigacion') return 'INVESTIGAR';
+  if (nivel === 'alerta') return 'ALERTAR A OFICINA';
+  return '';
+}
+
+// ============================================================
 // Extrae las excepciones no vacías de una guía, en orden
 // ============================================================
 export function getExcepciones(g: Pick<Guia, 'excepcion_1' | 'excepcion_2' | 'excepcion_3' | 'excepcion_4' | 'excepcion_5'>): string[] {
