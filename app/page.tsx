@@ -28,20 +28,15 @@ export default function Home() {
     cargaActiva,
     cargaActivaId,
     setCargaActivaId,
-    eliminarCarga,
-    guias,
     guiasFiltradas,
     loading,
     error,
-    filtroCliente,
-    setFiltroCliente,
     filtroOficina,
     setFiltroOficina,
     filtroEntidad,
     setFiltroEntidad,
     filtroPeriodo,
     setFiltroPeriodo,
-    clientes,
     oficinas,
     entidades,
     periodos,
@@ -71,20 +66,16 @@ export default function Home() {
 
       {tab !== 'historial' && tab !== 'alertas' && (
         <FilterBar
-          clientes={clientes}
           oficinas={oficinas}
           entidades={entidades}
           periodos={periodos}
-          filtroCliente={filtroCliente}
           filtroOficina={filtroOficina}
           filtroEntidad={filtroEntidad}
           filtroPeriodo={filtroPeriodo}
-          onCliente={setFiltroCliente}
           onOficina={setFiltroOficina}
           onEntidad={setFiltroEntidad}
           onPeriodo={setFiltroPeriodo}
           onLimpiar={() => {
-            setFiltroCliente('');
             setFiltroOficina('');
             setFiltroEntidad('');
             setFiltroPeriodo('');
@@ -120,7 +111,7 @@ export default function Home() {
           {tab === 'efectividad' && <EfectividadModule guias={guiasFiltradas} />}
           {tab === 'excepciones' && <ExcepcionesModule guias={guiasFiltradas} />}
           {tab === 'acciones' && <AccionesModule guias={guiasFiltradas} />}
-          {tab === 'devoluciones' && <DevolucionesModule guias={guiasFiltradas} guiasTodas={guias} />}
+          {tab === 'devoluciones' && <DevolucionesModule guias={guiasFiltradas} />}
           {tab === 'geo' && <GeoModule guias={guiasFiltradas} />}
           {tab === 'facturacion' && <FacturacionModule guias={guiasFiltradas} />}
           {tab === 'abiertas' && <AbiertasModule guias={guiasFiltradas} />}
@@ -128,7 +119,7 @@ export default function Home() {
           {tab === 'alertas' && <AlertasModule guias={guiasFiltradas} />}
           {tab === 'guias' && <GuiasModule guias={guiasFiltradas} />}
           {tab === 'historial' && (
-            <HistorialModule cargas={cargas} cargaActivaId={cargaActivaId} onSeleccionar={setCargaActivaId} onEliminar={eliminarCarga} />
+            <HistorialModule cargas={cargas} cargaActivaId={cargaActivaId} onSeleccionar={setCargaActivaId} />
           )}
         </>
       )}
