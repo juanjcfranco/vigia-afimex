@@ -5,13 +5,18 @@ import { Guia } from '@/lib/types';
 import { isEntregada, isAbiertaPorEstado, colorEfectividad, calcularEfectividad, esRetornoAmplio } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import MexicoMap from '@/components/MexicoMap';
+import { useSortableTable } from '@/lib/useSortableTable';
+import SortableTh from '@/components/SortableTh';
 
 function resumenDe(lista: Guia[]) {
   const entregadas = lista.filter((g) => isEntregada(g.estado_guia)).length;
   const devoluciones = lista.filter((g) => g.es_devolucion).length;
   const abiertas = lista.filter((g) => isAbiertaPorEstado(g)).length;
+  const retornosAbiertos = lista.filter(
+    (g) => g.es_devolucion && g.retorno_guia && (g.retorno_estado || '').toUpperCase() !== 'ENTREGADA'
+  ).length;
   const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
-  return { total: lista.length, entregadas, devoluciones, abiertas, efectividad };
+  return { total: lista.length, entregadas, devoluciones, abiertas, retornosAbiertos, efectividad };
 }
 
 export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
@@ -75,6 +80,26 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
     setEntidadSel(entidad === entidadSel ? null : entidad);
     setOficinaSel(null);
   }
+
+  const entidadOrden = useSortableTable<(typeof porEntidad)[0]>(porEntidad, (e, key) => {
+    if (key === 'entidad') return e.entidad;
+    if (key === 'total') return e.total;
+    if (key === 'efectividad') return e.efectividad;
+    return null;
+  });
+
+  const oficinaOrden = useSortableTable<(typeof oficinasDeEntidad)[0]>(oficinasDeEntidad, (o, key) => {
+    if (key === 'oficina') return o.oficina;
+    if (key === 'total') return o.total;
+    if (key === 'efectividad') return o.efectividad;
+    return null;
+  });
+
+  const ciudadOrden = useSortableTable<[string, number]>(ciudadesDeOficina, (item, key) => {
+    if (key === 'ciudad') return item[0];
+    if (key === 'guias') return item[1];
+    return null;
+  });
 
   return (
     <div className="p-5 space-y-4">
@@ -142,13 +167,13 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
             <table className="vg-table">
               <thead>
                 <tr>
-                  <th>Entidad</th>
-                  <th>Total</th>
-                  <th>Efect.</th>
+                  <SortableTh label="Entidad" sortKey="entidad" currentKey={entidadOrden.sortKey} currentDir={entidadOrden.sortDir} onSort={entidadOrden.requestSort} />
+                  <SortableTh label="Total" sortKey="total" currentKey={entidadOrden.sortKey} currentDir={entidadOrden.sortDir} onSort={entidadOrden.requestSort} />
+                  <SortableTh label="Efect." sortKey="efectividad" currentKey={entidadOrden.sortKey} currentDir={entidadOrden.sortDir} onSort={entidadOrden.requestSort} />
                 </tr>
               </thead>
               <tbody>
-                {porEntidad.map((e) => (
+                {entidadOrden.sorted.map((e) => (
                   <tr
                     key={e.entidad}
                     onClick={() => seleccionarEntidad(e.entidad)}
@@ -183,13 +208,13 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
               <table className="vg-table">
                 <thead>
                   <tr>
-                    <th>Oficina</th>
-                    <th>Total</th>
-                    <th>Efect.</th>
+                    <SortableTh label="Oficina" sortKey="oficina" currentKey={oficinaOrden.sortKey} currentDir={oficinaOrden.sortDir} onSort={oficinaOrden.requestSort} />
+                    <SortableTh label="Total" sortKey="total" currentKey={oficinaOrden.sortKey} currentDir={oficinaOrden.sortDir} onSort={oficinaOrden.requestSort} />
+                    <SortableTh label="Efect." sortKey="efectividad" currentKey={oficinaOrden.sortKey} currentDir={oficinaOrden.sortDir} onSort={oficinaOrden.requestSort} />
                   </tr>
                 </thead>
                 <tbody>
-                  {oficinasDeEntidad.map((o) => (
+                  {oficinaOrden.sorted.map((o) => (
                     <tr
                       key={o.oficina}
                       onClick={() => setOficinaSel(o.oficina === oficinaSel ? null : o.oficina)}
@@ -226,12 +251,12 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
               <table className="vg-table">
                 <thead>
                   <tr>
-                    <th>Ciudad</th>
-                    <th>Guías</th>
+                    <SortableTh label="Ciudad" sortKey="ciudad" currentKey={ciudadOrden.sortKey} currentDir={ciudadOrden.sortDir} onSort={ciudadOrden.requestSort} />
+                    <SortableTh label="Guías" sortKey="guias" currentKey={ciudadOrden.sortKey} currentDir={ciudadOrden.sortDir} onSort={ciudadOrden.requestSort} />
                   </tr>
                 </thead>
                 <tbody>
-                  {ciudadesDeOficina.map(([ciudad, n]) => (
+                  {ciudadOrden.sorted.map(([ciudad, n]) => (
                     <tr key={ciudad}>
                       <td className="font-medium">{ciudad}</td>
                       <td>{n}</td>

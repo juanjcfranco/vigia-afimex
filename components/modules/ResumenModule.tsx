@@ -2,9 +2,11 @@
 
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, colorEfectividad, calcularEfectividad, getExcepciones, esRetornoAmplio, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, colorEfectividad, calcularEfectividad, getExcepciones, esRetornoAmplio, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado } from '@/lib/business-logic';
 import TopListPanel from '@/components/TopListPanel';
 import KpiCard from '@/components/KpiCard';
+import { useSortableTable } from '@/lib/useSortableTable';
+import SortableTh from '@/components/SortableTh';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 const ESTADO_COLORS: Record<string, string> = {
@@ -19,15 +21,34 @@ const ESTADO_COLORS: Record<string, string> = {
 };
 const PALETTE = ['#1E3A8A', '#0B9B67', '#EA7C1A', '#DC2626', '#7C3AED', '#0891B2', '#64748B', '#B45309', '#14532D', '#831843'];
 
-export default function ResumenModule({ guias }: { guias: Guia[] }) {
+export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; guiasTodas?: Guia[] }) {
+  // Mapa de guía → fila física del retorno, construido con el set COMPLETO
+  // (sin el filtro de oficina/entidad/etc. aplicado), no con `guias` ya
+  // filtradas — igual que en el módulo Devoluciones. El retorno de una
+  // devolución casi siempre está en una oficina distinta a la de la
+  // devolución, así que filtrar por oficina puede hacer que esa fila se
+  // caiga del set aunque la devolución sí esté visible.
+  const retornoPorGuia = useMemo(() => {
+    const map = new Map<string, Guia>();
+    (guiasTodas ?? guias).forEach((g) => {
+      if (g.es_retorno) map.set(g.guia, g);
+    });
+    return map;
+  }, [guiasTodas, guias]);
+
   const kpis = useMemo(() => {
     const totalFilas = guias.length;
 
     // "Guías de retorno": guías devueltas que ya tienen su número de retorno
     // referenciado en la columna Retorno (1 por cada devolución)
     const devolucionesConRetorno = guias.filter((g) => g.es_devolucion && g.retorno_guia);
-    const guiasRetornoEntregadas = devolucionesConRetorno.filter(
-      (g) => (g.retorno_estado || '').toUpperCase() === 'ENTREGADA'
+    // Prioriza el estado real de la fila física del retorno (si existe en
+    // este corte) sobre el campo embebido retorno_estado, que puede venir
+    // desactualizado — ver retornoEstaEntregado() en business-logic.ts.
+    // Esto es lo que hace que este número cuadre con "ENTREGADA (RETORNO)"
+    // en la tabla de Estados de Guías más abajo.
+    const guiasRetornoEntregadas = devolucionesConRetorno.filter((g) =>
+      retornoEstaEntregado(g, g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined)
     ).length;
 
     // De esas, cuántas además tienen su propia fila física en este archivo
@@ -51,6 +72,13 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
     const entregadas = guiasOriginales.filter((g) => isEntregada(g.estado_guia)).length;
     const devoluciones = guiasOriginales.filter((g) => g.es_devolucion).length;
     const abiertas = guiasOriginales.filter((g) => isAbiertaPorEstado(g)).length;
+    // Las canceladas SÍ forman parte de "guías procesadas" (guiasOriginales
+    // no las excluye), pero no caen en entregadas, devoluciones ni abiertas
+    // (isAbiertaPorEstado las excluye explícitamente). Sin este bucket, la
+    // suma de los otros tres no cuadra contra el total — antes el cuadre
+    // sumaba "+ predoc" por error, cuando predoc ni siquiera es parte de
+    // guiasOriginales (se excluye desde el filtro de arriba).
+    const canceladas = guiasOriginales.filter((g) => isCancelada(g.estado_guia)).length;
 
     // "Retornos abiertos": devoluciones cuyo paquete de retorno TODAVÍA no
     // llega (retorno_estado distinto de ENTREGADA). No son "guías abiertas"
@@ -84,11 +112,12 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
       entregadas,
       devoluciones,
       abiertas,
+      canceladas,
       predoc,
       efectividad,
       tiempoEntrega,
     };
-  }, [guias]);
+  }, [guias, retornoPorGuia]);
 
   const estados = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -144,19 +173,32 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
     [topOficinas]
   );
 
+  const totalSinPredoc = useMemo(() => guias.filter((g) => !g.es_predoc).length, [guias]);
+  const estadosOrden = useSortableTable<[string, number]>(estados, (item, key) => {
+    if (key === 'estado') return item[0];
+    if (key === 'guias') return item[1];
+    if (key === 'pct') return totalSinPredoc ? item[1] / totalSinPredoc : 0;
+    return null;
+  });
+  const topOficinasOrden = useSortableTable<[string, number]>(topOficinas, (item, key) => {
+    if (key === 'oficina') return item[0];
+    if (key === 'guias') return item[1];
+    return null;
+  });
+
   return (
     <div className="p-5 space-y-5">
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-11 gap-3">
         <KpiCard
           title="Total (sin duplicadas)"
           value={kpis.totalSinDuplicadas.toLocaleString('es-MX')}
-          subtitle="Guías originales + posible retorno otro periodo"
+          subtitle="Guías procesadas + posible retorno otro periodo"
           accentColor="#1E3A8A"
         />
         <KpiCard
-          title="Guías Originales"
+          title="Guías Procesadas"
           value={kpis.totalOriginales.toLocaleString('es-MX')}
-          subtitle="Entregadas + devoluciones + abiertas + predoc"
+          subtitle="Entregadas + devoluciones + abiertas + canceladas (no incluye predoc ni retornos)"
           accentColor="#0F172A"
         />
         <KpiCard
@@ -186,7 +228,7 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
         <KpiCard
           title="Abiertas"
           value={kpis.abiertas.toLocaleString('es-MX')}
-          subtitle="Guías originales en proceso (no incluye retornos)"
+          subtitle="Guías procesadas en proceso (no incluye retornos)"
           accentColor="#EA7C1A"
         />
         <KpiCard
@@ -221,9 +263,10 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
 
       <div className="bg-white rounded-lg border border-[var(--vg-border)] px-4 py-2.5 text-[11.5px] text-[var(--vg-text2)] flex flex-wrap gap-x-6 gap-y-1">
         <span>
-          <strong className="text-[var(--vg-text)]">Cuadre (Guías Originales):</strong> {kpis.entregadas.toLocaleString('es-MX')}{' '}
+          <strong className="text-[var(--vg-text)]">Cuadre (Guías Procesadas):</strong> {kpis.entregadas.toLocaleString('es-MX')}{' '}
           entregadas + {kpis.devoluciones.toLocaleString('es-MX')} devoluciones + {kpis.abiertas.toLocaleString('es-MX')}{' '}
-          abiertas + {kpis.predoc.toLocaleString('es-MX')} predoc = {kpis.totalOriginales.toLocaleString('es-MX')}
+          abiertas + {kpis.canceladas.toLocaleString('es-MX')} canceladas = {kpis.totalOriginales.toLocaleString('es-MX')}
+          {' '}(predoc se cuenta aparte, no forma parte de este total)
         </span>
         <span>
           <strong className="text-[var(--vg-text)]">Efectividad:</strong> {kpis.entregadas.toLocaleString('es-MX')} entregadas /
@@ -232,7 +275,7 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
         </span>
         <span>
           <strong className="text-[var(--vg-text)]">Total sin duplicadas:</strong> {kpis.totalOriginales.toLocaleString('es-MX')}{' '}
-          originales + {kpis.totalPosibleRetornoOtroPeriodo.toLocaleString('es-MX')} posible retorno otro periodo ={' '}
+          procesadas + {kpis.totalPosibleRetornoOtroPeriodo.toLocaleString('es-MX')} posible retorno otro periodo ={' '}
           {kpis.totalSinDuplicadas.toLocaleString('es-MX')}
         </span>
         <span>
@@ -326,17 +369,17 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
           <table className="vg-table">
             <thead>
               <tr>
-                <th>Estado</th>
-                <th>Guías</th>
-                <th>%</th>
+                <SortableTh label="Estado" sortKey="estado" currentKey={estadosOrden.sortKey} currentDir={estadosOrden.sortDir} onSort={estadosOrden.requestSort} />
+                <SortableTh label="Guías" sortKey="guias" currentKey={estadosOrden.sortKey} currentDir={estadosOrden.sortDir} onSort={estadosOrden.requestSort} />
+                <SortableTh label="%" sortKey="pct" currentKey={estadosOrden.sortKey} currentDir={estadosOrden.sortDir} onSort={estadosOrden.requestSort} />
               </tr>
             </thead>
             <tbody>
-              {estados.map(([estado, n]) => (
+              {estadosOrden.sorted.map(([estado, n]) => (
                 <tr key={estado}>
                   <td className="font-medium">{estado}</td>
                   <td>{n.toLocaleString('es-MX')}</td>
-                  <td>{((n / (guias.filter((g) => !g.es_predoc).length || 1)) * 100).toFixed(1)}%</td>
+                  <td>{((n / (totalSinPredoc || 1)) * 100).toFixed(1)}%</td>
                 </tr>
               ))}
             </tbody>
@@ -350,12 +393,12 @@ export default function ResumenModule({ guias }: { guias: Guia[] }) {
           <table className="vg-table">
             <thead>
               <tr>
-                <th>Oficina</th>
-                <th>Guías</th>
+                <SortableTh label="Oficina" sortKey="oficina" currentKey={topOficinasOrden.sortKey} currentDir={topOficinasOrden.sortDir} onSort={topOficinasOrden.requestSort} />
+                <SortableTh label="Guías" sortKey="guias" currentKey={topOficinasOrden.sortKey} currentDir={topOficinasOrden.sortDir} onSort={topOficinasOrden.requestSort} />
               </tr>
             </thead>
             <tbody>
-              {topOficinas.map(([oficina, n]) => (
+              {topOficinasOrden.sorted.map(([oficina, n]) => (
                 <tr key={oficina}>
                   <td className="font-medium">{oficina}</td>
                   <td>{n.toLocaleString('es-MX')}</td>

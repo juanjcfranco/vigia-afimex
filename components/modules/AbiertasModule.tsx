@@ -8,6 +8,8 @@ import AlertaDiasBadge from '@/components/AlertaDiasBadge';
 import AccionMasivaModal, { TipoAccionMasiva } from '@/components/AccionMasivaModal';
 import AlertaSinMovimientoModal from '@/components/AlertaSinMovimientoModal';
 import { exportToExcel, exportToPDF } from '@/lib/export';
+import { useSortableTable } from '@/lib/useSortableTable';
+import SortableTh from '@/components/SortableTh';
 
 export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   const [filtroEstado, setFiltroEstado] = useState('');
@@ -66,6 +68,31 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
     () => filas.filter((g) => seleccionadas.has(g.guia)),
     [filas, seleccionadas]
   );
+
+  const { sorted, sortKey, sortDir, requestSort } = useSortableTable<Guia>(filas, (g, key) => {
+    switch (key) {
+      case 'tipo':
+        return g.es_retorno || g.es_posible_retorno_otro_periodo ? 'Retorno' : 'Original';
+      case 'guia':
+        return g.guia;
+      case 'estado':
+        return g.estado_guia;
+      case 'origen':
+        return g.of_origen;
+      case 'oficina':
+        return g.oficina_destino;
+      case 'entidad':
+        return g.entidad_destinatario;
+      case 'dias':
+        return g.dias_sin_movimiento;
+      case 'ultmov':
+        return g.f_historia;
+      case 'fechacreacion':
+        return g.f_documentacion;
+      default:
+        return null;
+    }
+  });
 
   const columnasExport = [
     { header: 'Tipo', value: (g: Guia) => (g.es_retorno || g.es_posible_retorno_otro_periodo) ? 'Retorno' : 'Original' },
@@ -188,19 +215,19 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                     onChange={(e) => toggleAll(e.target.checked)}
                   />
                 </th>
-                <th>Tipo</th>
-                <th>Guía</th>
-                <th>Estado</th>
-                <th>Origen</th>
-                <th>Oficina Destino</th>
-                <th>Entidad</th>
-                <th>Días sin Mov.</th>
-                <th>Últ. Mov.</th>
-                <th>Fecha Creación</th>
+                <SortableTh label="Tipo" sortKey="tipo" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Guía" sortKey="guia" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Estado" sortKey="estado" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Origen" sortKey="origen" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Oficina Destino" sortKey="oficina" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Entidad" sortKey="entidad" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Días sin Mov." sortKey="dias" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Últ. Mov." sortKey="ultmov" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Fecha Creación" sortKey="fechacreacion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
-              {filas.map((g) => {
+              {sorted.map((g) => {
                 const esRetorno = g.es_retorno || g.es_posible_retorno_otro_periodo;
                 return (
                 <tr key={g.id}>

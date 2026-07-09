@@ -8,6 +8,8 @@ import TarifasModal from '@/components/TarifasModal';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { exportToExcel, exportToPDF } from '@/lib/export';
 import { ItemFacturable } from '@/lib/business-logic';
+import { useSortableTable } from '@/lib/useSortableTable';
+import SortableTh from '@/components/SortableTh';
 
 const TARIFAS_DEFAULT: TarifaCliente = {
   id: '',
@@ -25,19 +27,37 @@ export default function FacturacionModule({ guias }: { guias: Guia[] }) {
   const [vista, setVista] = useState<Vista>('oficina');
   const [tarifasModal, setTarifasModal] = useState(false);
   const [tarifas, setTarifas] = useState<TarifaCliente>(TARIFAS_DEFAULT);
+  const [estadoTarifas, setEstadoTarifas] = useState<'idle' | 'cargando' | 'ok' | 'error' | 'sin_datos'>('idle');
 
   // Detectar cliente de las guías y cargar sus tarifas
-  useEffect(() => {
+  const cargarTarifas = () => {
     const cliente = guias[0]?.cliente;
     if (!cliente) return;
+    setEstadoTarifas('cargando');
     fetch(`/api/tarifas?cliente=${encodeURIComponent(cliente)}`)
       .then((r) => r.json())
       .then((j) => {
-        if (j.tarifas && j.tarifas.length) setTarifas(j.tarifas[0]);
-        else setTarifas({ ...TARIFAS_DEFAULT, cliente });
+        if (j.error) {
+          console.error('Error al cargar tarifas:', j.error);
+          setEstadoTarifas('error');
+          return;
+        }
+        if (j.tarifas && j.tarifas.length) {
+          setTarifas(j.tarifas[0]);
+          setEstadoTarifas('ok');
+        } else {
+          setTarifas({ ...TARIFAS_DEFAULT, cliente });
+          setEstadoTarifas('sin_datos');
+        }
+        setTimeout(() => setEstadoTarifas('idle'), 2500);
       })
-      .catch(() => {});
-  }, [guias]);
+      .catch((err) => {
+        console.error('Error de red al cargar tarifas:', err);
+        setEstadoTarifas('error');
+      });
+  };
+
+  useEffect(cargarTarifas, [guias]);
 
   const items = useMemo(() => calcularItemsFacturables(guias, tarifas), [guias, tarifas]);
 
@@ -123,6 +143,35 @@ export default function FacturacionModule({ guias }: { guias: Guia[] }) {
 
   const top15 = useMemo(() => (vista === 'mes' ? desglose : desglose.slice(0, 15)), [desglose, vista]);
 
+  const { sorted, sortKey, sortDir, requestSort } = useSortableTable<(typeof desglose)[0]>(desglose, (d, key) => {
+    switch (key) {
+      case 'key':
+        return d.key;
+      case 'entregas':
+        return d.entregas;
+      case 'montoEntregas':
+        return d.montoEntregas;
+      case 'devoluciones':
+        return d.devoluciones;
+      case 'montoDevoluciones':
+        return d.montoDevoluciones;
+      case 'posibleRetorno':
+        return d.posibleRetorno;
+      case 'montoPosibleRetorno':
+        return d.montoPosibleRetorno;
+      case 'retornosEntregados':
+        return d.retornosEntregados;
+      case 'montoRetornosEntregados':
+        return d.montoRetornosEntregados;
+      case 'total':
+        return d.total;
+      case 'montoTotal':
+        return d.montoTotal;
+      default:
+        return null;
+    }
+  });
+
   const columnasExport = [
     { header: vista === 'oficina' ? 'Oficina' : vista === 'entidad' ? 'Entidad' : 'Mes', value: (f: (typeof desglose)[0]) => f.key },
     { header: 'Entregas Originales', value: (f: (typeof desglose)[0]) => f.entregas },
@@ -131,8 +180,8 @@ export default function FacturacionModule({ guias }: { guias: Guia[] }) {
     { header: 'Monto Devoluciones', value: (f: (typeof desglose)[0]) => f.montoDevoluciones },
     { header: 'Posible Retorno Otro Periodo', value: (f: (typeof desglose)[0]) => f.posibleRetorno },
     { header: 'Monto Posible Retorno', value: (f: (typeof desglose)[0]) => f.montoPosibleRetorno },
-    { header: 'Retornos Entregados', value: (f: (typeof desglose)[0]) => f.retornosEntregados },
-    { header: 'Monto Retornos Entregados', value: (f: (typeof desglose)[0]) => f.montoRetornosEntregados },
+    { header: 'Retornos Generados', value: (f: (typeof desglose)[0]) => f.retornosEntregados },
+    { header: 'Monto Retornos Generados', value: (f: (typeof desglose)[0]) => f.montoRetornosEntregados },
     { header: 'Total Guías', value: (f: (typeof desglose)[0]) => f.total },
     { header: 'Monto Total', value: (f: (typeof desglose)[0]) => f.montoTotal },
   ];
@@ -144,12 +193,25 @@ export default function FacturacionModule({ guias }: { guias: Guia[] }) {
           Tarifas activas para <strong className="text-[var(--vg-text)]">{tarifas.cliente || guias[0]?.cliente || '—'}</strong>:
           Entrega ${tarifas.tarifa_entrega_original} · Devolución ${tarifas.tarifa_devolucion} · Retorno entregado ${tarifas.tarifa_retorno_entregado} · Posible retorno ${tarifas.tarifa_posible_retorno}
         </div>
-        <button
-          onClick={() => setTarifasModal(true)}
-          className="text-[11px] font-semibold text-[var(--vg-blue)] border border-[var(--vg-blue)]/30 rounded-md px-2.5 py-1.5 hover:bg-[var(--vg-blue-light)]"
-        >
-          ⚙️ Configurar tarifas
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setTarifasModal(true)}
+            className="text-[11px] font-semibold text-[var(--vg-blue)] border border-[var(--vg-blue)]/30 rounded-md px-2.5 py-1.5 hover:bg-[var(--vg-blue-light)]"
+          >
+            ⚙️ Configurar tarifas
+          </button>
+          <button
+            onClick={cargarTarifas}
+            title="Vuelve a pedir la tarifa guardada para este cliente"
+            className="text-[11px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 hover:bg-[var(--vg-bg)]"
+          >
+            {estadoTarifas === 'cargando' && '⏳ Actualizando...'}
+            {estadoTarifas === 'ok' && '✅ Actualizado'}
+            {estadoTarifas === 'error' && '⚠️ Error, ver consola'}
+            {estadoTarifas === 'sin_datos' && 'ℹ️ Sin tarifa guardada (default)'}
+            {estadoTarifas === 'idle' && '🔄 Actualizar tarifas'}
+          </button>
+        </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard
@@ -177,7 +239,7 @@ export default function FacturacionModule({ guias }: { guias: Guia[] }) {
           accentColor="#B45309"
         />
         <KpiCard
-          title="Retornos Entregados"
+          title="Retornos Generados"
           value={totales.retornosEntregados.toLocaleString('es-MX')}
           subtitle={`$${tarifas.tarifa_retorno_entregado} c/u · paquete de regreso recibido`}
           accentColor="#7C3AED"
@@ -277,21 +339,21 @@ export default function FacturacionModule({ guias }: { guias: Guia[] }) {
           <table className="vg-table">
             <thead>
               <tr>
-                <th>{vista === 'oficina' ? 'Oficina' : vista === 'entidad' ? 'Entidad' : 'Mes'}</th>
-                <th>Entregas</th>
-                <th>Monto Entregas</th>
-                <th>Devoluciones</th>
-                <th>Monto Devoluciones</th>
-                <th>Posible Retorno</th>
-                <th>Monto Posible Retorno</th>
-                <th>Retornos Entregados</th>
-                <th>Monto Retornos Entregados</th>
-                <th>Total Guías</th>
-                <th>Monto Total</th>
+                <SortableTh label={vista === 'oficina' ? 'Oficina' : vista === 'entidad' ? 'Entidad' : 'Mes'} sortKey="key" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Entregas" sortKey="entregas" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Monto Entregas" sortKey="montoEntregas" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Devoluciones" sortKey="devoluciones" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Monto Devoluciones" sortKey="montoDevoluciones" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Posible Retorno" sortKey="posibleRetorno" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Monto Posible Retorno" sortKey="montoPosibleRetorno" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Retornos Generados" sortKey="retornosEntregados" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Monto Retornos Generados" sortKey="montoRetornosEntregados" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Total Guías" sortKey="total" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Monto Total" sortKey="montoTotal" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
-              {desglose.map((d) => (
+              {sorted.map((d) => (
                 <tr key={d.key}>
                   <td className="font-medium">{d.key}</td>
                   <td>{d.entregas}</td>
@@ -318,7 +380,7 @@ export default function FacturacionModule({ guias }: { guias: Guia[] }) {
         </div>
       </div>
 
-      <TarifasModal open={tarifasModal} onClose={() => setTarifasModal(false)} />
+      <TarifasModal open={tarifasModal} onClose={() => setTarifasModal(false)} onSaved={cargarTarifas} />
     </div>
   );
 }

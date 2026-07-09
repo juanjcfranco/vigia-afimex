@@ -4,6 +4,8 @@ import { useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
 import { getExcepciones, isCancelada, isEnRuta, topPorCampo, calcularResumenExcepciones } from '@/lib/business-logic';
 import TopListPanel from '@/components/TopListPanel';
+import { useSortableTable } from '@/lib/useSortableTable';
+import SortableTh from '@/components/SortableTh';
 import AccionBadge from '@/components/AccionBadge';
 import AlertaDiasBadge from '@/components/AlertaDiasBadge';
 import BulkSearch from '@/components/BulkSearch';
@@ -131,6 +133,48 @@ export default function ExcepcionesModule({ guias }: { guias: Guia[] }) {
     });
     return map;
   }, [base, vistaTop]);
+
+  const { sorted, sortKey, sortDir, requestSort } = useSortableTable<Guia>(filas, (g, key) => {
+    switch (key) {
+      case 'guia':
+        return g.guia;
+      case 'oficina':
+        return g.oficina_destino;
+      case 'entidad':
+        return g.entidad_destinatario;
+      case 'estado':
+        return g.estado_guia;
+      case 'dias':
+        return g.dias_sin_movimiento;
+      case 'ultmov':
+        return g.f_historia;
+      case 'accion':
+        return g.accion_recomendada;
+      case 'exc1':
+        return g.excepcion_1;
+      case 'exc2':
+        return g.excepcion_2;
+      case 'exc3':
+        return g.excepcion_3;
+      case 'exc4':
+        return g.excepcion_4;
+      case 'exc5':
+        return g.excepcion_5;
+      case 'cod':
+        return g.cod;
+      default:
+        return null;
+    }
+  });
+
+  // Orden para la tabla de "Ranking general de excepciones" (arreglo de
+  // tuplas [nombre, cantidad], no de objetos Guia).
+  const rankingActual = ubicacionRanking ? rankingGeneralPorUbicacion[ubicacionRanking] || [] : kpisPorExcepcion;
+  const rankingOrden = useSortableTable<[string, number]>(rankingActual, (item, key) => {
+    if (key === 'excepcion') return item[0];
+    if (key === 'guias') return item[1];
+    return null;
+  });
 
   const columnasExport = [
     { header: 'Guía', value: (g: Guia) => g.guia },
@@ -298,13 +342,13 @@ export default function ExcepcionesModule({ guias }: { guias: Guia[] }) {
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>Excepción</th>
-                  <th>Guías</th>
+                  <SortableTh label="Excepción" sortKey="excepcion" currentKey={rankingOrden.sortKey} currentDir={rankingOrden.sortDir} onSort={rankingOrden.requestSort} />
+                  <SortableTh label="Guías" sortKey="guias" currentKey={rankingOrden.sortKey} currentDir={rankingOrden.sortDir} onSort={rankingOrden.requestSort} />
                   <th>% del total</th>
                 </tr>
               </thead>
               <tbody>
-                {(ubicacionRanking ? rankingGeneralPorUbicacion[ubicacionRanking] || [] : kpisPorExcepcion).map(
+                {rankingOrden.sorted.map(
                   ([exc, n], i) => {
                     const totalRef = ubicacionRanking
                       ? (rankingGeneralPorUbicacion[ubicacionRanking] || []).reduce((s, [, c]) => s + c, 0)
@@ -320,7 +364,7 @@ export default function ExcepcionesModule({ guias }: { guias: Guia[] }) {
                     );
                   }
                 )}
-                {!(ubicacionRanking ? rankingGeneralPorUbicacion[ubicacionRanking] || [] : kpisPorExcepcion).length && (
+                {!rankingActual.length && (
                   <tr>
                     <td colSpan={4} className="text-center text-[var(--vg-text3)] py-4">
                       Sin datos
@@ -377,23 +421,23 @@ export default function ExcepcionesModule({ guias }: { guias: Guia[] }) {
           <table className="vg-table">
             <thead>
               <tr>
-                <th>Guía</th>
-                <th>Oficina</th>
-                <th>Entidad</th>
-                <th>Estado</th>
-                <th>Días sin Mov.</th>
-                <th>Últ. Mov.</th>
-                <th>Acción</th>
-                <th>Exc.1</th>
-                <th>Exc.2</th>
-                <th>Exc.3</th>
-                <th>Exc.4</th>
-                <th>Exc.5</th>
-                <th>COD</th>
+                <SortableTh label="Guía" sortKey="guia" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Oficina" sortKey="oficina" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Entidad" sortKey="entidad" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Estado" sortKey="estado" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Días sin Mov." sortKey="dias" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Últ. Mov." sortKey="ultmov" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Acción" sortKey="accion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Exc.1" sortKey="exc1" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Exc.2" sortKey="exc2" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Exc.3" sortKey="exc3" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Exc.4" sortKey="exc4" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Exc.5" sortKey="exc5" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="COD" sortKey="cod" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
-              {filas.map((g) => (
+              {sorted.map((g) => (
                 <tr key={g.id}>
                   <td className="font-mono font-semibold">{g.guia}</td>
                   <td>{g.oficina_destino}</td>

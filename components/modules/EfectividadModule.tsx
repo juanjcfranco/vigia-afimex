@@ -6,6 +6,8 @@ import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectivida
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { exportToExcel, exportToPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
+import { useSortableTable } from '@/lib/useSortableTable';
+import SortableTh from '@/components/SortableTh';
 
 interface FilaEfectividad {
   key: string;
@@ -59,6 +61,25 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   );
 
   const top15 = filas.slice(0, 15).map((f) => ({ ...f, efNum: f.efectividad ?? 0 }));
+
+  const { sorted, sortKey, sortDir, requestSort } = useSortableTable<FilaEfectividad>(filas, (f, key) => {
+    switch (key) {
+      case 'key':
+        return f.key;
+      case 'entregadas':
+        return f.entregadas;
+      case 'devoluciones':
+        return f.devoluciones;
+      case 'abiertas':
+        return f.abiertas;
+      case 'total':
+        return f.total;
+      case 'efectividad':
+        return f.efectividad;
+      default:
+        return null;
+    }
+  });
   const etiqueta: Record<VistaEfectividad, string> = { cliente: 'Cliente', oficina: 'Oficina', entidad: 'Entidad' };
   const etiquetaPlural: Record<VistaEfectividad, string> = { cliente: 'Clientes', oficina: 'Oficinas', entidad: 'Entidades' };
 
@@ -285,16 +306,16 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
           <table className="vg-table">
             <thead>
               <tr>
-                <th>{etiqueta[vista]}</th>
-                <th>Entregadas</th>
-                <th>Devoluciones</th>
-                <th>Abiertas</th>
-                <th>Total</th>
-                <th>Efectividad</th>
+                <SortableTh label={etiqueta[vista]} sortKey="key" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Entregadas" sortKey="entregadas" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Devoluciones" sortKey="devoluciones" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Abiertas" sortKey="abiertas" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Total" sortKey="total" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Efectividad" sortKey="efectividad" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
-              {filas.map((f) => (
+              {sorted.map((f) => (
                 <tr key={f.key}>
                   <td className="font-medium">{f.key}</td>
                   <td className="text-[var(--vg-green)] font-semibold">{f.entregadas}</td>

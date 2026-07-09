@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina, ACCION_COLORS } from '@/lib/types';
 import { isAbierta, getExcepciones } from '@/lib/business-logic';
 import AlertaPreviewModal from '@/components/AlertaPreviewModal';
+import { useSortableTable } from '@/lib/useSortableTable';
+import SortableTh from '@/components/SortableTh';
 
 const ACCIONES_RAPIDAS = [
   'ESTADO CRÍTICO',
@@ -107,6 +109,32 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
     return Object.entries(grupos).sort((a, b) => a[0].localeCompare(b[0]));
   }, [modalGuias]);
 
+  const contactosOrden = useSortableTable<ContactoOficina>(contactos, (c, key) => {
+    switch (key) {
+      case 'oficina':
+        return c.oficina;
+      case 'to':
+        return c.email_to;
+      case 'cc':
+        return c.email_cc;
+      case 'jefe':
+        return c.jefe;
+      default:
+        return null;
+    }
+  });
+
+  const porOficinaOrden = useSortableTable<[string, Guia[]]>(porOficina, (item, key) => {
+    const [oficina, lista] = item;
+    if (key === 'oficina') return oficina;
+    if (key === 'guias') return lista.length;
+    if (key === 'contacto') {
+      const c = contactos.find((c) => c.oficina === oficina);
+      return c ? c.email_to : null;
+    }
+    return null;
+  });
+
   return (
     <div className="p-5 space-y-4">
       <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
@@ -191,14 +219,14 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
               <table className="vg-table">
                 <thead>
                   <tr>
-                    <th>Oficina</th>
-                    <th>To</th>
-                    <th>CC</th>
-                    <th>Jefe</th>
+                    <SortableTh label="Oficina" sortKey="oficina" currentKey={contactosOrden.sortKey} currentDir={contactosOrden.sortDir} onSort={contactosOrden.requestSort} />
+                    <SortableTh label="To" sortKey="to" currentKey={contactosOrden.sortKey} currentDir={contactosOrden.sortDir} onSort={contactosOrden.requestSort} />
+                    <SortableTh label="CC" sortKey="cc" currentKey={contactosOrden.sortKey} currentDir={contactosOrden.sortDir} onSort={contactosOrden.requestSort} />
+                    <SortableTh label="Jefe" sortKey="jefe" currentKey={contactosOrden.sortKey} currentDir={contactosOrden.sortDir} onSort={contactosOrden.requestSort} />
                   </tr>
                 </thead>
                 <tbody>
-                  {contactos.map((c) => (
+                  {contactosOrden.sorted.map((c) => (
                     <tr key={c.id}>
                       <td className="font-medium">{c.oficina}</td>
                       <td>{c.email_to}</td>
@@ -233,14 +261,14 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
           <table className="vg-table">
             <thead>
               <tr>
-                <th>Oficina</th>
-                <th>Guías con Acción</th>
-                <th>Contacto</th>
+                <SortableTh label="Oficina" sortKey="oficina" currentKey={porOficinaOrden.sortKey} currentDir={porOficinaOrden.sortDir} onSort={porOficinaOrden.requestSort} />
+                <SortableTh label="Guías con Acción" sortKey="guias" currentKey={porOficinaOrden.sortKey} currentDir={porOficinaOrden.sortDir} onSort={porOficinaOrden.requestSort} />
+                <SortableTh label="Contacto" sortKey="contacto" currentKey={porOficinaOrden.sortKey} currentDir={porOficinaOrden.sortDir} onSort={porOficinaOrden.requestSort} />
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {porOficina.map(([oficina, lista]) => {
+              {porOficinaOrden.sorted.map(([oficina, lista]) => {
                 const contacto = contactos.find((c) => c.oficina === oficina);
                 return (
                   <tr key={oficina}>

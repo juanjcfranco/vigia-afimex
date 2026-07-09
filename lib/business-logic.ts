@@ -618,12 +618,24 @@ export function parseFechaExcel(v: unknown): string | null {
 
 // ============================================================
 // Construye el conjunto de números de guía que son "guías de retorno":
-// aquellos que aparecen en la columna Retorno de OTRA fila del archivo.
-// Debe correrse sobre TODAS las filas antes de normalizar individualmente.
+// aquellos que aparecen en la columna Retorno de una fila que SÍ es una
+// devolución real (Estado_Guia = DEVOLUCION). Debe correrse sobre TODAS
+// las filas antes de normalizar individualmente.
+//
+// IMPORTANTE: antes esto se construía a partir de la columna Retorno de
+// CUALQUIER fila, sin verificar que esa fila fuera una devolución. Si el
+// export de OPS trae esa columna con datos residuales en filas que no son
+// devoluciones, guías que no son retornos de nada quedaban marcadas como
+// es_retorno=true — eso inflaba el conteo de "ENTREGADA (RETORNO)" en el
+// módulo Resumen muy por encima del número real de devoluciones con
+// retorno entregado. Restringir a filas con Estado_Guia=DEVOLUCION corrige
+// esa causa raíz.
 // ============================================================
 export function construirSetDeRetornos(rows: FilaExcelCruda[]): Set<string> {
   const set = new Set<string>();
   rows.forEach((r) => {
+    const estado = String(r.Estado_Guia ?? '').trim();
+    if (!isDevolucion(estado)) return;
     const ret = r.Retorno;
     if (ret !== undefined && ret !== '') {
       // Los números pueden venir como float (123.0) desde Excel; normalizamos
@@ -632,6 +644,25 @@ export function construirSetDeRetornos(rows: FilaExcelCruda[]): Set<string> {
     }
   });
   return set;
+}
+
+// ============================================================
+// Determina si el retorno de una devolución ya fue entregado.
+//
+// Prioriza el estado de la FILA FÍSICA del retorno cuando existe en el
+// mismo corte (más confiable: es el estatus real y más reciente de esa
+// guía en concreto), y solo si esa fila no existe en este corte cae al
+// campo `retorno_estado` EMBEBIDO en la guía devuelta — que puede venir
+// desactualizado respecto al estatus real más reciente, y es la única
+// fuente disponible cuando el retorno físico aún no aparece documentado
+// en este archivo.
+// ============================================================
+export function retornoEstaEntregado(
+  devolucion: Pick<Guia, 'retorno_guia' | 'retorno_estado'>,
+  filaRetornoPropia: Pick<Guia, 'estado_guia'> | undefined
+): boolean {
+  if (filaRetornoPropia) return isEntregada(filaRetornoPropia.estado_guia);
+  return (devolucion.retorno_estado || '').toUpperCase() === 'ENTREGADA';
 }
 
 // ============================================================

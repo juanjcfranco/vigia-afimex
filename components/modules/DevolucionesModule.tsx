@@ -5,8 +5,10 @@ import { Guia } from '@/lib/types';
 import KpiCard from '@/components/KpiCard';
 import BulkSearch from '@/components/BulkSearch';
 import { exportToExcel, exportToPDF } from '@/lib/export';
-import { getExcepciones, topPorCampo, calcularResumenDevoluciones } from '@/lib/business-logic';
+import { getExcepciones, topPorCampo, calcularResumenDevoluciones, retornoEstaEntregado } from '@/lib/business-logic';
 import TopListPanel from '@/components/TopListPanel';
+import { useSortableTable } from '@/lib/useSortableTable';
+import SortableTh from '@/components/SortableTh';
 
 type VistaTop = 'oficina' | 'entidad' | 'ciudad';
 
@@ -35,12 +37,13 @@ export default function DevolucionesModule({ guias, guiasTodas }: { guias: Guia[
 
   // KPIs consistentes con Resumen y Facturación: "Retornos" = 1 por cada
   // devolución (referenciado vía columna Retorno), no las filas físicas que
-  // existan en este corte. Completado/Pendiente se basa en retorno_estado,
-  // el campo embebido en la propia guía devuelta.
+  // existan en este corte. Completado/Pendiente prioriza el estado real de
+  // la fila física del retorno (si existe en este corte) sobre el campo
+  // embebido retorno_estado — ver retornoEstaEntregado() en business-logic.ts.
   const kpis = useMemo(() => {
     const totalRetornos = devoluciones.filter((g) => g.retorno_guia).length;
     const retornosEntregados = devoluciones.filter(
-      (g) => g.retorno_guia && (g.retorno_estado || '').toUpperCase() === 'ENTREGADA'
+      (g) => g.retorno_guia && retornoEstaEntregado(g, retornoPorGuia.get(g.retorno_guia))
     ).length;
     return {
       totalDevueltas: devoluciones.length,
@@ -48,12 +51,12 @@ export default function DevolucionesModule({ guias, guiasTodas }: { guias: Guia[
       retornosEntregados,
       retornosPendientes: totalRetornos - retornosEntregados,
     };
-  }, [devoluciones]);
+  }, [devoluciones, retornoPorGuia]);
 
   const filasConRetorno = useMemo(() => {
     return devoluciones.map((dev) => {
       const retornoFila = dev.retorno_guia ? retornoPorGuia.get(dev.retorno_guia) : undefined;
-      const completado = (dev.retorno_estado || '').toUpperCase() === 'ENTREGADA';
+      const completado = retornoEstaEntregado(dev, retornoFila);
       return { dev, retornoFila, completado };
     });
   }, [devoluciones, retornoPorGuia]);
@@ -74,6 +77,33 @@ export default function DevolucionesModule({ guias, guiasTodas }: { guias: Guia[
   }, [filasConRetorno, filtroEstado, bulkGuias]);
 
   const totalCOD = useMemo(() => filas.reduce((sum, x) => sum + (x.dev.cod || 0), 0), [filas]);
+
+  const { sorted, sortKey, sortDir, requestSort } = useSortableTable<(typeof filas)[0]>(filas, (x, key) => {
+    switch (key) {
+      case 'guia':
+        return x.dev.guia;
+      case 'descripcion':
+        return x.dev.descripcion;
+      case 'oficina':
+        return x.dev.oficina_destino;
+      case 'ultmov':
+        return x.dev.f_historia;
+      case 'cod':
+        return x.dev.cod;
+      case 'retorno':
+        return x.dev.retorno_guia;
+      case 'oficina_retorno':
+        return x.retornoFila?.oficina_destino;
+      case 'estado_retorno':
+        return x.dev.retorno_estado;
+      case 'ultmov_retorno':
+        return x.retornoFila?.f_historia;
+      case 'estatus':
+        return x.completado ? 1 : 0;
+      default:
+        return null;
+    }
+  });
 
   // Resumen KPI de devoluciones: por oficina destino, entidad y motivo
   // (última excepción de la cadena, agrupando AUSENCIA/AUSENCIA 2/
@@ -268,21 +298,21 @@ export default function DevolucionesModule({ guias, guiasTodas }: { guias: Guia[
           <table className="vg-table">
             <thead>
               <tr>
-                <th>Guía Original</th>
-                <th>Descripción</th>
-                <th>Oficina Destino</th>
+                <SortableTh label="Guía Original" sortKey="guia" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Descripción" sortKey="descripcion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Oficina Destino" sortKey="oficina" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <th>Estado</th>
-                <th>Últ. Mov. Original</th>
-                <th>COD</th>
-                <th>Guía Retorno</th>
-                <th>Oficina Retorno</th>
-                <th>Estado Retorno</th>
-                <th>Últ. Mov. Retorno</th>
-                <th>Estatus</th>
+                <SortableTh label="Últ. Mov. Original" sortKey="ultmov" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="COD" sortKey="cod" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Guía Retorno" sortKey="retorno" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Oficina Retorno" sortKey="oficina_retorno" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Estado Retorno" sortKey="estado_retorno" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Últ. Mov. Retorno" sortKey="ultmov_retorno" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Estatus" sortKey="estatus" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
-              {filas.map(({ dev, retornoFila, completado }) => (
+              {sorted.map(({ dev, retornoFila, completado }) => (
                 <tr key={dev.id}>
                   <td className="font-mono font-semibold">{dev.guia}</td>
                   <td className="max-w-[160px] truncate" title={dev.descripcion || ''}>

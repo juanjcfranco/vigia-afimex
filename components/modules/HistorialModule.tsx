@@ -4,16 +4,19 @@ import { Fragment, useEffect, useState } from 'react';
 import { Carga, CierreOperativo, AlertaLog } from '@/lib/types';
 import { formatearPeriodo } from '@/lib/business-logic';
 import { exportAcusePDF, exportAcuseConcentradoPDF } from '@/lib/export';
+import { useSortableTable } from '@/lib/useSortableTable';
+import SortableTh from '@/components/SortableTh';
 
 interface HistorialModuleProps {
   cargas: Carga[];
   cargaActivaId: string | null;
   onSeleccionar: (id: string) => void;
+  onEliminar: (id: string) => Promise<void>;
 }
 
 type SubTab = 'cargas' | 'cierres' | 'correos';
 
-export default function HistorialModule({ cargas, cargaActivaId, onSeleccionar }: HistorialModuleProps) {
+export default function HistorialModule({ cargas, cargaActivaId, onSeleccionar, onEliminar }: HistorialModuleProps) {
   const [subTab, setSubTab] = useState<SubTab>('cargas');
   const [cierres, setCierres] = useState<CierreOperativo[]>([]);
   const [alertas, setAlertas] = useState<AlertaLog[]>([]);
@@ -21,6 +24,8 @@ export default function HistorialModule({ cargas, cargaActivaId, onSeleccionar }
   const [loadingAlertas, setLoadingAlertas] = useState(false);
   const [cierreExpandido, setCierreExpandido] = useState<string | null>(null);
   const [seleccionAlerta, setSeleccionAlerta] = useState<Set<string>>(new Set());
+  const [seleccionCarga, setSeleccionCarga] = useState<Set<string>>(new Set());
+  const [eliminando, setEliminando] = useState(false);
 
   useEffect(() => {
     if (subTab === 'cierres' && !cierres.length) {
@@ -38,6 +43,71 @@ export default function HistorialModule({ cargas, cargaActivaId, onSeleccionar }
         .finally(() => setLoadingAlertas(false));
     }
   }, [subTab, cierres.length, alertas.length]);
+
+  async function eliminarSeleccionadas() {
+    const n = seleccionCarga.size;
+    if (!n) return;
+    const confirmado = window.confirm(
+      `¿Eliminar ${n} carga${n > 1 ? 's' : ''} y todas sus guías asociadas? Esta acción no se puede deshacer.`
+    );
+    if (!confirmado) return;
+    setEliminando(true);
+    try {
+      for (const id of seleccionCarga) {
+        await onEliminar(id);
+      }
+      setSeleccionCarga(new Set());
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Error al eliminar');
+    } finally {
+      setEliminando(false);
+    }
+  }
+
+  const cargasOrden = useSortableTable<Carga>(cargas, (c, key) => {
+    switch (key) {
+      case 'cliente':
+        return c.cliente;
+      case 'periodo':
+        return c.periodo;
+      case 'archivo':
+        return c.nombre_archivo;
+      case 'total':
+        return c.total_guias;
+      case 'fecha':
+        return c.creado_en;
+      default:
+        return null;
+    }
+  });
+
+  const cierresOrden = useSortableTable<CierreOperativo>(cierres, (c, key) => {
+    if (key === 'cliente') return c.cliente;
+    if (key === 'periodo') return c.periodo;
+    if (key === 'generado') return c.generado_en;
+    return null;
+  });
+
+  const alertasOrden = useSortableTable<AlertaLog>(alertas, (a, key) => {
+    switch (key) {
+      case 'cliente':
+        return a.cliente;
+      case 'tipo':
+        return a.tipo_solicitud;
+      case 'oficina':
+        return a.oficina;
+      case 'total':
+        return a.total_guias;
+      case 'enviadoa':
+        return a.enviado_a;
+      case 'fecha':
+        return a.enviado_en;
+      case 'estado':
+        return a.estado;
+      default:
+        return null;
+    }
+  });
 
   return (
     <div className="p-5">
@@ -71,38 +141,69 @@ export default function HistorialModule({ cargas, cargaActivaId, onSeleccionar }
 
         {subTab === 'cargas' && (
           <>
-            <div className="px-4 py-2.5 text-[11px] text-[var(--vg-text2)] border-b border-[var(--vg-border)]">
-              Cada Excel importado queda guardado como un corte independiente. Selecciona uno para verlo.
+            <div className="px-4 py-2.5 text-[11px] text-[var(--vg-text2)] border-b border-[var(--vg-border)] flex items-center justify-between gap-2 flex-wrap">
+              <span>Cada Excel importado queda guardado como un corte independiente. Selecciona uno para verlo.</span>
+              {seleccionCarga.size > 0 && (
+                <button
+                  onClick={eliminarSeleccionadas}
+                  disabled={eliminando}
+                  className="text-[11px] font-semibold text-white bg-[var(--vg-red)] rounded-md px-3 py-1 disabled:opacity-50"
+                >
+                  🗑 {eliminando ? 'Eliminando...' : `Eliminar (${seleccionCarga.size})`}
+                </button>
+              )}
             </div>
             <table className="vg-table">
               <thead>
                 <tr>
+                  <th>
+                    <input
+                      type="checkbox"
+                      checked={cargas.length > 0 && seleccionCarga.size === cargas.length}
+                      onChange={(e) =>
+                        setSeleccionCarga(e.target.checked ? new Set(cargas.map((c) => c.id)) : new Set())
+                      }
+                    />
+                  </th>
                   <th></th>
-                  <th>Cliente</th>
-                  <th>Periodo</th>
-                  <th>Archivo</th>
-                  <th>Total Guías</th>
-                  <th>Fecha de Carga</th>
+                  <SortableTh label="Cliente" sortKey="cliente" currentKey={cargasOrden.sortKey} currentDir={cargasOrden.sortDir} onSort={cargasOrden.requestSort} />
+                  <SortableTh label="Periodo" sortKey="periodo" currentKey={cargasOrden.sortKey} currentDir={cargasOrden.sortDir} onSort={cargasOrden.requestSort} />
+                  <SortableTh label="Archivo" sortKey="archivo" currentKey={cargasOrden.sortKey} currentDir={cargasOrden.sortDir} onSort={cargasOrden.requestSort} />
+                  <SortableTh label="Total Guías" sortKey="total" currentKey={cargasOrden.sortKey} currentDir={cargasOrden.sortDir} onSort={cargasOrden.requestSort} />
+                  <SortableTh label="Fecha de Carga" sortKey="fecha" currentKey={cargasOrden.sortKey} currentDir={cargasOrden.sortDir} onSort={cargasOrden.requestSort} />
                 </tr>
               </thead>
               <tbody>
-                {cargas.map((c) => (
+                {cargasOrden.sorted.map((c) => (
                   <tr
                     key={c.id}
-                    onClick={() => onSeleccionar(c.id)}
-                    className={`cursor-pointer ${c.id === cargaActivaId ? 'bg-[var(--vg-blue-light)]' : ''}`}
+                    className={c.id === cargaActivaId ? 'bg-[var(--vg-blue-light)]' : ''}
                   >
-                    <td>{c.id === cargaActivaId ? '🟢' : ''}</td>
-                    <td className="font-medium">{c.cliente}</td>
-                    <td>{formatearPeriodo(c.periodo)}</td>
-                    <td>{c.nombre_archivo}</td>
-                    <td>{c.total_guias.toLocaleString('es-MX')}</td>
-                    <td>{new Date(c.creado_en).toLocaleString('es-MX')}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={seleccionCarga.has(c.id)}
+                        onChange={() => {
+                          const next = new Set(seleccionCarga);
+                          if (next.has(c.id)) next.delete(c.id);
+                          else next.add(c.id);
+                          setSeleccionCarga(next);
+                        }}
+                      />
+                    </td>
+                    <td onClick={() => onSeleccionar(c.id)} className="cursor-pointer">
+                      {c.id === cargaActivaId ? '🟢' : ''}
+                    </td>
+                    <td onClick={() => onSeleccionar(c.id)} className="font-medium cursor-pointer">{c.cliente}</td>
+                    <td onClick={() => onSeleccionar(c.id)} className="cursor-pointer">{formatearPeriodo(c.periodo)}</td>
+                    <td onClick={() => onSeleccionar(c.id)} className="cursor-pointer">{c.nombre_archivo}</td>
+                    <td onClick={() => onSeleccionar(c.id)} className="cursor-pointer">{c.total_guias.toLocaleString('es-MX')}</td>
+                    <td onClick={() => onSeleccionar(c.id)} className="cursor-pointer">{new Date(c.creado_en).toLocaleString('es-MX')}</td>
                   </tr>
                 ))}
                 {!cargas.length && (
                   <tr>
-                    <td colSpan={6} className="text-center text-[var(--vg-text3)] py-8">
+                    <td colSpan={7} className="text-center text-[var(--vg-text3)] py-8">
                       No hay cargas registradas todavía. Usa &quot;⬆ Cargar Excel&quot; para empezar.
                     </td>
                   </tr>
@@ -124,13 +225,13 @@ export default function HistorialModule({ cargas, cargaActivaId, onSeleccionar }
                 <thead>
                   <tr>
                     <th></th>
-                    <th>Cliente</th>
-                    <th>Periodo</th>
-                    <th>Generado</th>
+                    <SortableTh label="Cliente" sortKey="cliente" currentKey={cierresOrden.sortKey} currentDir={cierresOrden.sortDir} onSort={cierresOrden.requestSort} />
+                    <SortableTh label="Periodo" sortKey="periodo" currentKey={cierresOrden.sortKey} currentDir={cierresOrden.sortDir} onSort={cierresOrden.requestSort} />
+                    <SortableTh label="Generado" sortKey="generado" currentKey={cierresOrden.sortKey} currentDir={cierresOrden.sortDir} onSort={cierresOrden.requestSort} />
                   </tr>
                 </thead>
                 <tbody>
-                  {cierres.map((c) => {
+                  {cierresOrden.sorted.map((c) => {
                     const r = (c.resumen_json || {}) as Record<string, unknown>;
                     const expandido = cierreExpandido === c.id;
                     return (
@@ -239,19 +340,19 @@ export default function HistorialModule({ cargas, cargaActivaId, onSeleccionar }
                         }
                       />
                     </th>
-                    <th>Cliente</th>
-                    <th>Tipo</th>
-                    <th>Oficina</th>
+                    <SortableTh label="Cliente" sortKey="cliente" currentKey={alertasOrden.sortKey} currentDir={alertasOrden.sortDir} onSort={alertasOrden.requestSort} />
+                    <SortableTh label="Tipo" sortKey="tipo" currentKey={alertasOrden.sortKey} currentDir={alertasOrden.sortDir} onSort={alertasOrden.requestSort} />
+                    <SortableTh label="Oficina" sortKey="oficina" currentKey={alertasOrden.sortKey} currentDir={alertasOrden.sortDir} onSort={alertasOrden.requestSort} />
                     <th>Guías Incluidas</th>
-                    <th>Total</th>
-                    <th>Enviado A</th>
-                    <th>Fecha de Envío</th>
-                    <th>Estado</th>
+                    <SortableTh label="Total" sortKey="total" currentKey={alertasOrden.sortKey} currentDir={alertasOrden.sortDir} onSort={alertasOrden.requestSort} />
+                    <SortableTh label="Enviado A" sortKey="enviadoa" currentKey={alertasOrden.sortKey} currentDir={alertasOrden.sortDir} onSort={alertasOrden.requestSort} />
+                    <SortableTh label="Fecha de Envío" sortKey="fecha" currentKey={alertasOrden.sortKey} currentDir={alertasOrden.sortDir} onSort={alertasOrden.requestSort} />
+                    <SortableTh label="Estado" sortKey="estado" currentKey={alertasOrden.sortKey} currentDir={alertasOrden.sortDir} onSort={alertasOrden.requestSort} />
                     <th>Acuse</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {alertas.map((a) => (
+                  {alertasOrden.sorted.map((a) => (
                     <tr key={a.id} className={seleccionAlerta.has(a.id) ? 'bg-[var(--vg-blue-light)]' : ''}>
                       <td>
                         <input

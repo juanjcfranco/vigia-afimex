@@ -3,9 +3,30 @@
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
 import { exportToExcel, exportToPDF } from '@/lib/export';
+import { useSortableTable } from '@/lib/useSortableTable';
+import SortableTh from '@/components/SortableTh';
 
 export default function PredocModule({ guias }: { guias: Guia[] }) {
   const filas = useMemo(() => guias.filter((g) => g.es_predoc), [guias]);
+
+  const { sorted, sortKey, sortDir, requestSort } = useSortableTable<Guia>(filas, (g, key) => {
+    switch (key) {
+      case 'guia':
+        return g.guia;
+      case 'cliente':
+        return g.cliente;
+      case 'origen':
+        return g.of_origen;
+      case 'oficina':
+        return g.oficina_destino;
+      case 'entidad':
+        return g.entidad_destinatario;
+      case 'fdoc':
+        return g.f_documentacion;
+      default:
+        return null;
+    }
+  });
 
   const columnasExport = [
     { header: 'Guía', value: (g: Guia) => g.guia },
@@ -45,16 +66,16 @@ export default function PredocModule({ guias }: { guias: Guia[] }) {
           <table className="vg-table">
             <thead>
               <tr>
-                <th>Guía</th>
-                <th>Cliente</th>
-                <th>Oficina Origen</th>
-                <th>Oficina Destino</th>
-                <th>Entidad</th>
-                <th>Fecha Documentación</th>
+                <SortableTh label="Guía" sortKey="guia" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Cliente" sortKey="cliente" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Oficina Origen" sortKey="origen" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Oficina Destino" sortKey="oficina" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Entidad" sortKey="entidad" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Fecha Documentación" sortKey="fdoc" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
-              {filas.map((g) => (
+              {sorted.map((g) => (
                 <tr key={g.id}>
                   <td className="font-mono font-semibold">{g.guia}</td>
                   <td>{g.cliente}</td>

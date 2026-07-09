@@ -5,6 +5,8 @@ import { Guia } from '@/lib/types';
 import AccionBadge from '@/components/AccionBadge';
 import BulkSearch from '@/components/BulkSearch';
 import { exportToExcel, exportToPDF } from '@/lib/export';
+import { useSortableTable } from '@/lib/useSortableTable';
+import SortableTh from '@/components/SortableTh';
 
 const PAGE_SIZE = 200;
 
@@ -30,11 +32,46 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
     return f;
   }, [guias, busqueda, filtroEstado, bulkGuias]);
 
+  const { sorted: filasOrdenadas, sortKey, sortDir, requestSort: requestSortBase } = useSortableTable<Guia>(
+    filasCompletas,
+    (g, key) => {
+      switch (key) {
+        case 'guia':
+          return g.guia;
+        case 'estado':
+          return g.estado_guia;
+        case 'oficina':
+          return g.oficina_destino;
+        case 'entidad':
+          return g.entidad_destinatario;
+        case 'ciudad':
+          return g.ciudad_destinatario;
+        case 'calificacion':
+          return g.calificacion;
+        case 'cod':
+          return g.cod;
+        case 'accion':
+          return g.accion_recomendada;
+        case 'fdoc':
+          return g.f_documentacion;
+        default:
+          return null;
+      }
+    }
+  );
+  // Al cambiar de columna de orden, regresa a la página 1 — si no, el
+  // usuario podría quedar viendo una página que ya no tiene sentido tras
+  // reordenar todos los resultados.
+  function requestSort(key: string) {
+    requestSortBase(key);
+    setPagina(1);
+  }
+
   const totalPaginas = Math.max(1, Math.ceil(filasCompletas.length / PAGE_SIZE));
   const paginaSegura = Math.min(pagina, totalPaginas);
   const filas = useMemo(
-    () => filasCompletas.slice((paginaSegura - 1) * PAGE_SIZE, paginaSegura * PAGE_SIZE),
-    [filasCompletas, paginaSegura]
+    () => filasOrdenadas.slice((paginaSegura - 1) * PAGE_SIZE, paginaSegura * PAGE_SIZE),
+    [filasOrdenadas, paginaSegura]
   );
 
   const columnasExport = [
@@ -117,15 +154,15 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
           <table className="vg-table">
             <thead>
               <tr>
-                <th>Guía</th>
-                <th>Estado</th>
-                <th>Oficina</th>
-                <th>Entidad</th>
-                <th>Ciudad</th>
-                <th>Calificación</th>
-                <th>COD</th>
-                <th>Acción</th>
-                <th>F. Documentación</th>
+                <SortableTh label="Guía" sortKey="guia" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Estado" sortKey="estado" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Oficina" sortKey="oficina" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Entidad" sortKey="entidad" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Ciudad" sortKey="ciudad" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Calificación" sortKey="calificacion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="COD" sortKey="cod" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Acción" sortKey="accion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="F. Documentación" sortKey="fdoc" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>

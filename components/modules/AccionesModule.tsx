@@ -10,6 +10,8 @@ import AccionMasivaModal, { TipoAccionMasiva } from '@/components/AccionMasivaMo
 import AlertaSinMovimientoModal from '@/components/AlertaSinMovimientoModal';
 import AlertaCriticaModal from '@/components/AlertaCriticaModal';
 import { exportToExcel, exportToPDF } from '@/lib/export';
+import { useSortableTable } from '@/lib/useSortableTable';
+import SortableTh from '@/components/SortableTh';
 
 export default function AccionesModule({ guias }: { guias: Guia[] }) {
   const [filtroAccion, setFiltroAccion] = useState('');
@@ -89,6 +91,37 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
     () => guiasSeleccionadasObj.filter(puedeReprogramar),
     [guiasSeleccionadasObj]
   );
+
+  const { sorted, sortKey, sortDir, requestSort } = useSortableTable<Guia>(filas, (g, key) => {
+    switch (key) {
+      case 'guia':
+        return g.guia;
+      case 'estado':
+        return g.estado_guia;
+      case 'oficina':
+        return g.oficina_destino;
+      case 'entidad':
+        return g.entidad_destinatario;
+      case 'dias':
+        return g.dias_sin_movimiento;
+      case 'ultmov':
+        return g.f_historia;
+      case 'accion':
+        return g.accion_recomendada;
+      case 'exc1':
+        return g.excepcion_1;
+      case 'exc2':
+        return g.excepcion_2;
+      case 'exc3':
+        return g.excepcion_3;
+      case 'exc4':
+        return g.excepcion_4;
+      case 'exc5':
+        return g.excepcion_5;
+      default:
+        return null;
+    }
+  });
 
   const columnasExport = [
     { header: 'Guía', value: (g: Guia) => g.guia },
@@ -226,22 +259,22 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
                     onChange={(e) => toggleAll(e.target.checked)}
                   />
                 </th>
-                <th>Guía</th>
-                <th>Estado</th>
-                <th>Oficina</th>
-                <th>Entidad</th>
-                <th>Días sin Mov.</th>
-                <th>Últ. Mov.</th>
-                <th>Acción</th>
-                <th>Exc.1</th>
-                <th>Exc.2</th>
-                <th>Exc.3</th>
-                <th>Exc.4</th>
-                <th>Exc.5</th>
+                <SortableTh label="Guía" sortKey="guia" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Estado" sortKey="estado" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Oficina" sortKey="oficina" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Entidad" sortKey="entidad" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Días sin Mov." sortKey="dias" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Últ. Mov." sortKey="ultmov" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Acción" sortKey="accion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Exc.1" sortKey="exc1" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Exc.2" sortKey="exc2" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Exc.3" sortKey="exc3" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Exc.4" sortKey="exc4" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Exc.5" sortKey="exc5" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
-              {filas.map((g) => {
+              {sorted.map((g) => {
                 const esDevolver = g.accion_recomendada === 'DEVOLVER' || g.accion_recomendada === 'DEVOLVER_COD';
                 return (
                   <tr key={g.id} className={esDevolver ? 'opacity-80' : ''}>
