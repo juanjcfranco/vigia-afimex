@@ -6,6 +6,8 @@ import mexicoData from '@/lib/mexico-map-data.json';
 interface MexicoMapProps {
   datosPorEntidad: Record<string, { total: number; efectividad: number | null }>;
   metrica: 'volumen' | 'efectividad';
+  entidadSeleccionada?: string | null;
+  onSeleccionar?: (entidad: string) => void;
 }
 
 function colorVolumen(valor: number, max: number): string {
@@ -25,7 +27,7 @@ function colorEfectividadMapa(valor: number | null): string {
   return '#DC2626';
 }
 
-export default function MexicoMap({ datosPorEntidad, metrica }: MexicoMapProps) {
+export default function MexicoMap({ datosPorEntidad, metrica, entidadSeleccionada, onSeleccionar }: MexicoMapProps) {
   const [hoverEntidad, setHoverEntidad] = useState<string | null>(null);
 
   const maxVolumen = useMemo(() => {
@@ -39,6 +41,7 @@ export default function MexicoMap({ datosPorEntidad, metrica }: MexicoMapProps) 
       <svg viewBox={mexicoData.viewBox} className="w-full h-auto" style={{ maxHeight: 420 }}>
         {mexicoData.states.map((state) => {
           const datos = datosPorEntidad[state.name];
+          const seleccionada = entidadSeleccionada === state.name;
           const fill = !datos
             ? '#F1F5F9'
             : metrica === 'volumen'
@@ -50,11 +53,12 @@ export default function MexicoMap({ datosPorEntidad, metrica }: MexicoMapProps) 
               key={state.name}
               d={state.path}
               fill={fill}
-              stroke="#fff"
-              strokeWidth={1}
+              stroke={seleccionada ? 'var(--vg-blue)' : '#fff'}
+              strokeWidth={seleccionada ? 2.5 : 1}
               onMouseEnter={() => setHoverEntidad(state.name)}
               onMouseLeave={() => setHoverEntidad(null)}
-              style={{ cursor: datos ? 'pointer' : 'default', transition: 'opacity 0.15s' }}
+              onClick={() => onSeleccionar?.(state.name)}
+              style={{ cursor: onSeleccionar ? 'pointer' : datos ? 'pointer' : 'default', transition: 'opacity 0.15s' }}
               opacity={hoverEntidad && hoverEntidad !== state.name ? 0.6 : 1}
             />
           );
@@ -68,6 +72,7 @@ export default function MexicoMap({ datosPorEntidad, metrica }: MexicoMapProps) 
           {entidadHover.efectividad !== null && (
             <div className="text-[var(--vg-text2)]">Efectividad: {entidadHover.efectividad}%</div>
           )}
+          {onSeleccionar && <div className="text-[var(--vg-blue)] font-semibold mt-1">Clic para ver detalle →</div>}
         </div>
       )}
 

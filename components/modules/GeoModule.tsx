@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, colorEfectividad, calcularEfectividad, esRetornoAmplio } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, colorEfectividad, calcularEfectividad, esRetornoAmplio, calcularResumenExcepciones } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import MexicoMap from '@/components/MexicoMap';
+import TopListPanel from '@/components/TopListPanel';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
 
@@ -24,6 +25,7 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
   const guias = useMemo(() => guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc), [guiasIn]);
   const [entidadSel, setEntidadSel] = useState<string | null>(null);
   const [oficinaSel, setOficinaSel] = useState<string | null>(null);
+  const [ciudadSel, setCiudadSel] = useState<string | null>(null);
 
   const porEntidad = useMemo(() => {
     const grupos: Record<string, Guia[]> = {};
@@ -56,12 +58,15 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
     const lista = guias.filter(
       (g) => g.entidad_destinatario === entidadSel && g.oficina_destino === oficinaSel
     );
-    const grupos: Record<string, number> = {};
+    const grupos: Record<string, Guia[]> = {};
     lista.forEach((g) => {
       const c = g.ciudad_destinatario || 'SIN CIUDAD';
-      grupos[c] = (grupos[c] || 0) + 1;
+      if (!grupos[c]) grupos[c] = [];
+      grupos[c].push(g);
     });
-    return Object.entries(grupos).sort((a, b) => b[1] - a[1]);
+    return Object.entries(grupos)
+      .map(([ciudad, l]) => ({ ciudad, ...resumenDe(l) }))
+      .sort((a, b) => b.total - a.total);
   }, [guias, entidadSel, oficinaSel]);
 
   const top12Entidades = useMemo(() => porEntidad.slice(0, 12), [porEntidad]);
@@ -79,7 +84,55 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
   function seleccionarEntidad(entidad: string) {
     setEntidadSel(entidad === entidadSel ? null : entidad);
     setOficinaSel(null);
+    setCiudadSel(null);
   }
+
+  function seleccionarOficina(oficina: string) {
+    setOficinaSel(oficina === oficinaSel ? null : oficina);
+    setCiudadSel(null);
+  }
+
+  function seleccionarCiudad(ciudad: string) {
+    setCiudadSel(ciudad === ciudadSel ? null : ciudad);
+  }
+
+  // Guías del nivel actualmente seleccionado (el más profundo: ciudad >
+  // oficina > entidad > nacional si no hay nada seleccionado), y su
+  // resumen — esto es lo que alimenta el panel de "Resumen del nivel
+  // seleccionado" más abajo, con efectividad, devoluciones, top
+  // excepciones y volumen actualizándose juntos según en qué nivel estés.
+  const guiasNivelActual = useMemo(() => {
+    if (entidadSel && oficinaSel && ciudadSel) {
+      return guias.filter(
+        (g) =>
+          g.entidad_destinatario === entidadSel &&
+          g.oficina_destino === oficinaSel &&
+          (g.ciudad_destinatario || 'SIN CIUDAD') === ciudadSel
+      );
+    }
+    if (entidadSel && oficinaSel) {
+      return guias.filter((g) => g.entidad_destinatario === entidadSel && g.oficina_destino === oficinaSel);
+    }
+    if (entidadSel) {
+      return guias.filter((g) => g.entidad_destinatario === entidadSel);
+    }
+    return guias;
+  }, [guias, entidadSel, oficinaSel, ciudadSel]);
+
+  const resumenNivelActual = useMemo(() => resumenDe(guiasNivelActual), [guiasNivelActual]);
+  const topExcNivelActual = useMemo(
+    () => calcularResumenExcepciones(guiasNivelActual, 5),
+    [guiasNivelActual]
+  );
+
+  const tituloNivelActual = ciudadSel || oficinaSel || entidadSel || 'Nacional (todas las entidades)';
+  const subtituloNivelActual = ciudadSel
+    ? `${oficinaSel} · ${entidadSel}`
+    : oficinaSel
+      ? entidadSel || ''
+      : entidadSel
+        ? 'Entidad completa'
+        : 'Todas las oficinas y entidades en este corte';
 
   const entidadOrden = useSortableTable<(typeof porEntidad)[0]>(porEntidad, (e, key) => {
     if (key === 'entidad') return e.entidad;
@@ -95,9 +148,10 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
     return null;
   });
 
-  const ciudadOrden = useSortableTable<[string, number]>(ciudadesDeOficina, (item, key) => {
-    if (key === 'ciudad') return item[0];
-    if (key === 'guias') return item[1];
+  const ciudadOrden = useSortableTable<(typeof ciudadesDeOficina)[0]>(ciudadesDeOficina, (c, key) => {
+    if (key === 'ciudad') return c.ciudad;
+    if (key === 'total') return c.total;
+    if (key === 'efectividad') return c.efectividad;
     return null;
   });
 
@@ -121,7 +175,69 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
             </button>
           </div>
         </div>
-        <MexicoMap datosPorEntidad={datosMapa} metrica={metricaMapa} />
+        <MexicoMap
+          datosPorEntidad={datosMapa}
+          metrica={metricaMapa}
+          entidadSeleccionada={entidadSel}
+          onSeleccionar={seleccionarEntidad}
+        />
+      </div>
+
+      <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div>
+            <div className="font-bold text-[13px]">📍 {tituloNivelActual}</div>
+            <div className="text-[11px] text-[var(--vg-text2)]">{subtituloNivelActual}</div>
+          </div>
+          {(entidadSel || oficinaSel || ciudadSel) && (
+            <button
+              onClick={() => {
+                setEntidadSel(null);
+                setOficinaSel(null);
+                setCiudadSel(null);
+              }}
+              className="text-[11px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1 hover:bg-[var(--vg-bg)]"
+            >
+              ✕ Volver a Nacional
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <div className="bg-[var(--vg-bg)] rounded-md p-3">
+            <div className="text-[10.5px] text-[var(--vg-text2)] font-semibold mb-0.5">Volumen</div>
+            <div className="text-xl font-bold">{resumenNivelActual.total.toLocaleString('es-MX')}</div>
+          </div>
+          <div className="bg-[var(--vg-bg)] rounded-md p-3">
+            <div className="text-[10.5px] text-[var(--vg-text2)] font-semibold mb-0.5">Efectividad</div>
+            <div className="text-xl font-bold" style={{ color: colorEfectividad(resumenNivelActual.efectividad) }}>
+              {resumenNivelActual.efectividad !== null ? `${resumenNivelActual.efectividad}%` : '—'}
+            </div>
+          </div>
+          <div className="bg-[var(--vg-bg)] rounded-md p-3">
+            <div className="text-[10.5px] text-[var(--vg-text2)] font-semibold mb-0.5">Devoluciones</div>
+            <div className="text-xl font-bold text-[var(--vg-red)]">
+              {resumenNivelActual.devoluciones.toLocaleString('es-MX')}
+              {resumenNivelActual.total > 0 && (
+                <span className="text-[11px] font-medium text-[var(--vg-text3)] ml-1">
+                  ({((resumenNivelActual.devoluciones / resumenNivelActual.total) * 100).toFixed(1)}%)
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="bg-[var(--vg-bg)] rounded-md p-3">
+            <div className="text-[10.5px] text-[var(--vg-text2)] font-semibold mb-0.5">Abiertas</div>
+            <div className="text-xl font-bold text-[var(--vg-amber)]">{resumenNivelActual.abiertas.toLocaleString('es-MX')}</div>
+          </div>
+        </div>
+
+        <TopListPanel
+          title="Top 5 Excepciones en este nivel"
+          subtitle="Agrupa cadenas (AUSENCIA, AUSENCIA 2, AUSENCIA 3 = una sola categoría)"
+          items={topExcNivelActual.porTipo}
+          total={topExcNivelActual.total}
+          accentColor="#7C3AED"
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -161,7 +277,7 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
         <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
           <div className="px-4 py-3 border-b border-[var(--vg-border)]">
             <div className="font-bold text-[13px]">1. Entidad</div>
-            <div className="text-[11px] text-[var(--vg-text2)]">Clic para ver sus oficinas</div>
+            <div className="text-[11px] text-[var(--vg-text2)]">Clic aquí (o en el mapa) para ver sus oficinas</div>
           </div>
           <div className="max-h-[500px] overflow-y-auto vg-scroll">
             <table className="vg-table">
@@ -217,7 +333,7 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
                   {oficinaOrden.sorted.map((o) => (
                     <tr
                       key={o.oficina}
-                      onClick={() => setOficinaSel(o.oficina === oficinaSel ? null : o.oficina)}
+                      onClick={() => seleccionarOficina(o.oficina)}
                       className={`cursor-pointer ${oficinaSel === o.oficina ? 'bg-[var(--vg-blue-light)]' : ''}`}
                     >
                       <td className="font-medium">{o.oficina}</td>
@@ -245,6 +361,9 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
             <div className="font-bold text-[13px]">
               3. Ciudad {oficinaSel ? `en ${oficinaSel}` : ''}
             </div>
+            <div className="text-[11px] text-[var(--vg-text2)]">
+              {oficinaSel ? 'Clic para ver el resumen de esa ciudad' : ''}
+            </div>
           </div>
           <div className="max-h-[500px] overflow-y-auto vg-scroll">
             {oficinaSel ? (
@@ -252,14 +371,24 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
                 <thead>
                   <tr>
                     <SortableTh label="Ciudad" sortKey="ciudad" currentKey={ciudadOrden.sortKey} currentDir={ciudadOrden.sortDir} onSort={ciudadOrden.requestSort} />
-                    <SortableTh label="Guías" sortKey="guias" currentKey={ciudadOrden.sortKey} currentDir={ciudadOrden.sortDir} onSort={ciudadOrden.requestSort} />
+                    <SortableTh label="Guías" sortKey="total" currentKey={ciudadOrden.sortKey} currentDir={ciudadOrden.sortDir} onSort={ciudadOrden.requestSort} />
+                    <SortableTh label="Efect." sortKey="efectividad" currentKey={ciudadOrden.sortKey} currentDir={ciudadOrden.sortDir} onSort={ciudadOrden.requestSort} />
                   </tr>
                 </thead>
                 <tbody>
-                  {ciudadOrden.sorted.map(([ciudad, n]) => (
-                    <tr key={ciudad}>
-                      <td className="font-medium">{ciudad}</td>
-                      <td>{n}</td>
+                  {ciudadOrden.sorted.map((c) => (
+                    <tr
+                      key={c.ciudad}
+                      onClick={() => seleccionarCiudad(c.ciudad)}
+                      className={`cursor-pointer ${ciudadSel === c.ciudad ? 'bg-[var(--vg-blue-light)]' : ''}`}
+                    >
+                      <td className="font-medium">{c.ciudad}</td>
+                      <td>{c.total}</td>
+                      <td>
+                        <span className="font-bold" style={{ color: colorEfectividad(c.efectividad) }}>
+                          {c.efectividad !== null ? `${c.efectividad}%` : '—'}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
