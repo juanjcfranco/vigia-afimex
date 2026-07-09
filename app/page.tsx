@@ -107,7 +107,7 @@ export default function Home() {
 
       {!loading && !sinDatos && (
         <>
-          {tab === 'resumen' && <ResumenModule guias={guiasFiltradas} guiasTodas={guias} />}
+          {tab === 'resumen' && <ResumenModule guias={guiasFiltradas} />}
           {tab === 'efectividad' && <EfectividadModule guias={guiasFiltradas} />}
           {tab === 'excepciones' && <ExcepcionesModule guias={guiasFiltradas} />}
           {tab === 'acciones' && <AccionesModule guias={guiasFiltradas} />}
