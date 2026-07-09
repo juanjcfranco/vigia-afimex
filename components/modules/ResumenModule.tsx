@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, colorEfectividad, calcularEfectividad, getExcepciones, esRetornoAmplio, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado } from '@/lib/business-logic';
 import TopListPanel from '@/components/TopListPanel';
 import KpiCard from '@/components/KpiCard';
 import { useSortableTable } from '@/lib/useSortableTable';
@@ -11,15 +11,27 @@ import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Toolti
 
 const ESTADO_COLORS: Record<string, string> = {
   ENTREGADA: '#0B9B67',
-  'ENTREGADA (RETORNO)': '#7C3AED',
   DEVOLUCION: '#DC2626',
   'EN RUTA': '#1E3A8A',
   'EN ALMACEN': '#EA7C1A',
-  'LISTO PARA ENTREGAR': '#7C3AED',
+  'LISTO PARA ENTREGAR': '#831843',
   EMBARCADA: '#0891B2',
   TRANSBORDADA: '#64748B',
 };
+// Color fijo para CUALQUIER estado marcado como retorno o posible retorno
+// de otro periodo, sin importar cuál sea el estado bruto — así toda la
+// familia "es un retorno" se reconoce de un vistazo en el pie, en vez de
+// mezclarse con los envíos originales bajo el mismo color de su estado.
+const COLOR_RETORNO = '#7C3AED';
+const COLOR_POSIBLE_RETORNO = '#B45309';
 const PALETTE = ['#1E3A8A', '#0B9B67', '#EA7C1A', '#DC2626', '#7C3AED', '#0891B2', '#64748B', '#B45309', '#14532D', '#831843'];
+
+function colorParaEstado(nombre: string): string {
+  if (ESTADO_COLORS[nombre]) return ESTADO_COLORS[nombre];
+  if (nombre.endsWith('(RETORNO)')) return COLOR_RETORNO;
+  if (nombre.endsWith('(POSIBLE RETORNO OTRO PERIODO)')) return COLOR_POSIBLE_RETORNO;
+  return '#94A3B8';
+}
 
 export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; guiasTodas?: Guia[] }) {
   // Mapa de guía → fila física del retorno, construido con el set COMPLETO
@@ -125,8 +137,13 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       .filter((g) => !g.es_predoc)
       .forEach((g) => {
         let e = g.estado_guia || 'SIN ESTADO';
-        // Distinguir entregas de guías originales vs entregas de retornos
-        if (e === 'ENTREGADA' && esRetornoAmplio(g)) e = 'ENTREGADA (RETORNO)';
+        // Separa SIEMPRE los retornos del estado bruto, sin importar cuál
+        // sea (antes solo se hacía para ENTREGADA). Sin esto, un estado
+        // como "LISTO PARA ENTREGAR" mezclaba envíos originales con guías
+        // de retorno en tránsito de regreso — dos cosas muy distintas que
+        // se confundían en una sola cifra.
+        if (g.es_retorno) e = `${e} (RETORNO)`;
+        else if (g.es_posible_retorno_otro_periodo) e = `${e} (POSIBLE RETORNO OTRO PERIODO)`;
         counts[e] = (counts[e] || 0) + 1;
       });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
@@ -164,7 +181,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
   const resumenDevoluciones = useMemo(() => calcularResumenDevoluciones(guias, 5), [guias]);
 
   const estadosChartData = useMemo(
-    () => estados.map(([name, value]) => ({ name, value, color: ESTADO_COLORS[name] || '#94A3B8' })),
+    () => estados.map(([name, value]) => ({ name, value, color: colorParaEstado(name) })),
     [estados]
   );
 
@@ -190,16 +207,16 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     <div className="p-5 space-y-5">
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-11 gap-3">
         <KpiCard
+          title="Guías Procesadas"
+          value={kpis.totalOriginales.toLocaleString('es-MX')}
+          subtitle="Entregadas + devoluciones + abiertas + canceladas (no incluye predoc ni retornos) — métrica principal de volumen"
+          accentColor="#0F172A"
+        />
+        <KpiCard
           title="Total (sin duplicadas)"
           value={kpis.totalSinDuplicadas.toLocaleString('es-MX')}
           subtitle="Guías procesadas + posible retorno otro periodo"
           accentColor="#1E3A8A"
-        />
-        <KpiCard
-          title="Guías Procesadas"
-          value={kpis.totalOriginales.toLocaleString('es-MX')}
-          subtitle="Entregadas + devoluciones + abiertas + canceladas (no incluye predoc ni retornos)"
-          accentColor="#0F172A"
         />
         <KpiCard
           title="Entregadas"
