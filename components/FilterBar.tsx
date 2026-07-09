@@ -3,12 +3,15 @@
 import { formatearPeriodo } from '@/lib/business-logic';
 
 interface FilterBarProps {
+  clientes?: string[];
   oficinas: string[];
   entidades: string[];
   periodos: string[];
+  filtroCliente?: string;
   filtroOficina: string;
   filtroEntidad: string;
   filtroPeriodo: string;
+  onCliente?: (v: string) => void;
   onOficina: (v: string) => void;
   onEntidad: (v: string) => void;
   onPeriodo: (v: string) => void;
@@ -16,12 +19,15 @@ interface FilterBarProps {
 }
 
 export default function FilterBar({
+  clientes = [],
   oficinas,
   entidades,
   periodos,
+  filtroCliente = '',
   filtroOficina,
   filtroEntidad,
   filtroPeriodo,
+  onCliente,
   onOficina,
   onEntidad,
   onPeriodo,
@@ -40,6 +46,20 @@ export default function FilterBar({
           {periodos.map((p) => (
             <option key={p} value={p}>
               {formatearPeriodo(p)}
+            </option>
+          ))}
+        </select>
+      )}
+      {clientes.length > 1 && onCliente && (
+        <select
+          value={filtroCliente}
+          onChange={(e) => onCliente(e.target.value)}
+          className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
+        >
+          <option value="">Todos los clientes</option>
+          {clientes.map((c) => (
+            <option key={c} value={c}>
+              {c}
             </option>
           ))}
         </select>
@@ -68,7 +88,7 @@ export default function FilterBar({
           </option>
         ))}
       </select>
-      {(filtroOficina || filtroEntidad || filtroPeriodo) && (
+      {(filtroCliente || filtroOficina || filtroEntidad || filtroPeriodo) && (
         <button
           onClick={onLimpiar}
           className="text-[12px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 hover:bg-[var(--vg-bg)]"

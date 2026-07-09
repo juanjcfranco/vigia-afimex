@@ -11,7 +11,7 @@ interface HistorialModuleProps {
   cargas: Carga[];
   cargaActivaId: string | null;
   onSeleccionar: (id: string) => void;
-  onEliminar: (id: string) => Promise<void>;
+  onEliminar?: (id: string) => Promise<void>;
 }
 
 type SubTab = 'cargas' | 'cierres' | 'correos';
@@ -46,7 +46,7 @@ export default function HistorialModule({ cargas, cargaActivaId, onSeleccionar, 
 
   async function eliminarSeleccionadas() {
     const n = seleccionCarga.size;
-    if (!n) return;
+    if (!n || !onEliminar) return;
     const confirmado = window.confirm(
       `¿Eliminar ${n} carga${n > 1 ? 's' : ''} y todas sus guías asociadas? Esta acción no se puede deshacer.`
     );
@@ -156,15 +156,17 @@ export default function HistorialModule({ cargas, cargaActivaId, onSeleccionar, 
             <table className="vg-table">
               <thead>
                 <tr>
-                  <th>
-                    <input
-                      type="checkbox"
-                      checked={cargas.length > 0 && seleccionCarga.size === cargas.length}
-                      onChange={(e) =>
-                        setSeleccionCarga(e.target.checked ? new Set(cargas.map((c) => c.id)) : new Set())
-                      }
-                    />
-                  </th>
+                  {onEliminar && (
+                    <th>
+                      <input
+                        type="checkbox"
+                        checked={cargas.length > 0 && seleccionCarga.size === cargas.length}
+                        onChange={(e) =>
+                          setSeleccionCarga(e.target.checked ? new Set(cargas.map((c) => c.id)) : new Set())
+                        }
+                      />
+                    </th>
+                  )}
                   <th></th>
                   <SortableTh label="Cliente" sortKey="cliente" currentKey={cargasOrden.sortKey} currentDir={cargasOrden.sortDir} onSort={cargasOrden.requestSort} />
                   <SortableTh label="Periodo" sortKey="periodo" currentKey={cargasOrden.sortKey} currentDir={cargasOrden.sortDir} onSort={cargasOrden.requestSort} />
@@ -180,16 +182,18 @@ export default function HistorialModule({ cargas, cargaActivaId, onSeleccionar, 
                     className={c.id === cargaActivaId ? 'bg-[var(--vg-blue-light)]' : ''}
                   >
                     <td onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={seleccionCarga.has(c.id)}
-                        onChange={() => {
-                          const next = new Set(seleccionCarga);
-                          if (next.has(c.id)) next.delete(c.id);
-                          else next.add(c.id);
-                          setSeleccionCarga(next);
-                        }}
-                      />
+                      {onEliminar && (
+                        <input
+                          type="checkbox"
+                          checked={seleccionCarga.has(c.id)}
+                          onChange={() => {
+                            const next = new Set(seleccionCarga);
+                            if (next.has(c.id)) next.delete(c.id);
+                            else next.add(c.id);
+                            setSeleccionCarga(next);
+                          }}
+                        />
+                      )}
                     </td>
                     <td onClick={() => onSeleccionar(c.id)} className="cursor-pointer">
                       {c.id === cargaActivaId ? '🟢' : ''}
