@@ -380,7 +380,7 @@ export default function FacturacionModule({ guias }: { guias: Guia[] }) {
         </div>
       </div>
 
-      <TarifasModal open={tarifasModal} onClose={() => setTarifasModal(false)} onSaved={cargarTarifas} />
+      <TarifasModal open={tarifasModal} onClose={() => { setTarifasModal(false); cargarTarifas(); }} />
     </div>
   );
 }
