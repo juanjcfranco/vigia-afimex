@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { exportToExcel, exportToPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
@@ -49,7 +49,26 @@ function efectividadPorCampo(guiasIn: Guia[], campo: keyof Guia) {
     .sort((a, b) => b.total - a.total);
 }
 
-type VistaEfectividad = 'cliente' | 'oficina' | 'entidad';
+// Igual que efectividadPorCampo, pero agrupando por mes (YYYY-MM) de
+// F_Documentacion en vez de un campo directo de la guía — para ver la
+// tendencia de efectividad a lo largo del tiempo cuando el corte cubre
+// varios periodos. Se ordena cronológicamente (no por volumen), porque
+// para una serie de tiempo el orden natural importa más que el tamaño.
+function efectividadPorMes(guiasIn: Guia[]) {
+  const guias = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
+  const grupos: Record<string, Guia[]> = {};
+  guias.forEach((g) => {
+    const key = (g.f_documentacion || '').slice(0, 7) || 'SIN FECHA';
+    if (!grupos[key]) grupos[key] = [];
+    grupos[key].push(g);
+  });
+
+  return Object.entries(grupos)
+    .sort((a, b) => a[0].localeCompare(b[0])) // orden cronológico real (YYYY-MM), antes de formatear
+    .map(([key, lista]) => ({ key: key === 'SIN FECHA' ? key : formatearPeriodo(key), ...statsDe(lista) }));
+}
+
+type VistaEfectividad = 'cliente' | 'oficina' | 'entidad' | 'mes';
 
 export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   const [vista, setVista] = useState<VistaEfectividad>('oficina');
@@ -58,10 +77,11 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
     cliente: 'cliente',
     oficina: 'oficina_destino',
     entidad: 'entidad_destinatario',
+    mes: 'f_documentacion', // no se usa directamente: 'mes' se agrupa aparte con efectividadPorMes
   };
 
   const filas = useMemo(
-    () => efectividadPorCampo(guias, campoDeVista[vista]),
+    () => (vista === 'mes' ? efectividadPorMes(guias) : efectividadPorCampo(guias, campoDeVista[vista])),
     [guias, vista]
   );
 
@@ -85,8 +105,8 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
         return null;
     }
   });
-  const etiqueta: Record<VistaEfectividad, string> = { cliente: 'Cliente', oficina: 'Oficina', entidad: 'Entidad' };
-  const etiquetaPlural: Record<VistaEfectividad, string> = { cliente: 'Clientes', oficina: 'Oficinas', entidad: 'Entidades' };
+  const etiqueta: Record<VistaEfectividad, string> = { cliente: 'Cliente', oficina: 'Oficina', entidad: 'Entidad', mes: 'Mes' };
+  const etiquetaPlural: Record<VistaEfectividad, string> = { cliente: 'Clientes', oficina: 'Oficinas', entidad: 'Entidades', mes: 'Meses' };
 
   // Resumen de excepciones (mismo criterio que el módulo Excepciones:
   // excluye entregadas, devoluciones, canceladas, en ruta y predoc), para
@@ -324,7 +344,7 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
 
       <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
         <div className="font-bold text-[12.5px] mb-3">
-          Efectividad — Top 15 {etiquetaPlural[vista]} por Volumen
+          Efectividad — {vista === 'mes' ? 'Tendencia Mensual' : `Top 15 ${etiquetaPlural[vista]} por Volumen`}
         </div>
         <ResponsiveContainer width="100%" height={360}>
           <BarChart data={top15} margin={{ bottom: 80 }}>
@@ -374,6 +394,14 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
                 }`}
               >
                 Entidad
+              </button>
+              <button
+                onClick={() => setVista('mes')}
+                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${
+                  vista === 'mes' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'
+                }`}
+              >
+                Mes
               </button>
             </div>
             <button
