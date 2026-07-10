@@ -271,6 +271,47 @@ export function getExcepciones(g: Pick<Guia, 'excepcion_1' | 'excepcion_2' | 'ex
     .filter(Boolean);
 }
 
+// ============================================================
+// Última excepción de la cadena, CON su fecha (F_Excepcion_N). Recorre
+// las 5 columnas en reversa y devuelve la última que tenga contenido —
+// es la excepción "vigente" de la guía en este momento, junto con la
+// fecha en que se registró. Si la guía no tiene ninguna excepción,
+// devuelve ambos campos en null.
+// ============================================================
+export interface UltimaExcepcion {
+  nombre: string | null;
+  fecha: string | null;
+}
+
+export function ultimaExcepcion(
+  g: Pick<
+    Guia,
+    | 'excepcion_1'
+    | 'excepcion_2'
+    | 'excepcion_3'
+    | 'excepcion_4'
+    | 'excepcion_5'
+    | 'f_excepcion_1'
+    | 'f_excepcion_2'
+    | 'f_excepcion_3'
+    | 'f_excepcion_4'
+    | 'f_excepcion_5'
+  >
+): UltimaExcepcion {
+  const slots: Array<[string | null, string | null]> = [
+    [g.excepcion_1, g.f_excepcion_1],
+    [g.excepcion_2, g.f_excepcion_2],
+    [g.excepcion_3, g.f_excepcion_3],
+    [g.excepcion_4, g.f_excepcion_4],
+    [g.excepcion_5, g.f_excepcion_5],
+  ];
+  for (let i = slots.length - 1; i >= 0; i--) {
+    const [nombre, fecha] = slots[i];
+    if (nombre && nombre.trim()) return { nombre: nombre.trim(), fecha };
+  }
+  return { nombre: null, fecha: null };
+}
+
 // Quita el sufijo numérico (" 2", " 3") para agrupar por excepción "base".
 // Exportada porque se reutiliza en el KPI de excepciones (y en el de
 // motivos de devolución) para agrupar cadenas como AUSENCIA / AUSENCIA 2 /
@@ -637,6 +678,11 @@ export interface FilaExcelCruda {
   Excepcion_3?: string;
   Excepcion_4?: string;
   Excepcion_5?: string;
+  F_Excepcion_1?: string;
+  F_Excepcion_2?: string;
+  F_Excepcion_3?: string;
+  F_Excepcion_4?: string;
+  F_Excepcion_5?: string;
   Retorno?: string | number;
   // Nombres reales de columna en el export OPS (verificado contra
   // OPS_MERQ_010726.xlsx): "Estado retorno" en minúscula, y NO existe
@@ -878,6 +924,11 @@ export function normalizarFila(
     excepcion_3: String(r.Excepcion_3 ?? '').trim() || null,
     excepcion_4: String(r.Excepcion_4 ?? '').trim() || null,
     excepcion_5: String(r.Excepcion_5 ?? '').trim() || null,
+    f_excepcion_1: parseFechaExcel(r.F_Excepcion_1),
+    f_excepcion_2: parseFechaExcel(r.F_Excepcion_2),
+    f_excepcion_3: parseFechaExcel(r.F_Excepcion_3),
+    f_excepcion_4: parseFechaExcel(r.F_Excepcion_4),
+    f_excepcion_5: parseFechaExcel(r.F_Excepcion_5),
   };
 
   const accion = calcularAccion(excepciones, catalogoMap);

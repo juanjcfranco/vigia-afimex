@@ -32,6 +32,11 @@ export interface Guia {
   excepcion_3: string | null;
   excepcion_4: string | null;
   excepcion_5: string | null;
+  f_excepcion_1: string | null;
+  f_excepcion_2: string | null;
+  f_excepcion_3: string | null;
+  f_excepcion_4: string | null;
+  f_excepcion_5: string | null;
 
   retorno_guia: string | null;
   retorno_estado: string | null;

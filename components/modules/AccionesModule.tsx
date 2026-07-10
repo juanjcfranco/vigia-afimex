@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina, ACCION_COLORS } from '@/lib/types';
-import { isEntregada, isCancelada, isEnRuta, nivelAlertaPorDias, accionEfectiva } from '@/lib/business-logic';
+import { isEntregada, isCancelada, isEnRuta, nivelAlertaPorDias, accionEfectiva, ultimaExcepcion } from '@/lib/business-logic';
 import AccionBadge from '@/components/AccionBadge';
 import AlertaDiasBadge from '@/components/AlertaDiasBadge';
 import BulkSearch from '@/components/BulkSearch';
@@ -30,7 +30,7 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
 
   const base = useMemo(() => {
     return guias.filter((g) => {
-      if (g.es_predoc) return false;
+      if (g.es_predoc || g.es_documentada) return false;
       if (g.es_devolucion) return false;
       if (isEntregada(g.estado_guia)) return false;
       if (isCancelada(g.estado_guia)) return false;
@@ -122,6 +122,10 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
         return g.excepcion_4;
       case 'exc5':
         return g.excepcion_5;
+      case 'ultimaexc':
+        return ultimaExcepcion(g).nombre;
+      case 'fechaultimaexc':
+        return ultimaExcepcion(g).fecha;
       default:
         return null;
     }
@@ -135,6 +139,8 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
     { header: 'Días sin Mov.', value: (g: Guia) => g.dias_sin_movimiento ?? '' },
     { header: 'Últ. Mov.', value: (g: Guia) => g.f_historia || '' },
     { header: 'Acción', value: (g: Guia) => accionEfectiva(g) },
+    { header: 'Última Excepción', value: (g: Guia) => ultimaExcepcion(g).nombre || '' },
+    { header: 'Fecha Última Excepción', value: (g: Guia) => ultimaExcepcion(g).fecha || '' },
     { header: 'Exc.1', value: (g: Guia) => g.excepcion_1 || '' },
     { header: 'Exc.2', value: (g: Guia) => g.excepcion_2 || '' },
     { header: 'Exc.3', value: (g: Guia) => g.excepcion_3 || '' },
@@ -270,6 +276,8 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Días sin Mov." sortKey="dias" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Últ. Mov." sortKey="ultmov" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Acción" sortKey="accion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Última Excepción" sortKey="ultimaexc" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Fecha Últ. Exc." sortKey="fechaultimaexc" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Exc.1" sortKey="exc1" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Exc.2" sortKey="exc2" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Exc.3" sortKey="exc3" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
@@ -308,6 +316,8 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
                         <div className="text-[9px] text-[var(--vg-text3)] mt-0.5">No reprogramable</div>
                       )}
                     </td>
+                    <td className="font-medium">{ultimaExcepcion(g).nombre || '—'}</td>
+                    <td>{ultimaExcepcion(g).fecha || '—'}</td>
                     <td>{g.excepcion_1 || '—'}</td>
                     <td>{g.excepcion_2 || '—'}</td>
                     <td>{g.excepcion_3 || '—'}</td>
