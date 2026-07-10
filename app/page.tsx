@@ -31,12 +31,15 @@ export default function Home() {
     guiasFiltradas,
     loading,
     error,
+    filtroCliente,
+    setFiltroCliente,
     filtroOficina,
     setFiltroOficina,
     filtroEntidad,
     setFiltroEntidad,
     filtroPeriodo,
     setFiltroPeriodo,
+    clientes,
     oficinas,
     entidades,
     periodos,
@@ -66,16 +69,20 @@ export default function Home() {
 
       {tab !== 'historial' && tab !== 'alertas' && (
         <FilterBar
+          clientes={clientes}
           oficinas={oficinas}
           entidades={entidades}
           periodos={periodos}
+          filtroCliente={filtroCliente}
           filtroOficina={filtroOficina}
           filtroEntidad={filtroEntidad}
           filtroPeriodo={filtroPeriodo}
+          onCliente={setFiltroCliente}
           onOficina={setFiltroOficina}
           onEntidad={setFiltroEntidad}
           onPeriodo={setFiltroPeriodo}
           onLimpiar={() => {
+            setFiltroCliente('');
             setFiltroOficina('');
             setFiltroEntidad('');
             setFiltroPeriodo('');
