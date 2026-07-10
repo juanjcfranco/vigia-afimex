@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { exportToExcel, exportToPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
@@ -19,10 +19,24 @@ interface FilaEfectividad {
   total: number;
 }
 
+// Estadísticas de efectividad para una lista arbitraria de guías (ya sin
+// retornos/predoc/documentada) — pieza compartida entre el desglose por
+// campo (cliente/oficina/entidad) y la comparativa plaza×cliente.
+function statsDe(lista: Guia[]) {
+  const entregadas = lista.filter((g) => isEntregada(g.estado_guia)).length;
+  const devoluciones = lista.filter((g) => g.es_devolucion).length;
+  const abiertas = lista.filter((g) => isAbiertaPorEstado(g)).length;
+  const retornosAbiertos = lista.filter(
+    (g) => g.es_devolucion && g.retorno_guia && (g.retorno_estado || '').toUpperCase() !== 'ENTREGADA'
+  ).length;
+  const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
+  return { entregadas, devoluciones, abiertas, retornosAbiertos, efectividad, total: lista.length };
+}
+
 function efectividadPorCampo(guiasIn: Guia[], campo: keyof Guia) {
   // Excluir guías de retorno (explícitas o de otro periodo): ya están
   // contabilizadas como parte de la devolución original.
-  const guias = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc);
+  const guias = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
   const grupos: Record<string, Guia[]> = {};
   guias.forEach((g) => {
     const key = (g[campo] as string) || 'SIN DATO';
@@ -31,16 +45,7 @@ function efectividadPorCampo(guiasIn: Guia[], campo: keyof Guia) {
   });
 
   return Object.entries(grupos)
-    .map(([key, lista]) => {
-      const entregadas = lista.filter((g) => isEntregada(g.estado_guia)).length;
-      const devoluciones = lista.filter((g) => g.es_devolucion).length;
-      const abiertas = lista.filter((g) => isAbiertaPorEstado(g)).length;
-      const retornosAbiertos = lista.filter(
-        (g) => g.es_devolucion && g.retorno_guia && (g.retorno_estado || '').toUpperCase() !== 'ENTREGADA'
-      ).length;
-      const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
-      return { key, entregadas, devoluciones, abiertas, retornosAbiertos, efectividad, total: lista.length };
-    })
+    .map(([key, lista]) => ({ key, ...statsDe(lista) }))
     .sort((a, b) => b.total - a.total);
 }
 
@@ -90,7 +95,7 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   const guiasConExcepcion = useMemo(
     () =>
       guias.filter((g) => {
-        if (g.es_predoc) return false;
+        if (g.es_predoc || g.es_documentada) return false;
         if (isCancelada(g.estado_guia) || isEnRuta(g.estado_guia)) return false;
         return getExcepciones(g).length > 0;
       }),
@@ -135,6 +140,54 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   // complementar el resumen de excepciones de arriba sin tener que
   // cambiar de módulo.
   const resumenDevoluciones = useMemo(() => calcularResumenDevoluciones(guias, 5), [guias]);
+
+  // ============================================================
+  // Comparativo por Cliente — solo tiene sentido mostrarlo cuando el
+  // corte trae más de un cliente mezclado. "Cliente" ya es una vista
+  // seleccionable del toggle de arriba (cubre volumen y efectividad por
+  // cliente); esto complementa con dos cosas que ese toggle no puede
+  // mostrar a la vez: efectividad cruzada por plaza×cliente, y el top 3
+  // de excepciones de cada cliente lado a lado.
+  // ============================================================
+  const clientesDistintos = useMemo(
+    () => [...new Set(guias.map((g) => g.cliente).filter(Boolean))] as string[],
+    [guias]
+  );
+  const esMultiCliente = clientesDistintos.length > 1;
+
+  // Plaza = entidad (mismo nivel de detalle que "Efectividad por Entidad"
+  // en el módulo Geográfico). Se toman las top 8 entidades por volumen
+  // total (todos los clientes juntos) para no saturar la tabla.
+  const plazaPorCliente = useMemo(() => {
+    if (!esMultiCliente) return { plazas: [] as string[], filas: [] as Array<{ plaza: string; porCliente: Record<string, { efectividad: number | null; total: number }> }> };
+    const base = guias.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
+    const plazas = efectividadPorCampo(base, 'entidad_destinatario')
+      .slice(0, 8)
+      .map((p) => p.key);
+
+    const filas = plazas.map((plaza) => {
+      const porCliente: Record<string, { efectividad: number | null; total: number }> = {};
+      clientesDistintos.forEach((cliente) => {
+        const subset = base.filter((g) => g.entidad_destinatario === plaza && g.cliente === cliente);
+        const stats = statsDe(subset);
+        porCliente[cliente] = { efectividad: stats.efectividad, total: stats.total };
+      });
+      return { plaza, porCliente };
+    });
+
+    return { plazas, filas };
+  }, [guias, esMultiCliente, clientesDistintos]);
+
+  const excepcionesPorCliente = useMemo(() => {
+    if (!esMultiCliente) return [];
+    return clientesDistintos.map((cliente) => ({
+      cliente,
+      resumen: calcularResumenExcepciones(
+        guias.filter((g) => g.cliente === cliente),
+        3
+      ),
+    }));
+  }, [guias, esMultiCliente, clientesDistintos]);
 
   return (
     <div className="p-5 space-y-4">
@@ -207,6 +260,67 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
           accentColor="#7C3AED"
         />
       </div>
+
+      {esMultiCliente && (
+        <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+          <div className="font-bold text-[13px] mb-0.5">🔀 Comparativo por Cliente</div>
+          <div className="text-[11px] text-[var(--vg-text2)] mb-3">
+            Este corte trae {clientesDistintos.length} clientes distintos — usa "Cliente" en el toggle de arriba
+            para ver volumen y efectividad de cada uno; aquí se comparan directamente entre sí.
+          </div>
+
+          <div className="font-semibold text-[12px] mb-2">Efectividad por Plaza (Entidad) — comparado entre clientes</div>
+          <div className="overflow-x-auto vg-scroll mb-5">
+            <table className="vg-table">
+              <thead>
+                <tr>
+                  <th>Entidad</th>
+                  {clientesDistintos.map((c) => (
+                    <th key={c}>{c}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {plazaPorCliente.filas.map(({ plaza, porCliente }) => (
+                  <tr key={plaza}>
+                    <td className="font-medium">{plaza}</td>
+                    {clientesDistintos.map((c) => {
+                      const d = porCliente[c];
+                      return (
+                        <td key={c}>
+                          {d && d.total > 0 ? (
+                            <span>
+                              <span className="font-bold" style={{ color: colorEfectividad(d.efectividad) }}>
+                                {d.efectividad !== null ? `${d.efectividad}%` : '—'}
+                              </span>
+                              <span className="text-[10px] text-[var(--vg-text3)]"> ({d.total})</span>
+                            </span>
+                          ) : (
+                            <span className="text-[var(--vg-text3)]">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="font-semibold text-[12px] mb-2">Top 3 Excepciones por Cliente</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {excepcionesPorCliente.map(({ cliente, resumen }) => (
+              <TopListPanel
+                key={cliente}
+                title={cliente}
+                items={resumen.porTipo}
+                total={resumen.total}
+                accentColor="#7C3AED"
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
         <div className="font-bold text-[12.5px] mb-3">

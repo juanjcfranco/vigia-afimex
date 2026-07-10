@@ -21,8 +21,22 @@ function resumenDe(lista: Guia[]) {
 }
 
 export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
-  // Excluir guías de retorno de los agregados geográficos para no duplicar volumen
-  const guias = useMemo(() => guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc), [guiasIn]);
+  // Cliente seleccionado para comparar geografía entre clientes cuando el
+  // corte trae más de uno mezclado ('' = todos juntos, como antes).
+  const [clienteSel, setClienteSel] = useState<string>('');
+  const clientesDistintos = useMemo(
+    () => [...new Set(guiasIn.map((g) => g.cliente).filter(Boolean))] as string[],
+    [guiasIn]
+  );
+  const esMultiCliente = clientesDistintos.length > 1;
+
+  // Excluir guías de retorno de los agregados geográficos para no duplicar
+  // volumen, y aplicar el filtro de cliente si hay uno seleccionado.
+  const guias = useMemo(() => {
+    let base = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
+    if (clienteSel) base = base.filter((g) => g.cliente === clienteSel);
+    return base;
+  }, [guiasIn, clienteSel]);
   const [entidadSel, setEntidadSel] = useState<string | null>(null);
   const [oficinaSel, setOficinaSel] = useState<string | null>(null);
   const [ciudadSel, setCiudadSel] = useState<string | null>(null);
@@ -126,13 +140,16 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
   );
 
   const tituloNivelActual = ciudadSel || oficinaSel || entidadSel || 'Nacional (todas las entidades)';
-  const subtituloNivelActual = ciudadSel
+  const subtituloNivelActualBase = ciudadSel
     ? `${oficinaSel} · ${entidadSel}`
     : oficinaSel
       ? entidadSel || ''
       : entidadSel
         ? 'Entidad completa'
         : 'Todas las oficinas y entidades en este corte';
+  const subtituloNivelActual = clienteSel
+    ? `${subtituloNivelActualBase} · Cliente: ${clienteSel}`
+    : subtituloNivelActualBase;
 
   const entidadOrden = useSortableTable<(typeof porEntidad)[0]>(porEntidad, (e, key) => {
     if (key === 'entidad') return e.entidad;
@@ -157,6 +174,39 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
 
   return (
     <div className="p-5 space-y-4">
+      {esMultiCliente && (
+        <div className="bg-white rounded-lg border border-[var(--vg-border)] p-3 flex items-center gap-2 flex-wrap">
+          <span className="text-[11.5px] font-semibold text-[var(--vg-text2)]">
+            🔀 Este corte trae {clientesDistintos.length} clientes — comparar geografía:
+          </span>
+          <select
+            value={clienteSel}
+            onChange={(e) => {
+              setClienteSel(e.target.value);
+              setEntidadSel(null);
+              setOficinaSel(null);
+              setCiudadSel(null);
+            }}
+            className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
+          >
+            <option value="">Todos los clientes juntos</option>
+            {clientesDistintos.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          {clienteSel && (
+            <button
+              onClick={() => setClienteSel('')}
+              className="text-[11px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1 hover:bg-[var(--vg-bg)]"
+            >
+              ✕ Ver todos juntos
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div className="font-bold text-[12.5px]">Mapa de México — {metricaMapa === 'volumen' ? 'Volumen por Entidad' : 'Efectividad por Entidad'}</div>
