@@ -41,6 +41,7 @@ export interface Guia {
 
   es_devolucion: boolean;
   es_predoc: boolean;
+  es_documentada: boolean;
   accion_recomendada: string | null;
   dias_sin_movimiento: number | null;
 
