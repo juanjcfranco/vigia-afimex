@@ -802,10 +802,51 @@ export function parseCOD(raw: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// ============================================================
+// Determina qué clientes tienen el patrón "Cliente_Paga == Nombre_Destinatario"
+// como una práctica DOMINANTE de su negocio (ej. paqueterías que entregan
+// a sus propias sucursales/agencias, donde el destinatario queda registrado
+// con el nombre de la propia empresa) en vez de como señal real de un
+// paquete regresando a quien lo envió.
+//
+// El criterio es el número de CIUDADES DISTINTAS donde ocurre ese patrón:
+// un retorno genuino regresa a un punto concentrado (la bodega/oficina de
+// origen del cliente — típicamente 1 a 5 ciudades), mientras que una
+// empresa que reparte a su propia red de agencias lo hace en decenas o
+// cientos de ciudades distintas. Con datos reales: un cliente de este tipo
+// mostró el patrón en 267 ciudades distintas, contra 1-5 en clientes con
+// retornos genuinos — la diferencia es contundente y no depende de ajustar
+// un porcentaje fino.
+// ============================================================
+export function construirSetDeClientesConPatronDominante(
+  rows: FilaExcelCruda[],
+  minCiudadesDistintas: number = 15
+): Set<string> {
+  const ciudadesPorCliente: Record<string, Set<string>> = {};
+
+  rows.forEach((r) => {
+    const clientePaga = String(r.Cliente_Paga ?? '').trim();
+    const nombreDestinatario = String(r.Nombre_Destinatario ?? '').trim();
+    if (!clientePaga || !nombreDestinatario) return;
+    if (clientePaga.toUpperCase() !== nombreDestinatario.toUpperCase()) return;
+    const ciudad = String(r.Ciudad_Destinatario ?? '').trim().toUpperCase();
+    if (!ciudad) return;
+    if (!ciudadesPorCliente[clientePaga]) ciudadesPorCliente[clientePaga] = new Set();
+    ciudadesPorCliente[clientePaga].add(ciudad);
+  });
+
+  const dominante = new Set<string>();
+  Object.entries(ciudadesPorCliente).forEach(([cliente, ciudades]) => {
+    if (ciudades.size >= minCiudadesDistintas) dominante.add(cliente);
+  });
+  return dominante;
+}
+
 export function normalizarFila(
   r: FilaExcelCruda,
   catalogoMap: Record<string, string>,
-  retornoNumSet: Set<string>
+  retornoNumSet: Set<string>,
+  clientesConPatronDominante: Set<string> = new Set()
 ) {
   const guia = String(r.Guia ?? '').trim();
   const nombreRecibio = String(r.Nombre_Recibio ?? '').trim();
@@ -822,10 +863,14 @@ export function normalizarFila(
 
   // Posible retorno de otro periodo: Cliente_Paga == Nombre_Destinatario
   // (el remitente y el destinatario son el mismo nombre), pero SIN vínculo
-  // explícito en este archivo. No se cuenta dos veces con es_retorno.
+  // explícito en este archivo. No se cuenta dos veces con es_retorno. Se
+  // excluye si el cliente tiene este patrón como práctica dominante (ver
+  // construirSetDeClientesConPatronDominante) — para esos clientes, el
+  // nombre repetido es su forma normal de operar, no evidencia de retorno.
   const mismoNombreClienteDestinatario =
     !!clientePaga && !!nombreDestinatario && clientePaga.toUpperCase() === nombreDestinatario.toUpperCase();
-  const esPosibleRetornoOtroPeriodo = mismoNombreClienteDestinatario && !esRetorno;
+  const esPosibleRetornoOtroPeriodo =
+    mismoNombreClienteDestinatario && !esRetorno && !clientesConPatronDominante.has(clientePaga);
 
   const excepciones = {
     excepcion_1: String(r.Excepcion_1 ?? '').trim() || null,

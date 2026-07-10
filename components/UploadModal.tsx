@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import {
   normalizarFila,
   construirSetDeRetornos,
+  construirSetDeClientesConPatronDominante,
   detectarClienteYPeriodo,
   normalizarClave,
   FilaExcelCruda,
@@ -83,8 +84,12 @@ export default function UploadModal({ open, onClose, onUploaded }: UploadModalPr
       // el servidor — normalizarFila() es la misma función compartida).
       setEtapa('Procesando filas...');
       const retornoNumSet = construirSetDeRetornos(rows);
+      // Clientes donde "Cliente_Paga == Nombre_Destinatario" es su forma
+      // normal de operar (ej. paqueterías que entregan a sus propias
+      // agencias), no evidencia de retorno — ver la función para el detalle.
+      const clientesConPatronDominante = construirSetDeClientesConPatronDominante(rows);
       const guiasNormalizadas = rows
-        .map((r) => normalizarFila(r, catalogoMap, retornoNumSet))
+        .map((r) => normalizarFila(r, catalogoMap, retornoNumSet, clientesConPatronDominante))
         .filter((g) => g.guia); // descarta filas sin número de guía
 
       const { cliente: clienteDetectado, periodo: periodoDetectado } = detectarClienteYPeriodo(
