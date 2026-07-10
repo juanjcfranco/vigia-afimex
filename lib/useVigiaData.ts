@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Guia, Carga } from './types';
-import { isEntregada, isAbiertaPorEstado, calcularEfectividad } from './business-logic';
+import { isEntregada, isAbiertaPorEstado, calcularEfectividad, esGuiaOriginal } from './business-logic';
 
 export function useVigiaData() {
   const [cargas, setCargas] = useState<Carga[]>([]);
@@ -96,11 +96,12 @@ export function useVigiaData() {
   const kpis = useMemo(() => {
     const total = guiasFiltradas.length;
     const guiasRetorno = guiasFiltradas.filter((g) => g.es_retorno || g.es_posible_retorno_otro_periodo);
-    const guiasOriginales = guiasFiltradas.filter((g) => !g.es_retorno && !g.es_posible_retorno_otro_periodo && !g.es_predoc);
+    const guiasOriginales = guiasFiltradas.filter(esGuiaOriginal);
     const entregadas = guiasOriginales.filter((g) => isEntregada(g.estado_guia)).length;
     const devoluciones = guiasOriginales.filter((g) => g.es_devolucion).length;
     const abiertas = guiasOriginales.filter((g) => isAbiertaPorEstado(g)).length;
     const predoc = guiasFiltradas.filter((g) => g.es_predoc).length;
+    const documentadas = guiasFiltradas.filter((g) => g.es_documentada).length;
     const retornosEntregados = guiasRetorno.filter((g) => isEntregada(g.estado_guia)).length;
 
     // Retornos abiertos: devoluciones con guía de retorno referenciada cuyo
@@ -125,6 +126,7 @@ export function useVigiaData() {
       devoluciones,
       abiertas,
       predoc,
+      documentadas,
       efectividad,
     };
   }, [guiasFiltradas]);

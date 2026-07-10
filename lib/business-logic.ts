@@ -30,9 +30,47 @@ export function isPredoc(estado: string | null): boolean {
   return (estado || '').toUpperCase().trim().startsWith('PRE-DOC');
 }
 
+// "DOCUMENTADA" es un estado normal en el Excel, pero operativamente
+// significa lo mismo que pre-documentada para efectos de los indicadores:
+// la guía está registrada pero aún no ha empezado su movimiento real, así
+// que no debe contarse como "abierta en operación" junto con EN RUTA, EN
+// ALMACEN, etc. — se excluye igual que predoc, con su propio conteo aparte.
+export function isDocumentada(estado: string | null): boolean {
+  return (estado || '').toUpperCase().trim() === 'DOCUMENTADA';
+}
+
 export function isCancelada(estado: string | null): boolean {
   const e = (estado || '').toUpperCase().trim();
   return e === 'CANCELADA' || e === 'CANCELADO' || e === 'CANCELADA POR CLIENTE';
+}
+
+// ============================================================
+// Define qué es una "guía original" (= la base de "Guías Procesadas", la
+// métrica principal de volumen). Se centraliza aquí a propósito: antes
+// esta misma regla vivía duplicada, escrita a mano, en 3 archivos
+// distintos (ResumenModule, CierreModal, useVigiaData) — cuando había que
+// ajustarla (como agregar la exclusión de documentadas, y ahora de
+// canceladas) era fácil actualizarla en unos lugares y olvidar otro,
+// causando que un módulo mostrara un número y otro mostrara algo distinto
+// para el mismo corte. Con una sola función, los tres siempre cuadran.
+//
+// Una guía es "original" si NO es, de ninguna forma: un retorno físico
+// (es_retorno), un posible retorno de otro periodo, pre-documentada,
+// documentada (aún no inicia movimiento real), ni cancelada.
+// ============================================================
+export function esGuiaOriginal(
+  g: Pick<
+    Guia,
+    'estado_guia' | 'es_retorno' | 'es_posible_retorno_otro_periodo' | 'es_predoc' | 'es_documentada'
+  >
+): boolean {
+  return (
+    !g.es_retorno &&
+    !g.es_posible_retorno_otro_periodo &&
+    !g.es_predoc &&
+    !g.es_documentada &&
+    !isCancelada(g.estado_guia)
+  );
 }
 
 export function isEnRuta(estado: string | null): boolean {
@@ -41,16 +79,20 @@ export function isEnRuta(estado: string | null): boolean {
 
 // Usado SOLO para el módulo "Resumen" (mantiene el criterio de Calificación
 // cuando existe, como respaldo, porque ahí se reporta el indicador oficial)
-export function isAbierta(g: Pick<Guia, 'estado_guia' | 'calificacion' | 'es_predoc' | 'es_devolucion'>): boolean {
+export function isAbierta(
+  g: Pick<Guia, 'estado_guia' | 'calificacion' | 'es_predoc' | 'es_documentada' | 'es_devolucion'>
+): boolean {
   if (g.calificacion) return g.calificacion.toUpperCase().trim() === 'ABIERTA';
-  return !g.es_predoc && !g.es_devolucion && !isEntregada(g.estado_guia);
+  return !g.es_predoc && !g.es_documentada && !g.es_devolucion && !isEntregada(g.estado_guia);
 }
 
 // Usado en el módulo "Guías Abiertas / En Tránsito": se basa PURAMENTE en el
 // estado de la guía, ignorando Calificación. Es "abierta" cualquier guía que
-// no esté entregada, devuelta, cancelada o pre-documentada.
-export function isAbiertaPorEstado(g: Pick<Guia, 'estado_guia' | 'es_predoc' | 'es_devolucion'>): boolean {
-  if (g.es_predoc || g.es_devolucion) return false;
+// no esté entregada, devuelta, cancelada, pre-documentada o documentada.
+export function isAbiertaPorEstado(
+  g: Pick<Guia, 'estado_guia' | 'es_predoc' | 'es_documentada' | 'es_devolucion'>
+): boolean {
+  if (g.es_predoc || g.es_documentada || g.es_devolucion) return false;
   if (isEntregada(g.estado_guia)) return false;
   if (isCancelada(g.estado_guia)) return false;
   return true;
@@ -60,9 +102,9 @@ export function isAbiertaPorEstado(g: Pick<Guia, 'estado_guia' | 'es_predoc' | '
 // de ninguna forma, un retorno: ni explícito (es_retorno) ni un posible
 // retorno de otro periodo (mismo Cliente_Paga y Nombre_Destinatario).
 export function esEntregaEfectiva(
-  g: Pick<Guia, 'estado_guia' | 'es_predoc' | 'es_retorno' | 'es_posible_retorno_otro_periodo'>
+  g: Pick<Guia, 'estado_guia' | 'es_predoc' | 'es_documentada' | 'es_retorno' | 'es_posible_retorno_otro_periodo'>
 ): boolean {
-  if (g.es_predoc || g.es_retorno || g.es_posible_retorno_otro_periodo) return false;
+  if (g.es_predoc || g.es_documentada || g.es_retorno || g.es_posible_retorno_otro_periodo) return false;
   return isEntregada(g.estado_guia);
 }
 
@@ -164,7 +206,7 @@ export function calcularItemsFacturables(guias: Guia[], tarifas?: { tarifa_entre
         mes: (fecha || '').slice(0, 7),
         fecha,
       });
-    } else if (!g.es_predoc && !g.es_retorno && isEntregada(g.estado_guia)) {
+    } else if (!g.es_predoc && !g.es_documentada && !g.es_retorno && isEntregada(g.estado_guia)) {
       const fecha = g.f_entrega || g.f_historia;
       items.push({
         guia: g.guia,
@@ -300,6 +342,7 @@ export function calcularResumenExcepciones(
     Guia,
     | 'estado_guia'
     | 'es_predoc'
+    | 'es_documentada'
     | 'oficina_destino'
     | 'entidad_destinatario'
     | 'excepcion_1'
@@ -311,7 +354,12 @@ export function calcularResumenExcepciones(
   top: number = 10
 ): ResumenExcepciones {
   const relevantes = guias.filter(
-    (g) => !g.es_predoc && !isCancelada(g.estado_guia) && !isEnRuta(g.estado_guia) && getExcepciones(g).length > 0
+    (g) =>
+      !g.es_predoc &&
+      !g.es_documentada &&
+      !isCancelada(g.estado_guia) &&
+      !isEnRuta(g.estado_guia) &&
+      getExcepciones(g).length > 0
   );
 
   return {
@@ -491,6 +539,7 @@ export function calcularTiempoPromedioEntrega(
     Guia,
     | 'estado_guia'
     | 'es_predoc'
+    | 'es_documentada'
     | 'es_retorno'
     | 'es_posible_retorno_otro_periodo'
     | 'es_devolucion'
@@ -503,9 +552,9 @@ export function calcularTiempoPromedioEntrega(
   const diasAbiertas: number[] = [];
 
   guias.forEach((g) => {
-    // Ninguna guía de retorno (explícita o posible de otro periodo) ni
-    // pre-documentada entra a este cálculo, en ningún grupo.
-    if (g.es_predoc || g.es_retorno || g.es_posible_retorno_otro_periodo) return;
+    // Ninguna guía de retorno (explícita o posible de otro periodo), ni
+    // pre-documentada, ni documentada entra a este cálculo, en ningún grupo.
+    if (g.es_predoc || g.es_documentada || g.es_retorno || g.es_posible_retorno_otro_periodo) return;
 
     if (isEntregada(g.estado_guia)) {
       const dias = diasEntreFechas(g.f_documentacion, g.f_confirmacion);
@@ -766,6 +815,7 @@ export function normalizarFila(
 
   const esDevolucion = isDevolucion(estado);
   const esPredoc = isPredoc(estado);
+  const esDocumentada = isDocumentada(estado);
   // Esta fila ES una guía de retorno EXPLÍCITA si su propio número de guía
   // aparece en la columna Retorno de alguna otra fila del archivo.
   const esRetorno = retornoNumSet.has(guia);
@@ -831,6 +881,7 @@ export function normalizarFila(
     es_posible_retorno_otro_periodo: esPosibleRetornoOtroPeriodo,
     es_devolucion: esDevolucion,
     es_predoc: esPredoc,
+    es_documentada: esDocumentada,
     accion_recomendada: accion || null,
     dias_sin_movimiento: dias,
   };

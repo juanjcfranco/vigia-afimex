@@ -1,19 +1,29 @@
 'use client';
 
-import { useMemo } from 'react';
-import { Guia, Carga } from '@/lib/types';
+import { useEffect, useMemo, useState } from 'react';
+import { Guia, Carga, TarifaCliente } from '@/lib/types';
 import {
   isEntregada,
   isAbiertaPorEstado,
+  isCancelada,
+  esGuiaOriginal,
   calcularEfectividad,
   colorEfectividad,
   getExcepciones,
   calcularItemsFacturables,
-  TARIFA_ENTREGA_ORIGINAL,
-  TARIFA_RETORNO_ENTREGADO,
   formatearPeriodo,
 } from '@/lib/business-logic';
 import { exportCierrePDF } from '@/lib/export';
+
+const TARIFAS_DEFAULT: TarifaCliente = {
+  id: '',
+  cliente: '',
+  tarifa_entrega_original: 100,
+  tarifa_devolucion: 40,
+  tarifa_retorno_entregado: 100,
+  tarifa_posible_retorno: 40,
+  actualizado_en: '',
+};
 
 interface CierreModalProps {
   open: boolean;
@@ -23,14 +33,42 @@ interface CierreModalProps {
 }
 
 function resumenDe(lista: Guia[]) {
-  const entregadas = lista.filter((g) => isEntregada(g.estado_guia) && !g.es_predoc).length;
+  const entregadas = lista.filter((g) => isEntregada(g.estado_guia) && !g.es_predoc && !g.es_documentada).length;
   const devoluciones = lista.filter((g) => g.es_devolucion).length;
   const abiertas = lista.filter((g) => isAbiertaPorEstado(g)).length;
+  const retornosAbiertos = lista.filter(
+    (g) => g.es_devolucion && g.retorno_guia && (g.retorno_estado || '').toUpperCase() !== 'ENTREGADA'
+  ).length;
   const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
-  return { total: lista.length, entregadas, devoluciones, abiertas, efectividad };
+  return { total: lista.length, entregadas, devoluciones, abiertas, retornosAbiertos, efectividad };
 }
 
 export default function CierreModal({ open, onClose, guias, cargaActiva }: CierreModalProps) {
+  const [tarifas, setTarifas] = useState<TarifaCliente>(TARIFAS_DEFAULT);
+
+  const cargarTarifas = () => {
+    const cliente = cargaActiva?.cliente || guias[0]?.cliente;
+    if (!cliente) return;
+    fetch(`/api/tarifas?cliente=${encodeURIComponent(cliente)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.error) {
+          console.error('Error al cargar tarifas:', j.error);
+          return;
+        }
+        if (j.tarifas && j.tarifas.length) {
+          setTarifas(j.tarifas[0]);
+        } else {
+          setTarifas({ ...TARIFAS_DEFAULT, cliente });
+        }
+      })
+      .catch((err) => {
+        console.error('Error de red al cargar tarifas:', err);
+      });
+  };
+
+  useEffect(cargarTarifas, [cargaActiva, guias]);
+
   const resumen = useMemo(() => {
     // KPIs idénticos al módulo Resumen
     const devolucionesConRetorno = guias.filter((g) => g.es_devolucion && g.retorno_guia);
@@ -38,15 +76,26 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
       (g) => (g.retorno_estado || '').toUpperCase() === 'ENTREGADA'
     ).length;
     const posibleRetornoOtroPeriodo = guias.filter((g) => g.es_posible_retorno_otro_periodo);
-    const guiasOriginales = guias.filter((g) => !g.es_retorno && !g.es_posible_retorno_otro_periodo && !g.es_predoc);
+    const guiasOriginales = guias.filter(esGuiaOriginal);
 
     const entregadas = guiasOriginales.filter((g) => isEntregada(g.estado_guia)).length;
     const devoluciones = guiasOriginales.filter((g) => g.es_devolucion).length;
     const predoc = guias.filter((g) => g.es_predoc).length;
+    const documentadas = guias.filter((g) => g.es_documentada).length;
+    const canceladas = guias.filter(
+      (g) =>
+        isCancelada(g.estado_guia) &&
+        !g.es_retorno &&
+        !g.es_posible_retorno_otro_periodo &&
+        !g.es_predoc &&
+        !g.es_documentada
+    ).length;
     const abiertas = guiasOriginales.filter((g) => isAbiertaPorEstado(g)).length;
+    const retornosAbiertos = devolucionesConRetorno.length - guiasRetornoEntregadas;
     const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
 
-    const totalSinDuplicadas = guiasOriginales.length + posibleRetornoOtroPeriodo.length + predoc;
+    const totalSinDuplicadas =
+      guiasOriginales.length + posibleRetornoOtroPeriodo.length + predoc + documentadas + canceladas;
 
     // COD entregado vs COD en devolución
     const codEntregado = guiasOriginales
@@ -92,16 +141,20 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
     const topLowEntidad = topYLow(efectividadPorEntidad);
     const topLowOficina = topYLow(efectividadPorOficina);
 
-    // Facturación
-    const itemsFacturables = calcularItemsFacturables(guias);
+    // Facturación — usa las tarifas configuradas para este cliente
+    // (tabla tarifas_cliente), no valores fijos
+    const itemsFacturables = calcularItemsFacturables(guias, tarifas);
     const entregasFacturables = itemsFacturables.filter((i) => i.tipo === 'ENTREGA_ORIGINAL');
     const devolucionesFacturables = itemsFacturables.filter((i) => i.tipo === 'DEVOLUCION');
     const posibleRetornoFacturable = itemsFacturables.filter((i) => i.tipo === 'POSIBLE_RETORNO_OTRO_PERIODO');
     const retornosEntregadosFacturable = itemsFacturables.filter((i) => i.tipo === 'RETORNO_ENTREGADO');
-    const montoEntregas = entregasFacturables.length * TARIFA_ENTREGA_ORIGINAL;
-    const montoDevoluciones = devolucionesFacturables.length * TARIFA_RETORNO_ENTREGADO;
-    const montoPosibleRetorno = posibleRetornoFacturable.length * TARIFA_RETORNO_ENTREGADO;
-    const montoRetornosEntregados = retornosEntregadosFacturable.length * TARIFA_ENTREGA_ORIGINAL;
+    // Suma el monto REAL de cada ítem (item.tarifa, ya calculado con la
+    // tarifa configurada), en vez de "cantidad × constante fija" — así no
+    // se puede desalinear del monto que realmente aplica calcularItemsFacturables.
+    const montoEntregas = entregasFacturables.reduce((s, i) => s + i.tarifa, 0);
+    const montoDevoluciones = devolucionesFacturables.reduce((s, i) => s + i.tarifa, 0);
+    const montoPosibleRetorno = posibleRetornoFacturable.reduce((s, i) => s + i.tarifa, 0);
+    const montoRetornosEntregados = retornosEntregadosFacturable.reduce((s, i) => s + i.tarifa, 0);
     const montoTotalFacturacion = montoEntregas + montoDevoluciones + montoPosibleRetorno + montoRetornosEntregados;
 
     // Resumen de guías abiertas por estado
@@ -110,6 +163,31 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
     abiertasGuias.forEach((g) => {
       const e = g.estado_guia || 'SIN ESTADO';
       abiertasPorEstado[e] = (abiertasPorEstado[e] || 0) + 1;
+    });
+
+    // Alertas por nivel de días sin movimiento (mismos umbrales que el
+    // módulo de Alertas: 3+ alerta, 7+ investigación, 14+ crítico)
+    let alertaNivel = 0;
+    let investigacionNivel = 0;
+    let criticoNivel = 0;
+    abiertasGuias.forEach((g) => {
+      const d = g.dias_sin_movimiento ?? 0;
+      if (d >= 14) criticoNivel++;
+      else if (d >= 7) investigacionNivel++;
+      else if (d >= 3) alertaNivel++;
+    });
+
+    // COD en retornos pendientes: dinero en devoluciones cuyo paquete de
+    // retorno todavía no llega físicamente (retorno_estado != ENTREGADA)
+    const codRetornosPendientes = devolucionesConRetorno
+      .filter((g) => (g.retorno_estado || '').toUpperCase() !== 'ENTREGADA')
+      .reduce((s, g) => s + (g.cod || 0), 0);
+
+    // Guías por cantidad de excepciones acumuladas (1 a 5)
+    const guiasPorCantidadExcepciones: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    guias.forEach((g) => {
+      const n = getExcepciones(g).length;
+      if (n >= 1 && n <= 5) guiasPorCantidadExcepciones[n] += 1;
     });
 
     return {
@@ -122,11 +200,19 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
       entregadas,
       devoluciones,
       abiertas,
+      retornosAbiertos,
       predoc,
+      documentadas,
+      canceladas,
       efectividad,
       codEntregado,
       codDevolucion,
       codAbiertas,
+      codRetornosPendientes,
+      alertaNivel,
+      investigacionNivel,
+      criticoNivel,
+      guiasPorCantidadExcepciones,
       rankingExcepciones,
       efectividadPorEntidad,
       efectividadPorOficina,
@@ -143,7 +229,7 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
       retornosEntregadosFacturableCount: retornosEntregadosFacturable.length,
       abiertasPorEstado: Object.entries(abiertasPorEstado).sort((a, b) => b[1] - a[1]),
     };
-  }, [guias]);
+  }, [guias, tarifas]);
 
   async function guardarCierre() {
     await fetch('/api/cierres', {
@@ -169,7 +255,7 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
           label: 'Total (sin dup.)',
           value: resumen.totalSinDuplicadas.toLocaleString('es-MX'),
           color: '#1E3A8A',
-          detail: 'Originales + posible retorno + predoc',
+          detail: 'Originales + posible retorno + predoc + documentadas + canceladas',
         },
         {
           label: 'Guías Originales',
@@ -218,7 +304,14 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
         { label: 'COD Entregado', value: `$${resumen.codEntregado.toLocaleString('es-MX')}`, color: '#0B9B67', detail: 'COD cobrado en entregas originales' },
         { label: 'COD en Devolución', value: `$${resumen.codDevolucion.toLocaleString('es-MX')}`, color: '#DC2626', detail: 'COD en riesgo por guías devueltas' },
         { label: 'COD en Riesgo (abiertas)', value: `$${resumen.codAbiertas.toLocaleString('es-MX')}`, color: '#EA7C1A', detail: 'COD pendiente de guías aún en tránsito' },
+        { label: 'COD en Retornos Pendientes', value: `$${resumen.codRetornosPendientes.toLocaleString('es-MX')}`, color: '#7C3AED', detail: 'COD de devoluciones cuyo paquete de retorno aún no llega' },
       ],
+      alertas: [
+        { label: 'Alerta (3-6 días)', value: String(resumen.alertaNivel), color: '#EA7C1A', detail: 'Guías abiertas sin movimiento' },
+        { label: 'Investigación (7-13 días)', value: String(resumen.investigacionNivel), color: '#7C3AED', detail: 'Requiere investigación inmediata' },
+        { label: 'Crítico (14+ días)', value: String(resumen.criticoNivel), color: '#DC2626', detail: 'Requiere acción inmediata' },
+      ],
+      guiasPorCantidadExcepciones: Object.entries(resumen.guiasPorCantidadExcepciones) as [string, number][],
       rankingExcepciones: resumen.rankingExcepciones,
       efectividadPorEntidad: resumen.efectividadPorEntidad,
       efectividadPorOficina: resumen.efectividadPorOficina,
@@ -226,25 +319,25 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
       topLowOficina: resumen.topLowOficina,
       facturacion: [
         {
-          label: `Entregas ($${TARIFA_ENTREGA_ORIGINAL} c/u)`,
+          label: `Entregas ($${tarifas.tarifa_entrega_original} c/u)`,
           value: `${resumen.entregasFacturablesCount} · $${resumen.montoEntregas.toLocaleString('es-MX')}`,
           color: '#0B9B67',
           detail: 'Guías originales con Estado = ENTREGADA',
         },
         {
-          label: `Devoluciones ($${TARIFA_RETORNO_ENTREGADO} c/u)`,
+          label: `Devoluciones ($${tarifas.tarifa_devolucion} c/u)`,
           value: `${resumen.devolucionesFacturablesCount} · $${resumen.montoDevoluciones.toLocaleString('es-MX')}`,
           color: '#DC2626',
           detail: 'Se factura al autorizar la devolución',
         },
         {
-          label: `Posible Retorno ($${TARIFA_RETORNO_ENTREGADO} c/u)`,
+          label: `Posible Retorno ($${tarifas.tarifa_posible_retorno} c/u)`,
           value: `${resumen.posibleRetornoFacturableCount} · $${resumen.montoPosibleRetorno.toLocaleString('es-MX')}`,
           color: '#B45309',
           detail: 'Retornos sin vínculo en este corte',
         },
         {
-          label: `Retornos Entregados ($${TARIFA_ENTREGA_ORIGINAL} c/u)`,
+          label: `Retornos Generados ($${tarifas.tarifa_retorno_entregado} c/u)`,
           value: `${resumen.retornosEntregadosFacturableCount} · $${resumen.montoRetornosEntregados.toLocaleString('es-MX')}`,
           color: '#7C3AED',
           detail: 'Paquete de regreso ya recibido físicamente',
@@ -276,7 +369,7 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
           <div className="bg-[var(--vg-bg)] rounded-lg p-2.5 text-center">
             <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Total (sin dup.)</div>
             <div className="text-xl font-extrabold">{resumen.totalSinDuplicadas.toLocaleString('es-MX')}</div>
-            <div className="text-[9px] text-[var(--vg-text3)] mt-0.5">Originales + posible retorno + predoc</div>
+            <div className="text-[9px] text-[var(--vg-text3)] mt-0.5">Originales + posible retorno + predoc + documentadas + canceladas</div>
           </div>
           <div className="bg-[var(--vg-bg)] rounded-lg p-2.5 text-center">
             <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Guías Originales</div>
@@ -329,8 +422,8 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
 
         {/* COD entregado vs devolución */}
         <div className="mb-5">
-          <div className="font-bold text-[12.5px] mb-2">COD Entregado vs COD en Devolución</div>
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="font-bold text-[12.5px] mb-2">COD Entregado vs COD en Devolución / Retorno</div>
+          <div className="grid grid-cols-4 gap-2.5">
             <div className="bg-white border border-[var(--vg-border)] rounded-lg p-3 text-center">
               <div className="text-[10px] text-[var(--vg-text2)] font-semibold">COD Entregado</div>
               <div className="text-lg font-extrabold text-[var(--vg-green)]">${resumen.codEntregado.toLocaleString('es-MX')}</div>
@@ -343,6 +436,42 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
               <div className="text-[10px] text-[var(--vg-text2)] font-semibold">COD en Riesgo (abiertas)</div>
               <div className="text-lg font-extrabold text-[var(--vg-amber)]">${resumen.codAbiertas.toLocaleString('es-MX')}</div>
             </div>
+            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-3 text-center">
+              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">COD en Retornos Pendientes</div>
+              <div className="text-lg font-extrabold" style={{ color: '#7C3AED' }}>${resumen.codRetornosPendientes.toLocaleString('es-MX')}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Alertas por nivel de riesgo */}
+        <div className="mb-5">
+          <div className="font-bold text-[12.5px] mb-2">Alertas — Guías Abiertas por Nivel de Riesgo</div>
+          <div className="grid grid-cols-3 gap-2.5">
+            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-3 text-center">
+              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Alerta (3-6 días)</div>
+              <div className="text-lg font-extrabold text-[var(--vg-amber)]">{resumen.alertaNivel}</div>
+            </div>
+            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-3 text-center">
+              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Investigación (7-13 días)</div>
+              <div className="text-lg font-extrabold" style={{ color: '#7C3AED' }}>{resumen.investigacionNivel}</div>
+            </div>
+            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-3 text-center">
+              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Crítico (14+ días)</div>
+              <div className="text-lg font-extrabold text-[var(--vg-red)]">{resumen.criticoNivel}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Guías por cantidad de excepciones */}
+        <div className="mb-5">
+          <div className="font-bold text-[12.5px] mb-2">Guías por Cantidad de Excepciones</div>
+          <div className="grid grid-cols-5 gap-2">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <div key={n} className="bg-white border border-[var(--vg-border)] rounded-lg p-2.5 text-center">
+                <div className="text-[16px] font-extrabold text-[var(--vg-blue)]">{resumen.guiasPorCantidadExcepciones[n]}</div>
+                <div className="text-[9.5px] text-[var(--vg-text2)]">{n} excepci{n === 1 ? 'ón' : 'ones'}</div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -477,28 +606,34 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
 
         {/* Facturación */}
         <div className="mb-5">
-          <div className="font-bold text-[12.5px] mb-2">Facturación</div>
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
+            <div className="font-bold text-[12.5px]">Facturación</div>
+            <span className="text-[10px] text-[var(--vg-text2)]">
+              Tarifas de <strong>{tarifas.cliente || cargaActiva?.cliente || '—'}</strong>: ${tarifas.tarifa_entrega_original} / ${tarifas.tarifa_devolucion} / ${tarifas.tarifa_retorno_entregado} / ${tarifas.tarifa_posible_retorno}
+              {' '}<span className="text-[var(--vg-text3)]">(configúralas desde el módulo de Facturación)</span>
+            </span>
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
             <div className="bg-white border border-[var(--vg-border)] rounded-lg p-2.5 text-center">
-              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Entregas (${TARIFA_ENTREGA_ORIGINAL} c/u)</div>
+              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Entregas (${tarifas.tarifa_entrega_original} c/u)</div>
               <div className="text-base font-extrabold text-[var(--vg-green)]">
                 {resumen.entregasFacturablesCount} · ${resumen.montoEntregas.toLocaleString('es-MX')}
               </div>
             </div>
             <div className="bg-white border border-[var(--vg-border)] rounded-lg p-2.5 text-center">
-              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Devoluciones (${TARIFA_RETORNO_ENTREGADO} c/u)</div>
+              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Devoluciones (${tarifas.tarifa_devolucion} c/u)</div>
               <div className="text-base font-extrabold text-[var(--vg-red)]">
                 {resumen.devolucionesFacturablesCount} · ${resumen.montoDevoluciones.toLocaleString('es-MX')}
               </div>
             </div>
             <div className="bg-white border border-[var(--vg-border)] rounded-lg p-2.5 text-center">
-              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Posible Retorno (${TARIFA_RETORNO_ENTREGADO} c/u)</div>
+              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Posible Retorno (${tarifas.tarifa_posible_retorno} c/u)</div>
               <div className="text-base font-extrabold" style={{ color: '#B45309' }}>
                 {resumen.posibleRetornoFacturableCount} · ${resumen.montoPosibleRetorno.toLocaleString('es-MX')}
               </div>
             </div>
             <div className="bg-white border border-[var(--vg-border)] rounded-lg p-2.5 text-center">
-              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Retornos Entregados (${TARIFA_ENTREGA_ORIGINAL} c/u)</div>
+              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Retornos Generados (${tarifas.tarifa_retorno_entregado} c/u)</div>
               <div className="text-base font-extrabold text-[var(--vg-purple)]">
                 {resumen.retornosEntregadosFacturableCount} · ${resumen.montoRetornosEntregados.toLocaleString('es-MX')}
               </div>

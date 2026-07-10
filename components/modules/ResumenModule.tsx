@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, esGuiaOriginal, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo } from '@/lib/business-logic';
 import { exportInformeLogisticoPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
 import KpiCard from '@/components/KpiCard';
@@ -77,21 +77,27 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     // por fila propia (es_retorno) y las de posible retorno de otro periodo.
     // Las devoluciones SÍ son guías originales (la devolución es el evento;
     // su retorno físico, si existe, es la fila duplicada que se excluye aquí).
-    const guiasOriginales = guias.filter((g) => !g.es_retorno && !g.es_posible_retorno_otro_periodo && !g.es_predoc);
+    const guiasOriginales = guias.filter(esGuiaOriginal);
 
-    // Las predoc se cuentan directo desde todas las guías (no desde originales, ya las excluimos)
+    // Las predoc, documentadas y canceladas se cuentan directo desde todas
+    // las guías (no desde originales, ya las excluimos) — las tres están
+    // fuera de los indicadores principales: predoc y documentadas porque
+    // ninguna ha iniciado su movimiento real, y canceladas porque no
+    // representan operación efectiva ni pendiente.
     const predoc = guias.filter((g) => g.es_predoc).length;
+    const documentadas = guias.filter((g) => g.es_documentada).length;
+    const canceladas = guias.filter(
+      (g) =>
+        isCancelada(g.estado_guia) &&
+        !g.es_retorno &&
+        !g.es_posible_retorno_otro_periodo &&
+        !g.es_predoc &&
+        !g.es_documentada
+    ).length;
 
     const entregadas = guiasOriginales.filter((g) => isEntregada(g.estado_guia)).length;
     const devoluciones = guiasOriginales.filter((g) => g.es_devolucion).length;
     const abiertas = guiasOriginales.filter((g) => isAbiertaPorEstado(g)).length;
-    // Las canceladas SÍ forman parte de "guías procesadas" (guiasOriginales
-    // no las excluye), pero no caen en entregadas, devoluciones ni abiertas
-    // (isAbiertaPorEstado las excluye explícitamente). Sin este bucket, la
-    // suma de los otros tres no cuadra contra el total — antes el cuadre
-    // sumaba "+ predoc" por error, cuando predoc ni siquiera es parte de
-    // guiasOriginales (se excluye desde el filtro de arriba).
-    const canceladas = guiasOriginales.filter((g) => isCancelada(g.estado_guia)).length;
 
     // "Retornos abiertos": devoluciones cuyo paquete de retorno TODAVÍA no
     // llega (retorno_estado distinto de ENTREGADA). No son "guías abiertas"
@@ -107,9 +113,11 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     // hasta F_Entrega — solo guías entregadas que no son retorno.
     const tiempoEntrega = calcularTiempoPromedioEntrega(guias);
 
-    // "Total sin duplicadas": originales (ya sin predoc) + posible retorno + predoc
-    // Para que el cuadre de filas sea transparente
-    const totalSinDuplicadas = guiasOriginales.length + posibleRetornoOtroPeriodo.length + predoc;
+    // "Total sin duplicadas": originales (ya sin predoc/documentada/
+    // canceladas) + posible retorno + predoc + documentadas + canceladas.
+    // Para que el cuadre de filas sea transparente.
+    const totalSinDuplicadas =
+      guiasOriginales.length + posibleRetornoOtroPeriodo.length + predoc + documentadas + canceladas;
 
     return {
       totalFilas,
@@ -127,6 +135,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       abiertas,
       canceladas,
       predoc,
+      documentadas,
       efectividad,
       tiempoEntrega,
     };
@@ -135,7 +144,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
   const estados = useMemo(() => {
     const counts: Record<string, number> = {};
     guias
-      .filter((g) => !g.es_predoc)
+      .filter((g) => !g.es_predoc && !g.es_documentada)
       .forEach((g) => {
         let e = g.estado_guia || 'SIN ESTADO';
         // Separa SIEMPRE los retornos del estado bruto, sin importar cuál
@@ -191,7 +200,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     [topOficinas]
   );
 
-  const totalSinPredoc = useMemo(() => guias.filter((g) => !g.es_predoc).length, [guias]);
+  const totalSinPredoc = useMemo(() => guias.filter((g) => !g.es_predoc && !g.es_documentada).length, [guias]);
   const estadosOrden = useSortableTable<[string, number]>(estados, (item, key) => {
     if (key === 'estado') return item[0];
     if (key === 'guias') return item[1];
@@ -265,18 +274,12 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
         </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-11 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-12 gap-3">
         <KpiCard
           title="Guías Procesadas"
           value={kpis.totalOriginales.toLocaleString('es-MX')}
-          subtitle="Entregadas + devoluciones + abiertas + canceladas (no incluye predoc ni retornos) — métrica principal de volumen"
+          subtitle="Entregadas + devoluciones + abiertas (no incluye predoc, documentadas, canceladas ni retornos) — métrica principal de volumen"
           accentColor="#0F172A"
-        />
-        <KpiCard
-          title="Total (sin duplicadas)"
-          value={kpis.totalSinDuplicadas.toLocaleString('es-MX')}
-          subtitle="Guías procesadas + posible retorno otro periodo"
-          accentColor="#1E3A8A"
         />
         <KpiCard
           title="Entregadas"
@@ -336,14 +339,26 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
           subtitle="Fuera de indicadores"
           accentColor="#14532D"
         />
+        <KpiCard
+          title="Documentadas"
+          value={kpis.documentadas.toLocaleString('es-MX')}
+          subtitle="Fuera de indicadores (aún no inicia movimiento)"
+          accentColor="#0891B2"
+        />
+        <KpiCard
+          title="Canceladas"
+          value={kpis.canceladas.toLocaleString('es-MX')}
+          subtitle="Fuera de indicadores"
+          accentColor="#64748B"
+        />
       </div>
 
       <div className="bg-white rounded-lg border border-[var(--vg-border)] px-4 py-2.5 text-[11.5px] text-[var(--vg-text2)] flex flex-wrap gap-x-6 gap-y-1">
         <span>
           <strong className="text-[var(--vg-text)]">Cuadre (Guías Procesadas):</strong> {kpis.entregadas.toLocaleString('es-MX')}{' '}
           entregadas + {kpis.devoluciones.toLocaleString('es-MX')} devoluciones + {kpis.abiertas.toLocaleString('es-MX')}{' '}
-          abiertas + {kpis.canceladas.toLocaleString('es-MX')} canceladas = {kpis.totalOriginales.toLocaleString('es-MX')}
-          {' '}(predoc se cuenta aparte, no forma parte de este total)
+          abiertas = {kpis.totalOriginales.toLocaleString('es-MX')}
+          {' '}(predoc, documentadas y canceladas se cuentan aparte, no forman parte de este total)
         </span>
         <span>
           <strong className="text-[var(--vg-text)]">Efectividad:</strong> {kpis.entregadas.toLocaleString('es-MX')} entregadas /
@@ -352,8 +367,9 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
         </span>
         <span>
           <strong className="text-[var(--vg-text)]">Total sin duplicadas:</strong> {kpis.totalOriginales.toLocaleString('es-MX')}{' '}
-          procesadas + {kpis.totalPosibleRetornoOtroPeriodo.toLocaleString('es-MX')} posible retorno otro periodo ={' '}
-          {kpis.totalSinDuplicadas.toLocaleString('es-MX')}
+          procesadas + {kpis.totalPosibleRetornoOtroPeriodo.toLocaleString('es-MX')} posible retorno otro periodo +{' '}
+          {kpis.predoc.toLocaleString('es-MX')} predoc + {kpis.documentadas.toLocaleString('es-MX')} documentadas +{' '}
+          {kpis.canceladas.toLocaleString('es-MX')} canceladas = {kpis.totalSinDuplicadas.toLocaleString('es-MX')}
         </span>
         <span>
           <strong className="text-[var(--vg-text)]">Filas en el archivo:</strong> {kpis.totalSinDuplicadas.toLocaleString('es-MX')}{' '}
@@ -380,7 +396,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
-          <div className="font-bold text-[12.5px] mb-3">Estados de Guías (sin pre-doc.)</div>
+          <div className="font-bold text-[12.5px] mb-3">Estados de Guías (sin pre-doc. ni documentada)</div>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
@@ -441,7 +457,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
           <div className="px-4 py-2.5 font-bold text-[12.5px] border-b border-[var(--vg-border)]">
-            Estados de Guías (sin pre-doc.)
+            Estados de Guías (sin pre-doc. ni documentada)
           </div>
           <table className="vg-table">
             <thead>
