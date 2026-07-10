@@ -98,10 +98,12 @@ export function exportToPDF<T>(rows: T[], columnas: ColumnaExport<T>[], titulo: 
 export function exportAcuseConcentradoPDF(alertas: Array<{
   oficina: string;
   guias_incluidas: string[];
+  guias_detalle?: Array<{ guia: string; f_historia: string | null }> | null;
   total_guias: number;
   enviado_a: string | null;
   enviado_en: string;
   estado: string;
+  cliente?: string | null;
   tipo_solicitud?: string | null;
 }>) {
   const win = window.open('', '_blank');
@@ -120,13 +122,19 @@ export function exportAcuseConcentradoPDF(alertas: Array<{
       weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric',
       hour: '2-digit', minute: '2-digit',
     });
-    const filasGuias = a.guias_incluidas
+    // guias_detalle trae el snapshot enriquecido (cliente ya es el mismo
+    // para todo el bloque, así que se muestra una vez en el encabezado).
+    // Si es un registro viejo sin guias_detalle, cae a solo el número.
+    const detalle: Array<{ guia: string; f_historia: string | null }> =
+      a.guias_detalle && a.guias_detalle.length
+        ? a.guias_detalle
+        : a.guias_incluidas.map((g) => ({ guia: g, f_historia: null }));
+    const filasGuias = detalle
       .map((g, i) => `<tr>
         <td style="padding:4px 8px;border:1px solid #E2E8F0;color:#64748B">${i + 1}</td>
-        <td style="padding:4px 8px;border:1px solid #E2E8F0;font-family:monospace;font-weight:600">${escapeHtml(g)}</td>
+        <td style="padding:4px 8px;border:1px solid #E2E8F0;font-family:monospace;font-weight:600">${escapeHtml(g.guia)}</td>
         <td style="padding:4px 8px;border:1px solid #E2E8F0">${escapeHtml(a.oficina)}</td>
-        <td style="padding:4px 8px;border:1px solid #E2E8F0">${escapeHtml(a.enviado_a || '—')}</td>
-        <td style="padding:4px 8px;border:1px solid #E2E8F0">${escapeHtml(fechaEnvio)}</td>
+        <td style="padding:4px 8px;border:1px solid #E2E8F0">${escapeHtml(g.f_historia || '—')}</td>
       </tr>`)
       .join('');
     return `
@@ -135,6 +143,7 @@ export function exportAcuseConcentradoPDF(alertas: Array<{
           <div>
             <span style="font-weight:800;font-size:13px">${idx + 1}. ${escapeHtml(a.oficina)}</span>
             <span style="margin-left:10px;font-size:11px;color:#64748B">${a.total_guias} guía(s)</span>
+            ${a.cliente ? `<span style="margin-left:8px;font-size:11px;color:#64748B">· Cliente: <strong>${escapeHtml(a.cliente)}</strong></span>` : ''}
             ${a.tipo_solicitud ? `<span style="margin-left:8px;background:#1E3A8A;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">${escapeHtml(a.tipo_solicitud)}</span>` : ''}
           </div>
           <div style="font-size:11px;color:#64748B">${escapeHtml(fechaEnvio)}</div>
@@ -145,8 +154,7 @@ export function exportAcuseConcentradoPDF(alertas: Array<{
             <th style="background:#F8FAFC;border:1px solid #E2E8F0;padding:4px 8px;text-align:left;color:#94A3B8">#</th>
             <th style="background:#F8FAFC;border:1px solid #E2E8F0;padding:4px 8px;text-align:left;color:#94A3B8">Guía</th>
             <th style="background:#F8FAFC;border:1px solid #E2E8F0;padding:4px 8px;text-align:left;color:#94A3B8">Oficina</th>
-            <th style="background:#F8FAFC;border:1px solid #E2E8F0;padding:4px 8px;text-align:left;color:#94A3B8">Enviado a</th>
-            <th style="background:#F8FAFC;border:1px solid #E2E8F0;padding:4px 8px;text-align:left;color:#94A3B8">Fecha</th>
+            <th style="background:#F8FAFC;border:1px solid #E2E8F0;padding:4px 8px;text-align:left;color:#94A3B8">Últ. Mov.</th>
           </tr></thead>
           <tbody>${filasGuias}</tbody>
         </table>
@@ -198,10 +206,12 @@ export function exportAcuseConcentradoPDF(alertas: Array<{
 export function exportAcusePDF(alerta: {
   oficina: string;
   guias_incluidas: string[];
+  guias_detalle?: Array<{ guia: string; f_historia: string | null }> | null;
   total_guias: number;
   enviado_a: string | null;
   enviado_en: string;
   estado: string;
+  cliente?: string | null;
 }) {
   const win = window.open('', '_blank');
   if (!win) {
@@ -226,12 +236,18 @@ export function exportAcusePDF(alerta: {
     minute: '2-digit',
   });
 
-  const filasGuias = alerta.guias_incluidas
+  const detalle: Array<{ guia: string; f_historia: string | null }> =
+    alerta.guias_detalle && alerta.guias_detalle.length
+      ? alerta.guias_detalle
+      : alerta.guias_incluidas.map((g) => ({ guia: g, f_historia: null }));
+
+  const filasGuias = detalle
     .map(
       (g, i) => `<tr>
         <td style="padding:5px 10px;border:1px solid #E2E8F0;color:#64748B">${i + 1}</td>
-        <td style="padding:5px 10px;border:1px solid #E2E8F0;font-family:monospace;font-weight:600">${escapeHtml(g)}</td>
+        <td style="padding:5px 10px;border:1px solid #E2E8F0;font-family:monospace;font-weight:600">${escapeHtml(g.guia)}</td>
         <td style="padding:5px 10px;border:1px solid #E2E8F0">${escapeHtml(alerta.oficina)}</td>
+        <td style="padding:5px 10px;border:1px solid #E2E8F0">${escapeHtml(g.f_historia || '—')}</td>
       </tr>`
     )
     .join('');
@@ -281,6 +297,10 @@ export function exportAcusePDF(alerta: {
 
       <div class="info-grid">
         <div class="info-card">
+          <div class="info-label">Cliente</div>
+          <div class="info-value">${escapeHtml(alerta.cliente || '—')}</div>
+        </div>
+        <div class="info-card">
           <div class="info-label">Oficina Destino</div>
           <div class="info-value">${escapeHtml(alerta.oficina)}</div>
         </div>
@@ -305,6 +325,7 @@ export function exportAcusePDF(alerta: {
             <th>#</th>
             <th>Número de Guía</th>
             <th>Oficina Destino</th>
+            <th>Últ. Mov.</th>
           </tr>
         </thead>
         <tbody>
@@ -357,6 +378,8 @@ export interface CierreExportData {
   };
   facturacion: { label: string; value: string; color: string; detail?: string }[];
   abiertasPorEstado: [string, number][];
+  alertas?: { label: string; value: string; color: string; detail?: string }[];
+  guiasPorCantidadExcepciones?: [string, number][];
 }
 
 export function exportCierrePDF(data: CierreExportData) {
@@ -443,6 +466,23 @@ export function exportCierrePDF(data: CierreExportData) {
     data.abiertasPorEstado.map(([estado, n]) => [estado, String(n)])
   );
 
+  const excPorCantidadHtml = data.guiasPorCantidadExcepciones
+    ? tablaSimple(
+        'Guías por Cantidad de Excepciones',
+        ['Cantidad de excepciones', 'Guías'],
+        data.guiasPorCantidadExcepciones.map(([n, c]) => [`${n} excepción${n === '1' ? '' : 'es'}`, String(c)])
+      )
+    : '';
+
+  const alertasHtml =
+    data.alertas && data.alertas.length
+      ? `
+    <div class="seccion">
+      <div class="seccion-titulo">Alertas — Guías Abiertas por Nivel de Riesgo</div>
+      <div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr);">${kpiCards(data.alertas)}</div>
+    </div>`
+      : '';
+
   win.document.write(`
     <!DOCTYPE html>
     <html lang="es">
@@ -504,11 +544,15 @@ export function exportCierrePDF(data: CierreExportData) {
       </div>
 
       <div class="seccion">
-        <div class="seccion-titulo">COD Entregado vs COD en Devolución</div>
-        <div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr);">${kpiCards(data.cod)}</div>
+        <div class="seccion-titulo">COD Entregado vs COD en Devolución / Retorno</div>
+        <div class="kpi-grid" style="grid-template-columns: repeat(${data.cod.length}, 1fr);">${kpiCards(data.cod)}</div>
       </div>
 
+      ${alertasHtml}
+
       ${rankingHtml}
+
+      ${excPorCantidadHtml}
 
       ${topLowHtml}
 
@@ -534,3 +578,177 @@ export function exportCierrePDF(data: CierreExportData) {
   `);
   win.document.close();
 }
+
+// ============================================================
+// Informe Logístico: un resumen visual de una sola página con los
+// indicadores clave del corte actual — pensado para compartir con
+// clientes o gerencia, no para el detalle operativo día a día que ya
+// cubren los demás módulos. Usa el mismo mecanismo de "ventana nueva +
+// window.print()" que el resto de las exportaciones, para que el usuario
+// lo pueda guardar como PDF o imprimir directamente desde el navegador.
+// ============================================================
+export interface InformeLogisticoData {
+  cliente: string;
+  periodoTexto: string;
+  kpis: {
+    totalProcesadas: number;
+    entregadas: number;
+    devoluciones: number;
+    abiertas: number;
+    canceladas: number;
+    efectividad: number | null;
+    tiempoPromedioEntregaDias: number | null;
+    retornosAbiertos: number;
+  };
+  topExcepciones: Array<{ key: string; count: number }>;
+  totalConExcepcion: number;
+  topOficinas: Array<{ key: string; count: number }>;
+  totalGuias: number;
+  topDevolucionesPorOficina: Array<{ key: string; count: number }>;
+  topDevolucionesPorMotivo: Array<{ key: string; count: number }>;
+  totalDevoluciones: number;
+}
+
+function colorEfectividadInforme(valor: number | null): string {
+  if (valor === null) return '#94A3B8';
+  if (valor >= 70) return '#0B9B67';
+  if (valor >= 50) return '#EA7C1A';
+  return '#DC2626';
+}
+
+function barraHtml(items: Array<{ key: string; count: number }>, total: number, color: string): string {
+  if (!items.length) {
+    return `<div class="sin-datos">Sin datos para este corte</div>`;
+  }
+  const max = Math.max(...items.map((i) => i.count), 1);
+  return items
+    .map(({ key, count }) => {
+      const pct = total ? ((count / total) * 100).toFixed(1) : '0.0';
+      const anchoBarra = Math.max(2, (count / max) * 100);
+      return `
+        <div class="barra-fila">
+          <div class="barra-label" title="${escapeHtml(key)}">${escapeHtml(key)}</div>
+          <div class="barra-track">
+            <div class="barra-fill" style="width:${anchoBarra}%; background:${color};"></div>
+          </div>
+          <div class="barra-valor">${count.toLocaleString('es-MX')} <span class="barra-pct">(${pct}%)</span></div>
+        </div>`;
+    })
+    .join('');
+}
+
+export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
+  const fecha = new Date().toLocaleString('es-MX');
+  const win = window.open('', '_blank');
+  if (!win) {
+    alert('Tu navegador bloqueó la ventana de impresión. Habilita pop-ups para este sitio.');
+    return;
+  }
+
+  const k = data.kpis;
+  const kpiCards = [
+    { label: 'Guías Procesadas', value: k.totalProcesadas.toLocaleString('es-MX'), color: '#0F172A' },
+    { label: 'Entregadas', value: k.entregadas.toLocaleString('es-MX'), color: '#0B9B67' },
+    { label: 'Devoluciones', value: k.devoluciones.toLocaleString('es-MX'), color: '#DC2626' },
+    { label: 'Abiertas', value: k.abiertas.toLocaleString('es-MX'), color: '#EA7C1A' },
+    {
+      label: 'Efectividad',
+      value: k.efectividad !== null ? `${k.efectividad}%` : '—',
+      color: colorEfectividadInforme(k.efectividad),
+    },
+    {
+      label: 'Tiempo Prom. de Entrega',
+      value: k.tiempoPromedioEntregaDias !== null ? `${k.tiempoPromedioEntregaDias} días` : '—',
+      color: '#0891B2',
+    },
+    { label: 'Retornos Abiertos', value: k.retornosAbiertos.toLocaleString('es-MX'), color: '#7C3AED' },
+    { label: 'Canceladas', value: k.canceladas.toLocaleString('es-MX'), color: '#64748B' },
+  ]
+    .map(
+      (c) => `
+      <div class="kpi-card">
+        <div class="kpi-label">${escapeHtml(c.label)}</div>
+        <div class="kpi-value" style="color:${c.color};">${c.value}</div>
+      </div>`
+    )
+    .join('');
+
+  win.document.write(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="utf-8" />
+      <title>VIGIA - Informe Logístico</title>
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, Helvetica, sans-serif; padding: 28px; color: #1E293B; }
+        .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; border-bottom: 3px solid #1E3A8A; padding-bottom: 14px; }
+        .header h1 { font-size: 20px; color: #1E3A8A; margin: 0 0 4px 0; }
+        .header .subtitulo { font-size: 13px; color: #64748B; }
+        .header .meta { font-size: 11px; color: #64748B; text-align: right; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 22px; }
+        .kpi-card { border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; background: #F8FAFC; }
+        .kpi-label { font-size: 10.5px; font-weight: 700; color: #64748B; margin-bottom: 4px; text-transform: uppercase; }
+        .kpi-value { font-size: 22px; font-weight: 800; }
+        .secciones { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
+        .seccion { border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; }
+        .seccion-titulo { font-size: 13px; font-weight: 800; margin-bottom: 10px; color: #1E293B; }
+        .barra-fila { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+        .barra-label { font-size: 11px; font-weight: 600; width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .barra-track { flex: 1; background: #F1F5F9; border-radius: 4px; height: 10px; overflow: hidden; }
+        .barra-fill { height: 100%; border-radius: 4px; }
+        .barra-valor { font-size: 10.5px; font-weight: 700; width: 22%; text-align: right; white-space: nowrap; }
+        .barra-pct { font-weight: 500; color: #94A3B8; }
+        .sin-datos { font-size: 11px; color: #94A3B8; padding: 8px 0; }
+        .footer { margin-top: 16px; font-size: 10px; color: #94A3B8; text-align: right; }
+        @media print {
+          body { padding: 10mm; }
+          @page { size: portrait; margin: 12mm; }
+          .secciones { break-inside: avoid; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div>
+          <h1>VIGÍA — Informe Logístico</h1>
+          <div class="subtitulo">${escapeHtml(data.cliente)} · ${escapeHtml(data.periodoTexto)}</div>
+        </div>
+        <div class="meta">Generado: ${escapeHtml(fecha)}<br/>${data.totalGuias.toLocaleString('es-MX')} guías en este corte</div>
+      </div>
+
+      <div class="kpi-grid">${kpiCards}</div>
+
+      <div class="secciones">
+        <div class="seccion">
+          <div class="seccion-titulo">Top Excepciones</div>
+          ${barraHtml(data.topExcepciones, data.totalConExcepcion, '#7C3AED')}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo">Top Oficinas por Volumen</div>
+          ${barraHtml(data.topOficinas, data.totalGuias, '#1E3A8A')}
+        </div>
+      </div>
+
+      <div class="secciones">
+        <div class="seccion">
+          <div class="seccion-titulo">Devoluciones — Top Oficina Destino</div>
+          ${barraHtml(data.topDevolucionesPorOficina, data.totalDevoluciones, '#DC2626')}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo">Devoluciones — Top Motivo</div>
+          ${barraHtml(data.topDevolucionesPorMotivo, data.totalDevoluciones, '#EA7C1A')}
+        </div>
+      </div>
+
+      <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
+
+      <script>
+        window.onload = function() { window.print(); };
+      </script>
+    </body>
+    </html>
+  `);
+  win.document.close();
+}
+

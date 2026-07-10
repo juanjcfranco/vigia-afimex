@@ -2,7 +2,8 @@
 
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo } from '@/lib/business-logic';
+import { exportInformeLogisticoPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
 import KpiCard from '@/components/KpiCard';
 import { useSortableTable } from '@/lib/useSortableTable';
@@ -203,8 +204,67 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     return null;
   });
 
+  function generarInformeLogistico() {
+    // Para el informe usamos un top 10 (más completo que el resumen de
+    // 5 que se ve en pantalla), calculado fresco aquí mismo con las
+    // mismas funciones compartidas del resto del sistema.
+    const excepcionesInforme = calcularResumenExcepciones(guias, 10);
+    const devolucionesInforme = calcularResumenDevoluciones(guias, 10);
+
+    const clientesDistintos = [...new Set(guias.map((g) => g.cliente).filter(Boolean))] as string[];
+    const cliente =
+      clientesDistintos.length === 1
+        ? clientesDistintos[0]
+        : clientesDistintos.length > 1
+          ? `Varios clientes (${clientesDistintos.length})`
+          : 'Sin cliente';
+
+    const mesesDoc = guias
+      .map((g) => g.f_documentacion)
+      .filter((f): f is string => !!f)
+      .sort();
+    const periodoTexto = mesesDoc.length
+      ? (() => {
+          const min = mesesDoc[0].slice(0, 7);
+          const max = mesesDoc[mesesDoc.length - 1].slice(0, 7);
+          return min === max ? formatearPeriodo(min) : `${formatearPeriodo(min)} – ${formatearPeriodo(max)}`;
+        })()
+      : 'Periodo no disponible';
+
+    exportInformeLogisticoPDF({
+      cliente,
+      periodoTexto,
+      kpis: {
+        totalProcesadas: kpis.totalOriginales,
+        entregadas: kpis.entregadas,
+        devoluciones: kpis.devoluciones,
+        abiertas: kpis.abiertas,
+        canceladas: kpis.canceladas,
+        efectividad: kpis.efectividad,
+        tiempoPromedioEntregaDias: kpis.tiempoEntrega.promedioDias,
+        retornosAbiertos: kpis.retornosAbiertos,
+      },
+      topExcepciones: excepcionesInforme.porTipo,
+      totalConExcepcion: excepcionesInforme.total,
+      topOficinas: topOficinas.map(([key, count]) => ({ key, count })),
+      totalGuias: guias.length,
+      topDevolucionesPorOficina: devolucionesInforme.porOficina,
+      topDevolucionesPorMotivo: devolucionesInforme.porMotivo,
+      totalDevoluciones: devolucionesInforme.total,
+    });
+  }
+
   return (
     <div className="p-5 space-y-5">
+      <div className="flex justify-end">
+        <button
+          onClick={generarInformeLogistico}
+          className="text-[12px] font-semibold text-white bg-[var(--vg-blue)] rounded-md px-3 py-1.5 hover:opacity-90"
+        >
+          📄 Generar Informe Logístico
+        </button>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-11 gap-3">
         <KpiCard
           title="Guías Procesadas"
