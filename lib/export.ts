@@ -212,6 +212,7 @@ export function exportAcusePDF(alerta: {
   enviado_en: string;
   estado: string;
   cliente?: string | null;
+  tipo_solicitud?: string | null;
 }) {
   const win = window.open('', '_blank');
   if (!win) {
@@ -296,6 +297,10 @@ export function exportAcusePDF(alerta: {
       </div>
 
       <div class="info-grid">
+        <div class="info-card">
+          <div class="info-label">Tipo de Notificación</div>
+          <div class="info-value" style="color:#1E3A8A">${escapeHtml(alerta.tipo_solicitud || '—')}</div>
+        </div>
         <div class="info-card">
           <div class="info-label">Cliente</div>
           <div class="info-value">${escapeHtml(alerta.cliente || '—')}</div>
