@@ -95,8 +95,9 @@ export default function AlertaCriticaModal({
       body: JSON.stringify({
         oficina,
         guias_incluidas: lista.map((g) => g.guia),
-              cliente: lista[0]?.cliente || '',
-              tipo_solicitud: 'Estado Crítico',
+        guias_detalle: lista.map((g) => ({ guia: g.guia, f_historia: g.f_historia || null })),
+        cliente: lista[0]?.cliente || '',
+        tipo_solicitud: 'Estado Crítico',
         total_guias: lista.length,
         enviado_a: para,
       }),

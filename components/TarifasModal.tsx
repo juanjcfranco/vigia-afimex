@@ -8,6 +8,7 @@ const CLIENTES_HABITUALES = ['MERQ', 'MENVELO', 'SARTEN FLAVOR', 'KIKI LOGISTICS
 interface TarifasModalProps {
   open: boolean;
   onClose: () => void;
+  onSaved?: () => void;
 }
 
 const CAMPOS: { key: keyof TarifaCliente; label: string; color: string }[] = [
@@ -17,7 +18,7 @@ const CAMPOS: { key: keyof TarifaCliente; label: string; color: string }[] = [
   { key: 'tarifa_posible_retorno', label: 'Posible Retorno ($)', color: '#B45309' },
 ];
 
-export default function TarifasModal({ open, onClose }: TarifasModalProps) {
+export default function TarifasModal({ open, onClose, onSaved }: TarifasModalProps) {
   const [tarifas, setTarifas] = useState<Record<string, TarifaCliente>>({});
   const [loading, setLoading] = useState(false);
   const [guardando, setGuardando] = useState<string | null>(null);
@@ -68,6 +69,10 @@ export default function TarifasModal({ open, onClose }: TarifasModalProps) {
     setGuardando(null);
     setGuardado(cliente);
     setTimeout(() => setGuardado(null), 2000);
+    // Avisa al módulo que abrió el modal (Facturación, Cierre) para que
+    // vuelva a pedir la tarifa guardada y se refleje de inmediato, sin
+    // tener que volver a cargar el Excel ni reabrir la pantalla.
+    onSaved?.();
   }
 
   function agregarCliente() {
@@ -182,7 +187,7 @@ export default function TarifasModal({ open, onClose }: TarifasModalProps) {
             </div>
 
             <p className="mt-2 text-[11px] text-[var(--vg-text3)]">
-              Los cambios aplican en la próxima carga de Excel. Para el corte actual, recarga el archivo.
+              Los cambios se guardan de inmediato y se aplican en tiempo real en Facturación y en el Reporte de Cierre — no hace falta volver a cargar el Excel.
             </p>
           </>
         )}

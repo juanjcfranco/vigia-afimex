@@ -21,3 +21,10 @@ values
   ('KIKI LOGISTICS MX',   100, 40, 100, 40),
   ('YEGO',                100, 40, 100, 40)
 on conflict (cliente) do nothing;
+
+-- RLS: igual que el resto de las tablas de VIGIA (habilitado, con política
+-- abierta). La app siempre accede con la service role key desde el
+-- servidor, que de por sí ignora RLS — esto es higiene/consistencia con
+-- el resto del esquema, no un requisito funcional.
+alter table tarifas_cliente enable row level security;
+create policy "allow_all_tarifas" on tarifas_cliente for all using (true) with check (true);

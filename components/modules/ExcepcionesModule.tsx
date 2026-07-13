@@ -21,7 +21,7 @@ export default function ExcepcionesModule({ guias }: { guias: Guia[] }) {
 
   const base = useMemo(() => {
     return guias.filter((g) => {
-      if (g.es_predoc) return false;
+      if (g.es_predoc || g.es_documentada) return false;
       if (isCancelada(g.estado_guia)) return false;
       if (isEnRuta(g.estado_guia)) return false;
       return getExcepciones(g).length > 0;

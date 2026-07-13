@@ -124,8 +124,9 @@ export default function AccionMasivaModal({
       body: JSON.stringify({
         oficina,
         guias_incluidas: lista.map((g) => g.guia),
-              cliente: lista[0]?.cliente || '',
-              tipo_solicitud: tipo === 'REPROGRAMAR' ? 'Reprogramación' : 'Devolución',
+        guias_detalle: lista.map((g) => ({ guia: g.guia, f_historia: g.f_historia || null })),
+        cliente: lista[0]?.cliente || '',
+        tipo_solicitud: tipo === 'REPROGRAMAR' ? 'Reprogramación' : 'Devolución',
         total_guias: lista.length,
         enviado_a: para,
       }),

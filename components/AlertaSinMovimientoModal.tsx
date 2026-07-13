@@ -98,6 +98,7 @@ export default function AlertaSinMovimientoModal({
             body: JSON.stringify({
               oficina: g.oficina_destino || 'SIN OFICINA',
               guias_incluidas: [g.guia],
+              guias_detalle: [{ guia: g.guia, f_historia: g.f_historia || null }],
               total_guias: 1,
               cliente: g.cliente || '',
               tipo_solicitud: 'Alerta sin movimiento',

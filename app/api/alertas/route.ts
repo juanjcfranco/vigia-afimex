@@ -17,13 +17,13 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const db = supabaseAdmin();
   const body = await req.json();
-  const { oficina, guias_incluidas, total_guias, enviado_a, enviado_por, cliente, tipo_solicitud } = body;
+  const { oficina, guias_incluidas, guias_detalle, total_guias, enviado_a, enviado_por, cliente, tipo_solicitud } = body;
 
   if (!oficina) return NextResponse.json({ error: 'oficina es requerida' }, { status: 400 });
 
   const { data, error } = await db
     .from('alertas_log')
-    .insert({ oficina, guias_incluidas, total_guias, enviado_a, enviado_por, cliente, tipo_solicitud })
+    .insert({ oficina, guias_incluidas, guias_detalle, total_guias, enviado_a, enviado_por, cliente, tipo_solicitud })
     .select()
     .single();
 

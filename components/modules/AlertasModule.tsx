@@ -36,7 +36,7 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
 
   const guiasConAccion = useMemo(() => {
     return guias.filter((g) => {
-      if (g.es_predoc || g.es_devolucion) return false;
+      if (g.es_predoc || g.es_documentada || g.es_devolucion) return false;
       if (g.estado_guia === 'ENTREGADA') return false;
       // Con excepción y acción del catálogo, o sin excepción pero con
       // suficientes días sin movimiento como para necesitar atención de
