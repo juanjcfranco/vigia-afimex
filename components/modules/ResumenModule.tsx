@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, esGuiaOriginal, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, esGuiaOriginal, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo, topPorCampo } from '@/lib/business-logic';
 import { exportInformeLogisticoPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
 import KpiCard from '@/components/KpiCard';
@@ -220,6 +220,48 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     const excepcionesInforme = calcularResumenExcepciones(guias, 10);
     const devolucionesInforme = calcularResumenDevoluciones(guias, 10);
 
+    // Temporalidad de guías abiertas: mismos rangos que ya usa el sistema
+    // para las alertas de días sin movimiento (nivelAlertaPorDias), para
+    // que el informe no invente un corte nuevo distinto al que ya se ve
+    // en pantalla en otros módulos.
+    const guiasAbiertas = guias.filter((g) => esGuiaOriginal(g) && isAbiertaPorEstado(g));
+    const temporalidadAbiertas = { menos3: 0, entre4y7: 0, entre8y14: 0, mas15: 0 };
+    guiasAbiertas.forEach((g) => {
+      const d = g.dias_sin_movimiento;
+      if (d === null || d === undefined) return;
+      if (d < 3) temporalidadAbiertas.menos3++;
+      else if (d <= 7) temporalidadAbiertas.entre4y7++;
+      else if (d <= 14) temporalidadAbiertas.entre8y14++;
+      else temporalidadAbiertas.mas15++;
+    });
+
+    // Cierre operativo: guías abiertas con 30+ días sin movimiento — el
+    // corte que pidió el cliente para su "cierre operativo".
+    const pendientes30Mas = guiasAbiertas.filter((g) => (g.dias_sin_movimiento ?? 0) >= 30);
+    const cierre30PorOficina = topPorCampo(pendientes30Mas, (g) => g.oficina_destino, 10);
+
+    // Efectividad por Entidad (no por oficina): el cliente pidió ver la
+    // efectividad específicamente a este nivel de detalle.
+    const gruposEntidad: Record<string, Guia[]> = {};
+    guias.filter(esGuiaOriginal).forEach((g) => {
+      const key = g.entidad_destinatario || 'SIN DATO';
+      if (!gruposEntidad[key]) gruposEntidad[key] = [];
+      gruposEntidad[key].push(g);
+    });
+    const efectividadPorEntidadInforme = Object.entries(gruposEntidad)
+      .map(([key, lista]) => {
+        const entregadasN = lista.filter((g) => isEntregada(g.estado_guia)).length;
+        const devolucionesN = lista.filter((g) => g.es_devolucion).length;
+        const abiertasN = lista.filter((g) => isAbiertaPorEstado(g)).length;
+        return {
+          key,
+          efectividad: calcularEfectividad(entregadasN, devolucionesN, abiertasN),
+          total: lista.length,
+        };
+      })
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10);
+
     const clientesDistintos = [...new Set(guias.map((g) => g.cliente).filter(Boolean))] as string[];
     const cliente =
       clientesDistintos.length === 1
@@ -260,6 +302,11 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       topDevolucionesPorOficina: devolucionesInforme.porOficina,
       topDevolucionesPorMotivo: devolucionesInforme.porMotivo,
       totalDevoluciones: devolucionesInforme.total,
+      temporalidadAbiertas,
+      totalAbiertas: guiasAbiertas.length,
+      pendientes30Mas: pendientes30Mas.length,
+      cierre30PorOficina,
+      efectividadPorEntidad: efectividadPorEntidadInforme,
     });
   }
 

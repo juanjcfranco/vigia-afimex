@@ -163,6 +163,26 @@ export function exportAcuseConcentradoPDF(alertas: Array<{
 
   const totalGuias = alertas.reduce((s, a) => s + a.total_guias, 0);
 
+  // Resumen por tipo de notificación (Reprogramación, Devolución, Alerta
+  // sin movimiento, Estado Crítico, etc.) — cuenta notificaciones, no
+  // guías, y se ordena de mayor a menor para que lo más frecuente quede
+  // primero.
+  const conteoPorTipo: Record<string, number> = {};
+  alertas.forEach((a) => {
+    const tipo = a.tipo_solicitud || 'Sin tipo especificado';
+    conteoPorTipo[tipo] = (conteoPorTipo[tipo] || 0) + 1;
+  });
+  const resumenTiposHtml = Object.entries(conteoPorTipo)
+    .sort((a, b) => b[1] - a[1])
+    .map(
+      ([tipo, n]) =>
+        `<span style="display:inline-flex;align-items:center;gap:5px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:20px;padding:4px 12px;font-size:11.5px;font-weight:600;margin:3px 4px 3px 0;">
+          ${escapeHtml(tipo)}
+          <span style="background:#1E3A8A;color:white;font-weight:800;font-size:10.5px;border-radius:10px;padding:1px 7px;">${n}</span>
+        </span>`
+    )
+    .join('');
+
   win.document.write(`
     <!DOCTYPE html>
     <html lang="es">
@@ -176,7 +196,7 @@ export function exportAcuseConcentradoPDF(alertas: Array<{
       </style>
     </head>
     <body>
-      <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #1E3A8A;padding-bottom:14px;margin-bottom:20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #1E3A8A;padding-bottom:14px;margin-bottom:14px;">
         <div style="display:flex;align-items:center;gap:14px;">
           <img src="${LOGO_AFIMEX_BASE64}" alt="AFIMEX" style="height:38px"/>
           <div>
@@ -188,6 +208,10 @@ export function exportAcuseConcentradoPDF(alertas: Array<{
           Generado: ${escapeHtml(fechaGenerado)}<br/>
           <strong style="color:#1E3A8A">${alertas.length}</strong> notificaciones · <strong style="color:#1E3A8A">${totalGuias}</strong> guías
         </div>
+      </div>
+      <div style="margin-bottom:20px;">
+        <div style="font-size:11px;font-weight:700;color:#94A3B8;text-transform:uppercase;margin-bottom:6px;">Resumen por Tipo de Notificación</div>
+        ${resumenTiposHtml}
       </div>
       ${seccionesHtml}
       <div style="margin-top:20px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:10px;">
@@ -612,6 +636,12 @@ export interface InformeLogisticoData {
   topDevolucionesPorOficina: Array<{ key: string; count: number }>;
   topDevolucionesPorMotivo: Array<{ key: string; count: number }>;
   totalDevoluciones: number;
+  // Fase 1 — temporalidad de abiertas, cierre 30+, efectividad por entidad
+  temporalidadAbiertas: { menos3: number; entre4y7: number; entre8y14: number; mas15: number };
+  totalAbiertas: number;
+  pendientes30Mas: number;
+  cierre30PorOficina: Array<{ key: string; count: number }>;
+  efectividadPorEntidad: Array<{ key: string; efectividad: number | null; total: number }>;
 }
 
 function colorEfectividadInforme(valor: number | null): string {
@@ -637,6 +667,24 @@ function barraHtml(items: Array<{ key: string; count: number }>, total: number, 
             <div class="barra-fill" style="width:${anchoBarra}%; background:${color};"></div>
           </div>
           <div class="barra-valor">${count.toLocaleString('es-MX')} <span class="barra-pct">(${pct}%)</span></div>
+        </div>`;
+    })
+    .join('');
+}
+
+function barraEfectividadHtml(items: Array<{ key: string; efectividad: number | null; total: number }>): string {
+  if (!items.length) return `<div class="sin-datos">Sin datos para este corte</div>`;
+  return items
+    .map(({ key, efectividad, total }) => {
+      const pct = efectividad ?? 0;
+      const color = colorEfectividadInforme(efectividad);
+      return `
+        <div class="barra-fila">
+          <div class="barra-label" title="${escapeHtml(key)}">${escapeHtml(key)}</div>
+          <div class="barra-track">
+            <div class="barra-fill" style="width:${Math.max(2, pct)}%; background:${color};"></div>
+          </div>
+          <div class="barra-valor">${efectividad !== null ? `${efectividad}%` : '—'} <span class="barra-pct">(${total.toLocaleString('es-MX')})</span></div>
         </div>`;
     })
     .join('');
@@ -743,6 +791,37 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
         <div class="seccion">
           <div class="seccion-titulo">Devoluciones — Top Motivo</div>
           ${barraHtml(data.topDevolucionesPorMotivo, data.totalDevoluciones, '#EA7C1A')}
+        </div>
+      </div>
+
+      <div class="secciones">
+        <div class="seccion">
+          <div class="seccion-titulo">Temporalidad de Guías Abiertas</div>
+          ${barraHtml(
+            [
+              { key: 'Menos de 3 días', count: data.temporalidadAbiertas.menos3 },
+              { key: '4 a 7 días', count: data.temporalidadAbiertas.entre4y7 },
+              { key: '8 a 14 días', count: data.temporalidadAbiertas.entre8y14 },
+              { key: '15+ días', count: data.temporalidadAbiertas.mas15 },
+            ],
+            data.totalAbiertas,
+            '#EA7C1A'
+          )}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo">Cierre Operativo — Pendientes +30 días</div>
+          <div style="font-size:30px;font-weight:800;color:#DC2626;margin-bottom:8px;">
+            ${data.pendientes30Mas.toLocaleString('es-MX')}
+            <span style="font-size:12px;font-weight:600;color:#94A3B8;"> guías sin movimiento hace 30+ días</span>
+          </div>
+          ${barraHtml(data.cierre30PorOficina, data.pendientes30Mas, '#DC2626')}
+        </div>
+      </div>
+
+      <div class="secciones">
+        <div class="seccion" style="grid-column: span 2;">
+          <div class="seccion-titulo">Efectividad por Entidad</div>
+          ${barraEfectividadHtml(data.efectividadPorEntidad)}
         </div>
       </div>
 
