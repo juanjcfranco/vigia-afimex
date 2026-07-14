@@ -642,6 +642,14 @@ export interface InformeLogisticoData {
   pendientes30Mas: number;
   cierre30PorOficina: Array<{ key: string; count: number }>;
   efectividadPorEntidad: Array<{ key: string; efectividad: number | null; total: number }>;
+  // Resumen geográfico (versión resumida del módulo Geográfico)
+  topEntidadesVolumen: Array<{ key: string; count: number }>;
+  topCiudades: Array<{ key: string; count: number }>;
+  // Excepciones separadas por a quién son atribuibles
+  excepcionesCliente: Array<{ key: string; count: number }>;
+  totalExcepcionesCliente: number;
+  excepcionesOperacion: Array<{ key: string; count: number }>;
+  totalExcepcionesOperacion: number;
 }
 
 function colorEfectividadInforme(valor: number | null): string {
@@ -754,6 +762,7 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
         .barra-pct { font-weight: 500; color: #94A3B8; }
         .sin-datos { font-size: 11px; color: #94A3B8; padding: 8px 0; }
         .footer { margin-top: 16px; font-size: 10px; color: #94A3B8; text-align: right; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
         @media print {
           body { padding: 10mm; }
           @page { size: portrait; margin: 12mm; }
@@ -774,27 +783,33 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
 
       <div class="secciones">
         <div class="seccion">
-          <div class="seccion-titulo">Top Excepciones</div>
-          ${barraHtml(data.topExcepciones, data.totalConExcepcion, '#7C3AED')}
+          <div class="seccion-titulo">Excepciones Atribuibles al Cliente</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:8px;">Decisiones o circunstancias del destinatario</div>
+          ${barraHtml(data.excepcionesCliente, data.totalExcepcionesCliente, '#B45309')}
         </div>
+        <div class="seccion">
+          <div class="seccion-titulo">Excepciones Atribuibles a la Operación</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:8px;">Datos, ruta, unidad u otro factor operativo</div>
+          ${barraHtml(data.excepcionesOperacion, data.totalExcepcionesOperacion, '#7C3AED')}
+        </div>
+      </div>
+
+      <div class="secciones">
         <div class="seccion">
           <div class="seccion-titulo">Top Oficinas por Volumen</div>
           ${barraHtml(data.topOficinas, data.totalGuias, '#1E3A8A')}
         </div>
-      </div>
-
-      <div class="secciones">
         <div class="seccion">
           <div class="seccion-titulo">Devoluciones — Top Oficina Destino</div>
           ${barraHtml(data.topDevolucionesPorOficina, data.totalDevoluciones, '#DC2626')}
         </div>
+      </div>
+
+      <div class="secciones">
         <div class="seccion">
           <div class="seccion-titulo">Devoluciones — Top Motivo</div>
           ${barraHtml(data.topDevolucionesPorMotivo, data.totalDevoluciones, '#EA7C1A')}
         </div>
-      </div>
-
-      <div class="secciones">
         <div class="seccion">
           <div class="seccion-titulo">Temporalidad de Guías Abiertas</div>
           ${barraHtml(
@@ -808,13 +823,29 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
             '#EA7C1A'
           )}
         </div>
-        <div class="seccion">
+      </div>
+
+      <div class="secciones">
+        <div class="seccion" style="grid-column: span 2;">
           <div class="seccion-titulo">Cierre Operativo — Pendientes +30 días</div>
           <div style="font-size:30px;font-weight:800;color:#DC2626;margin-bottom:8px;">
             ${data.pendientes30Mas.toLocaleString('es-MX')}
             <span style="font-size:12px;font-weight:600;color:#94A3B8;"> guías sin movimiento hace 30+ días</span>
           </div>
           ${barraHtml(data.cierre30PorOficina, data.pendientes30Mas, '#DC2626')}
+        </div>
+      </div>
+
+      <div class="seccion-titulo" style="font-size:15px;margin:20px 0 10px;border-top:2px solid #1E3A8A;padding-top:16px;">📍 Resumen Geográfico</div>
+
+      <div class="secciones">
+        <div class="seccion">
+          <div class="seccion-titulo">Top 5 Entidades por Volumen</div>
+          ${barraHtml(data.topEntidadesVolumen, data.totalGuias, '#1E3A8A')}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo">Top 5 Ciudades por Volumen</div>
+          ${barraHtml(data.topCiudades, data.totalGuias, '#0891B2')}
         </div>
       </div>
 

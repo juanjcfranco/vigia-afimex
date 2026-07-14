@@ -320,6 +320,61 @@ export function baseExcepcion(e: string): string {
   return e.replace(/\s+\d+$/, '').trim().toUpperCase();
 }
 
+// ============================================================
+// Clasifica una excepción (ya en su forma "base", sin el sufijo numérico
+// de cadena) según a quién es atribuible: al CLIENTE/destinatario (una
+// decisión o circunstancia de su lado), a la OPERACIÓN (algo que AFIMEX
+// pudo controlar: datos mal capturados, falla de unidad, ruta, etc.), o a
+// un factor EXTERNO (clima, emergencias — ni cliente ni operación).
+//
+// ⚠️ Esta es una propuesta inicial basada en el nombre de cada excepción,
+// NO una definición validada con el cliente — se armó con sentido común
+// para poder mostrar el desglose en el Informe Logístico, pero KIKI (o
+// cualquier cliente) puede tener un criterio distinto para casos como
+// "AUSENCIA" (¿cuenta como decisión del destinatario, o como que la
+// operación no coordinó bien el horario?). Ajustar estas listas es la
+// forma de corregir la clasificación sin tocar el resto de la lógica.
+// ============================================================
+export type CategoriaExcepcion = 'cliente' | 'operacion' | 'externo';
+
+const EXCEPCIONES_ATRIBUIBLES_CLIENTE = new Set([
+  'CLIENTE CANCELO',
+  'CLIENTE CANCELÓ',
+  'CLIENTE SOLICITA CAMBIO A OCURRE',
+  'CLIENTE SOLICITA FECHA FUTURA DE ENTREGA',
+  'SIN DINERO',
+  'COD RECHAZADO',
+  'ENTREGA COD FUTURA',
+  'NO ORDENO PAQUETE',
+  'NO QUIERE PAQUETE',
+  'RECHAZO POR PEDIDO DUPLICADO',
+  'RECHAZO POR RETRASO EN ENTREGA',
+  'VACACIONES',
+  'SIN ACCESO',
+  'AUSENCIA',
+  // Confirmado por el cliente (KIKI): datos de domicilio mal proporcionados
+  // por el destinatario, no error de captura de la operación.
+  'DATOS INCOMPLETOS',
+  'CALLE INEXISTENTE',
+  'FALTA CALLE',
+  'NUMERO INEXISTENTE',
+  'FALTA NUMERO',
+]);
+
+const EXCEPCIONES_FACTOR_EXTERNO = new Set(['MAL CLIMA', 'EMERGENCIA']);
+
+export function categoriaExcepcion(nombreBase: string): CategoriaExcepcion {
+  const n = nombreBase.toUpperCase().trim();
+  if (EXCEPCIONES_FACTOR_EXTERNO.has(n)) return 'externo';
+  if (EXCEPCIONES_ATRIBUIBLES_CLIENTE.has(n)) return 'cliente';
+  // Todo lo que no esté en las listas de arriba se asume atribuible a la
+  // operación (datos incompletos, falla de unidad, horario de ruta
+  // excedido, calle/número/ciudad incorrectos, área remota, etc.) — es el
+  // "resto" por default, ya que en general son cosas que si se hubieran
+  // hecho bien desde el inicio, no habrían pasado.
+  return 'operacion';
+}
+
 // Top N valores de un campo (oficina, entidad, ciudad, etc.) por cantidad
 // de guías, útil para rankings tipo "top oficinas con más excepciones".
 export function topPorCampo<T>(

@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, esGuiaOriginal, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo, topPorCampo } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, esGuiaOriginal, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo, topPorCampo, categoriaExcepcion } from '@/lib/business-logic';
 import { exportInformeLogisticoPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
 import KpiCard from '@/components/KpiCard';
@@ -220,6 +220,21 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     const excepcionesInforme = calcularResumenExcepciones(guias, 10);
     const devolucionesInforme = calcularResumenDevoluciones(guias, 10);
 
+    // Separar el Top de excepciones por a quién es atribuible — ver
+    // categoriaExcepcion() en business-logic.ts para la clasificación
+    // propuesta (revisable/ajustable).
+    const excepcionesTodas = calcularResumenExcepciones(guias, 1000).porTipo;
+    const excepcionesCliente = excepcionesTodas.filter((e) => categoriaExcepcion(e.key) === 'cliente').slice(0, 10);
+    const excepcionesOperacion = excepcionesTodas
+      .filter((e) => categoriaExcepcion(e.key) === 'operacion')
+      .slice(0, 10);
+    const totalExcepcionesCliente = excepcionesTodas
+      .filter((e) => categoriaExcepcion(e.key) === 'cliente')
+      .reduce((s, e) => s + e.count, 0);
+    const totalExcepcionesOperacion = excepcionesTodas
+      .filter((e) => categoriaExcepcion(e.key) === 'operacion')
+      .reduce((s, e) => s + e.count, 0);
+
     // Temporalidad de guías abiertas: mismos rangos que ya usa el sistema
     // para las alertas de días sin movimiento (nivelAlertaPorDias), para
     // que el informe no invente un corte nuevo distinto al que ya se ve
@@ -261,6 +276,13 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       })
       .sort((a, b) => b.total - a.total)
       .slice(0, 10);
+
+    // Resumen geográfico (versión resumida del módulo Geográfico): top
+    // entidades y ciudades por volumen, para dar contexto de dónde se
+    // concentra la operación sin tener que abrir ese módulo aparte.
+    const guiasParaGeo = guias.filter(esGuiaOriginal);
+    const topEntidadesVolumen = topPorCampo(guiasParaGeo, (g) => g.entidad_destinatario, 5);
+    const topCiudades = topPorCampo(guiasParaGeo, (g) => g.ciudad_destinatario, 5);
 
     const clientesDistintos = [...new Set(guias.map((g) => g.cliente).filter(Boolean))] as string[];
     const cliente =
@@ -307,6 +329,12 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       pendientes30Mas: pendientes30Mas.length,
       cierre30PorOficina,
       efectividadPorEntidad: efectividadPorEntidadInforme,
+      topEntidadesVolumen,
+      topCiudades,
+      excepcionesCliente,
+      totalExcepcionesCliente,
+      excepcionesOperacion,
+      totalExcepcionesOperacion,
     });
   }
 
