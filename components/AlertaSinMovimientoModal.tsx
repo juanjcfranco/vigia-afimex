@@ -91,20 +91,23 @@ export default function AlertaSinMovimientoModal({
     setEnviando(true);
     try {
       await Promise.all(
-        guiasSeleccionadas.map((g) =>
-          fetch('/api/alertas', {
+        guiasSeleccionadas.map((g) => {
+          const oficina = g.oficina_destino || 'SIN OFICINA';
+          const contacto = contactoDe(oficina);
+          return fetch('/api/alertas', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              oficina: g.oficina_destino || 'SIN OFICINA',
+              oficina,
               guias_incluidas: [g.guia],
               guias_detalle: [{ guia: g.guia, f_historia: g.f_historia || null }],
               total_guias: 1,
+              enviado_a: contacto?.email_to || null,
               cliente: g.cliente || '',
               tipo_solicitud: 'Alerta sin movimiento',
             }),
-          })
-        )
+          });
+        })
       );
       setRegistrado(true);
       onCompletado();
