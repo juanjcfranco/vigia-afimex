@@ -213,6 +213,40 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     return null;
   });
 
+  // Guías abiertas (originales, en tránsito) por entidad y por oficina —
+  // el badge del KPI "Abiertas" ya muestra el total; esto desglosa dónde
+  // se concentran, para poder priorizar.
+  const guiasAbiertasLista = useMemo(
+    () => guias.filter((g) => esGuiaOriginal(g) && isAbiertaPorEstado(g)),
+    [guias]
+  );
+  const abiertasPorEntidad = useMemo(
+    () => topPorCampo(guiasAbiertasLista, (g) => g.entidad_destinatario, 10),
+    [guiasAbiertasLista]
+  );
+  const abiertasPorOficina = useMemo(
+    () => topPorCampo(guiasAbiertasLista, (g) => g.oficina_destino, 10),
+    [guiasAbiertasLista]
+  );
+  const abiertasPorEntidadChart = useMemo(
+    () => abiertasPorEntidad.map(({ key, count }) => ({ name: key, total: count })),
+    [abiertasPorEntidad]
+  );
+  const abiertasPorOficinaChart = useMemo(
+    () => abiertasPorOficina.map(({ key, count }) => ({ name: key, total: count })),
+    [abiertasPorOficina]
+  );
+  const abiertasEntidadOrden = useSortableTable<{ key: string; count: number }>(abiertasPorEntidad, (item, key) => {
+    if (key === 'entidad') return item.key;
+    if (key === 'guias') return item.count;
+    return null;
+  });
+  const abiertasOficinaOrden = useSortableTable<{ key: string; count: number }>(abiertasPorOficina, (item, key) => {
+    if (key === 'oficina') return item.key;
+    if (key === 'guias') return item.count;
+    return null;
+  });
+
   function generarInformeLogistico() {
     // Para el informe usamos un top 10 (más completo que el resumen de
     // 5 que se ve en pantalla), calculado fresco aquí mismo con las
@@ -482,17 +516,29 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
                 cy="50%"
                 outerRadius={85}
                 labelLine={false}
+                label={({ percent }) => `${((percent ?? 0) * 100).toFixed(1)}%`}
               >
                 {estadosChartData.map((entry, i) => (
                   <Cell key={i} fill={entry.color} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip
+                formatter={(value, name) => {
+                  const v = typeof value === 'number' ? value : Number(value) || 0;
+                  const pct = totalSinPredoc ? ((v / totalSinPredoc) * 100).toFixed(1) : '0.0';
+                  return [`${v.toLocaleString('es-MX')} (${pct}%)`, name];
+                }}
+              />
               <Legend
                 layout="vertical"
                 align="right"
                 verticalAlign="middle"
                 wrapperStyle={{ fontSize: 11, lineHeight: '20px' }}
+                formatter={(value: string) => {
+                  const item = estadosChartData.find((e) => e.name === value);
+                  const pct = item && totalSinPredoc ? ((item.value / totalSinPredoc) * 100).toFixed(1) : '0.0';
+                  return `${value} (${pct}%)`;
+                }}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -526,6 +572,84 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+          <div className="font-bold text-[12.5px] mb-3">Guías Abiertas por Entidad</div>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={abiertasPorEntidadChart} layout="vertical" margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+              <XAxis type="number" fontSize={11} />
+              <YAxis type="category" dataKey="name" width={115} fontSize={10} />
+              <Tooltip />
+              <Bar dataKey="total" fill="#EA7C1A" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="overflow-x-auto vg-scroll mt-3">
+            <table className="vg-table">
+              <thead>
+                <tr>
+                  <SortableTh label="Entidad" sortKey="entidad" currentKey={abiertasEntidadOrden.sortKey} currentDir={abiertasEntidadOrden.sortDir} onSort={abiertasEntidadOrden.requestSort} />
+                  <SortableTh label="Guías Abiertas" sortKey="guias" currentKey={abiertasEntidadOrden.sortKey} currentDir={abiertasEntidadOrden.sortDir} onSort={abiertasEntidadOrden.requestSort} />
+                </tr>
+              </thead>
+              <tbody>
+                {abiertasEntidadOrden.sorted.map(({ key, count }) => (
+                  <tr key={key}>
+                    <td className="font-medium">{key}</td>
+                    <td>{count.toLocaleString('es-MX')}</td>
+                  </tr>
+                ))}
+                {!abiertasPorEntidad.length && (
+                  <tr>
+                    <td colSpan={2} className="text-center text-[var(--vg-text3)] py-4">
+                      Sin guías abiertas en este corte
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+          <div className="font-bold text-[12.5px] mb-3">Guías Abiertas por Oficina</div>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={abiertasPorOficinaChart} layout="vertical" margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+              <XAxis type="number" fontSize={11} />
+              <YAxis type="category" dataKey="name" width={115} fontSize={10} />
+              <Tooltip />
+              <Bar dataKey="total" fill="#7C3AED" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="overflow-x-auto vg-scroll mt-3">
+            <table className="vg-table">
+              <thead>
+                <tr>
+                  <SortableTh label="Oficina" sortKey="oficina" currentKey={abiertasOficinaOrden.sortKey} currentDir={abiertasOficinaOrden.sortDir} onSort={abiertasOficinaOrden.requestSort} />
+                  <SortableTh label="Guías Abiertas" sortKey="guias" currentKey={abiertasOficinaOrden.sortKey} currentDir={abiertasOficinaOrden.sortDir} onSort={abiertasOficinaOrden.requestSort} />
+                </tr>
+              </thead>
+              <tbody>
+                {abiertasOficinaOrden.sorted.map(({ key, count }) => (
+                  <tr key={key}>
+                    <td className="font-medium">{key}</td>
+                    <td>{count.toLocaleString('es-MX')}</td>
+                  </tr>
+                ))}
+                {!abiertasPorOficina.length && (
+                  <tr>
+                    <td colSpan={2} className="text-center text-[var(--vg-text3)] py-4">
+                      Sin guías abiertas en este corte
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
