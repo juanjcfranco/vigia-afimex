@@ -144,16 +144,14 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
   const estados = useMemo(() => {
     const counts: Record<string, number> = {};
     guias
-      .filter((g) => !g.es_predoc && !g.es_documentada)
+      // Los retornos (explícitos o posible retorno de otro periodo) se
+      // excluyen por completo de este gráfico — mezclados con sufijos
+      // "(RETORNO)" quedaba muy saturado con rebanadas diminutas. Su
+      // propio desglose vive en las tarjetas de "Guías de Retorno" y
+      // "Posible Retorno" más arriba.
+      .filter((g) => !g.es_predoc && !g.es_documentada && !g.es_retorno && !g.es_posible_retorno_otro_periodo)
       .forEach((g) => {
-        let e = g.estado_guia || 'SIN ESTADO';
-        // Separa SIEMPRE los retornos del estado bruto, sin importar cuál
-        // sea (antes solo se hacía para ENTREGADA). Sin esto, un estado
-        // como "LISTO PARA ENTREGAR" mezclaba envíos originales con guías
-        // de retorno en tránsito de regreso — dos cosas muy distintas que
-        // se confundían en una sola cifra.
-        if (g.es_retorno) e = `${e} (RETORNO)`;
-        else if (g.es_posible_retorno_otro_periodo) e = `${e} (POSIBLE RETORNO OTRO PERIODO)`;
+        const e = g.estado_guia || 'SIN ESTADO';
         counts[e] = (counts[e] || 0) + 1;
       });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
@@ -200,11 +198,16 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     [topOficinas]
   );
 
-  const totalSinPredoc = useMemo(() => guias.filter((g) => !g.es_predoc && !g.es_documentada).length, [guias]);
+  // Mismo filtro que `estados` (sin predoc, documentada, ni retornos) —
+  // es el denominador correcto para los % del pie y su tabla.
+  const totalEstadosBase = useMemo(
+    () => guias.filter((g) => !g.es_predoc && !g.es_documentada && !g.es_retorno && !g.es_posible_retorno_otro_periodo).length,
+    [guias]
+  );
   const estadosOrden = useSortableTable<[string, number]>(estados, (item, key) => {
     if (key === 'estado') return item[0];
     if (key === 'guias') return item[1];
-    if (key === 'pct') return totalSinPredoc ? item[1] / totalSinPredoc : 0;
+    if (key === 'pct') return totalEstadosBase ? item[1] / totalEstadosBase : 0;
     return null;
   });
   const topOficinasOrden = useSortableTable<[string, number]>(topOficinas, (item, key) => {
@@ -505,7 +508,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
-          <div className="font-bold text-[12.5px] mb-3">Estados de Guías (sin pre-doc. ni documentada)</div>
+          <div className="font-bold text-[12.5px] mb-3">Estados de Guías (sin pre-doc., documentada ni retornos)</div>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
@@ -525,7 +528,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
               <Tooltip
                 formatter={(value, name) => {
                   const v = typeof value === 'number' ? value : Number(value) || 0;
-                  const pct = totalSinPredoc ? ((v / totalSinPredoc) * 100).toFixed(1) : '0.0';
+                  const pct = totalEstadosBase ? ((v / totalEstadosBase) * 100).toFixed(1) : '0.0';
                   return [`${v.toLocaleString('es-MX')} (${pct}%)`, name];
                 }}
               />
@@ -536,7 +539,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
                 wrapperStyle={{ fontSize: 11, lineHeight: '20px' }}
                 formatter={(value: string) => {
                   const item = estadosChartData.find((e) => e.name === value);
-                  const pct = item && totalSinPredoc ? ((item.value / totalSinPredoc) * 100).toFixed(1) : '0.0';
+                  const pct = item && totalEstadosBase ? ((item.value / totalEstadosBase) * 100).toFixed(1) : '0.0';
                   return `${value} (${pct}%)`;
                 }}
               />
@@ -656,7 +659,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
           <div className="px-4 py-2.5 font-bold text-[12.5px] border-b border-[var(--vg-border)]">
-            Estados de Guías (sin pre-doc. ni documentada)
+            Estados de Guías (sin pre-doc., documentada ni retornos)
           </div>
           <table className="vg-table">
             <thead>
@@ -671,7 +674,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
                 <tr key={estado}>
                   <td className="font-medium">{estado}</td>
                   <td>{n.toLocaleString('es-MX')}</td>
-                  <td>{((n / (totalSinPredoc || 1)) * 100).toFixed(1)}%</td>
+                  <td>{((n / (totalEstadosBase || 1)) * 100).toFixed(1)}%</td>
                 </tr>
               ))}
             </tbody>
