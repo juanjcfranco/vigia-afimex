@@ -250,6 +250,28 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     return null;
   });
 
+  // Abiertas por cliente: solo tiene sentido mostrarlo cuando el corte
+  // trae más de un cliente mezclado (con el nuevo filtro multi-cliente,
+  // esto pasa seguido).
+  const clientesDistintosAbiertas = useMemo(
+    () => [...new Set(guias.map((g) => g.cliente).filter(Boolean))] as string[],
+    [guias]
+  );
+  const hayVariosClientes = clientesDistintosAbiertas.length > 1;
+  const abiertasPorCliente = useMemo(
+    () => topPorCampo(guiasAbiertasLista, (g) => g.cliente, 10),
+    [guiasAbiertasLista]
+  );
+  const abiertasPorClienteChart = useMemo(
+    () => abiertasPorCliente.map(({ key, count }) => ({ name: key, total: count })),
+    [abiertasPorCliente]
+  );
+  const abiertasClienteOrden = useSortableTable<{ key: string; count: number }>(abiertasPorCliente, (item, key) => {
+    if (key === 'cliente') return item.key;
+    if (key === 'guias') return item.count;
+    return null;
+  });
+
   function generarInformeLogistico() {
     // Para el informe usamos un top 10 (más completo que el resumen de
     // 5 que se ve en pantalla), calculado fresco aquí mismo con las
@@ -577,6 +599,42 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
           </ResponsiveContainer>
         </div>
       </div>
+
+      {hayVariosClientes && (
+        <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+          <div className="font-bold text-[12.5px] mb-0.5">Guías Abiertas por Cliente</div>
+          <div className="text-[11px] text-[var(--vg-text2)] mb-3">
+            Este corte trae {clientesDistintosAbiertas.length} clientes distintos
+          </div>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={abiertasPorClienteChart} layout="vertical" margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+              <XAxis type="number" fontSize={11} />
+              <YAxis type="category" dataKey="name" width={130} fontSize={10} />
+              <Tooltip />
+              <Bar dataKey="total" fill="#0891B2" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="overflow-x-auto vg-scroll mt-3">
+            <table className="vg-table">
+              <thead>
+                <tr>
+                  <SortableTh label="Cliente" sortKey="cliente" currentKey={abiertasClienteOrden.sortKey} currentDir={abiertasClienteOrden.sortDir} onSort={abiertasClienteOrden.requestSort} />
+                  <SortableTh label="Guías Abiertas" sortKey="guias" currentKey={abiertasClienteOrden.sortKey} currentDir={abiertasClienteOrden.sortDir} onSort={abiertasClienteOrden.requestSort} />
+                </tr>
+              </thead>
+              <tbody>
+                {abiertasClienteOrden.sorted.map(({ key, count }) => (
+                  <tr key={key}>
+                    <td className="font-medium">{key}</td>
+                    <td>{count.toLocaleString('es-MX')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
