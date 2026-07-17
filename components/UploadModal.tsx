@@ -192,7 +192,7 @@ export default function UploadModal({ open, onClose, onUploaded }: UploadModalPr
           <input
             ref={inputRef}
             type="file"
-            accept=".xlsx,.xls"
+            accept=".xlsx,.xls,.xlsb"
             className="hidden"
             onChange={(e) => setFile(e.target.files?.[0] || null)}
           />
@@ -201,7 +201,7 @@ export default function UploadModal({ open, onClose, onUploaded }: UploadModalPr
           ) : (
             <div className="text-[13px] text-[var(--vg-text2)]">
               Haz clic o arrastra tu archivo Excel aquí
-              <div className="text-[11px] text-[var(--vg-text3)] mt-1">Formatos: .xlsx · .xls</div>
+              <div className="text-[11px] text-[var(--vg-text3)] mt-1">Formatos: .xlsx · .xls · .xlsb</div>
             </div>
           )}
         </div>

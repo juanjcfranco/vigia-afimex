@@ -12,7 +12,7 @@ export function useVigiaData() {
   const [error, setError] = useState<string | null>(null);
 
   // Filtros globales (compartidos entre módulos)
-  const [filtroCliente, setFiltroCliente] = useState<string>('');
+  const [filtroClientes, setFiltroClientes] = useState<string[]>([]);
   const [filtroOficina, setFiltroOficina] = useState<string>('');
   const [filtroEntidad, setFiltroEntidad] = useState<string>('');
   const [filtroPeriodo, setFiltroPeriodo] = useState<string>('');
@@ -62,7 +62,7 @@ export function useVigiaData() {
 
   const guiasFiltradas = useMemo(() => {
     return guias.filter((g) => {
-      if (filtroCliente && g.cliente !== filtroCliente) return false;
+      if (filtroClientes.length > 0 && !filtroClientes.includes(g.cliente || '')) return false;
       if (filtroOficina && g.oficina_destino !== filtroOficina) return false;
       if (filtroEntidad && g.entidad_destinatario !== filtroEntidad) return false;
       if (filtroPeriodo) {
@@ -71,7 +71,7 @@ export function useVigiaData() {
       }
       return true;
     });
-  }, [guias, filtroCliente, filtroOficina, filtroEntidad, filtroPeriodo]);
+  }, [guias, filtroClientes, filtroOficina, filtroEntidad, filtroPeriodo]);
 
   const clientes = useMemo(
     () => [...new Set(guias.map((g) => g.cliente).filter(Boolean))].sort() as string[],
@@ -156,8 +156,8 @@ export function useVigiaData() {
     guiasFiltradas,
     loading,
     error,
-    filtroCliente,
-    setFiltroCliente,
+    filtroClientes,
+    setFiltroClientes,
     filtroOficina,
     setFiltroOficina,
     filtroEntidad,

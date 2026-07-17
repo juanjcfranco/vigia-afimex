@@ -31,8 +31,8 @@ export default function Home() {
     guiasFiltradas,
     loading,
     error,
-    filtroCliente,
-    setFiltroCliente,
+    filtroClientes,
+    setFiltroClientes,
     filtroOficina,
     setFiltroOficina,
     filtroEntidad,
@@ -73,16 +73,16 @@ export default function Home() {
           oficinas={oficinas}
           entidades={entidades}
           periodos={periodos}
-          filtroCliente={filtroCliente}
+          filtroClientes={filtroClientes}
           filtroOficina={filtroOficina}
           filtroEntidad={filtroEntidad}
           filtroPeriodo={filtroPeriodo}
-          onCliente={setFiltroCliente}
+          onClientes={setFiltroClientes}
           onOficina={setFiltroOficina}
           onEntidad={setFiltroEntidad}
           onPeriodo={setFiltroPeriodo}
           onLimpiar={() => {
-            setFiltroCliente('');
+            setFiltroClientes([]);
             setFiltroOficina('');
             setFiltroEntidad('');
             setFiltroPeriodo('');
