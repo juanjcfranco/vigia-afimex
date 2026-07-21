@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina } from '@/lib/types';
-import { isAbiertaPorEstado } from '@/lib/business-logic';
+import { isAbiertaPorEstado, topPorCampo } from '@/lib/business-logic';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import BulkSearch from '@/components/BulkSearch';
 import AlertaDiasBadge from '@/components/AlertaDiasBadge';
 import AccionMasivaModal, { TipoAccionMasiva } from '@/components/AccionMasivaModal';
@@ -43,6 +44,31 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
     });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [base]);
+
+  // KPI Originales vs Retornos — "base" ya mezcla ambos tipos (igual que
+  // la columna "Tipo" de la tabla); esto solo separa los conteos.
+  const totalOriginales = useMemo(
+    () => base.filter((g) => !g.es_retorno && !g.es_posible_retorno_otro_periodo).length,
+    [base]
+  );
+  const totalRetornos = useMemo(
+    () => base.filter((g) => g.es_retorno || g.es_posible_retorno_otro_periodo).length,
+    [base]
+  );
+
+  // Resumen por oficina (top 10), para saber dónde se concentran las
+  // guías abiertas — incluye tanto originales como retornos, igual que
+  // la tabla principal.
+  const porOficina = useMemo(() => topPorCampo(base, (g) => g.oficina_destino, 10), [base]);
+  const porOficinaChart = useMemo(
+    () => porOficina.map(({ key, count }) => ({ name: key, total: count })),
+    [porOficina]
+  );
+  const porOficinaOrden = useSortableTable<{ key: string; count: number }>(porOficina, (item, key) => {
+    if (key === 'oficina') return item.key;
+    if (key === 'guias') return item.count;
+    return null;
+  });
 
   const filas = useMemo(() => {
     let f = base;
@@ -107,7 +133,62 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   ];
 
   return (
-    <div className="p-5">
+    <div className="p-5 space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white rounded-lg border border-[var(--vg-border)] p-3">
+          <div className="text-[10.5px] font-semibold text-[var(--vg-text2)] mb-1">Originales</div>
+          <div className="text-2xl font-bold text-[var(--vg-blue)]">{totalOriginales.toLocaleString('es-MX')}</div>
+          <div className="text-[10.5px] text-[var(--vg-text3)]">
+            {base.length ? ((totalOriginales / base.length) * 100).toFixed(1) : '0.0'}% del total abierto
+          </div>
+        </div>
+        <div className="bg-white rounded-lg border border-[var(--vg-border)] p-3">
+          <div className="text-[10.5px] font-semibold text-[var(--vg-text2)] mb-1">Retornos</div>
+          <div className="text-2xl font-bold text-[var(--vg-purple)]">{totalRetornos.toLocaleString('es-MX')}</div>
+          <div className="text-[10.5px] text-[var(--vg-text3)]">
+            {base.length ? ((totalRetornos / base.length) * 100).toFixed(1) : '0.0'}% del total abierto
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+        <div className="font-bold text-[12.5px] mb-3">Resumen por Oficina</div>
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={porOficinaChart} layout="vertical" margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+            <XAxis type="number" fontSize={11} />
+            <YAxis type="category" dataKey="name" width={130} fontSize={10} />
+            <Tooltip />
+            <Bar dataKey="total" fill="#1E3A8A" radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+        <div className="overflow-x-auto vg-scroll mt-3">
+          <table className="vg-table">
+            <thead>
+              <tr>
+                <SortableTh label="Oficina" sortKey="oficina" currentKey={porOficinaOrden.sortKey} currentDir={porOficinaOrden.sortDir} onSort={porOficinaOrden.requestSort} />
+                <SortableTh label="Guías Abiertas" sortKey="guias" currentKey={porOficinaOrden.sortKey} currentDir={porOficinaOrden.sortDir} onSort={porOficinaOrden.requestSort} />
+              </tr>
+            </thead>
+            <tbody>
+              {porOficinaOrden.sorted.map(({ key, count }) => (
+                <tr key={key}>
+                  <td className="font-medium">{key}</td>
+                  <td>{count.toLocaleString('es-MX')}</td>
+                </tr>
+              ))}
+              {!porOficina.length && (
+                <tr>
+                  <td colSpan={2} className="text-center text-[var(--vg-text3)] py-4">
+                    Sin guías abiertas en este corte
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
         <div className="px-4 py-3 border-b border-[var(--vg-border)] flex items-center justify-between flex-wrap gap-2">
           <div>

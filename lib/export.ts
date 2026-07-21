@@ -397,6 +397,9 @@ export interface CierreExportData {
   rankingExcepciones: [string, number][];
   efectividadPorEntidad: { key: string; total: number; efectividad: number | null }[];
   efectividadPorOficina: { key: string; total: number; efectividad: number | null }[];
+  abiertasOriginales: number;
+  abiertasRetornos: number;
+  abiertasPorOficina: { key: string; count: number }[];
   abiertasPorEstado: [string, number][];
   alertas?: { label: string; value: string; color: string; detail?: string }[];
   guiasPorCantidadExcepciones?: [string, number][];
@@ -482,6 +485,27 @@ export function exportCierrePDF(data: CierreExportData) {
     ['Estado', 'Guías'],
     data.abiertasPorEstado.map(([estado, n]) => [estado, String(n)])
   );
+
+  const abiertasOriginalesRetornosHtml = `
+    <div class="seccion">
+      <div class="seccion-titulo">Guías Abiertas — Originales vs Retornos</div>
+      <div class="kpi-grid" style="grid-template-columns: repeat(2, 1fr);">
+        ${kpiCards([
+          { label: 'Originales', value: data.abiertasOriginales.toLocaleString('es-MX'), color: '#1E3A8A' },
+          { label: 'Retornos', value: data.abiertasRetornos.toLocaleString('es-MX'), color: '#7C3AED' },
+        ])}
+      </div>
+    </div>`;
+
+  const abiertasPorOficinaHtml = `
+    <div class="seccion">
+      <div class="seccion-titulo">Guías Abiertas por Oficina</div>
+      ${barraHtml(
+        data.abiertasPorOficina,
+        data.abiertasOriginales + data.abiertasRetornos,
+        '#1E3A8A'
+      )}
+    </div>`;
 
   const abiertasChartHtml = `
     <div class="seccion">
@@ -602,6 +626,10 @@ export function exportCierrePDF(data: CierreExportData) {
       ${abiertasChartHtml}
 
       ${abiertasHtml}
+
+      ${abiertasOriginalesRetornosHtml}
+
+      ${abiertasPorOficinaHtml}
 
       <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
 

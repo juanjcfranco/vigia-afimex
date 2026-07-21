@@ -11,6 +11,7 @@ import {
   colorEfectividad,
   getExcepciones,
   formatearPeriodo,
+  topPorCampo,
 } from '@/lib/business-logic';
 import { exportCierrePDF } from '@/lib/export';
 
@@ -109,6 +110,22 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
       abiertasPorEstado[e] = (abiertasPorEstado[e] || 0) + 1;
     });
 
+    // Abiertas — Originales vs Retornos, y por oficina. A diferencia de
+    // `abiertas`/`abiertasGuias` de arriba (que solo cuentan guías
+    // ORIGINALES abiertas, para no inflar la efectividad), aquí se usa el
+    // mismo criterio que el módulo Abiertas: TODAS las guías en tránsito,
+    // sean originales o retornos, porque el objetivo de este resumen es
+    // "dónde están las guías paradas ahora mismo", no el cálculo de
+    // efectividad.
+    const todasAbiertas = guias.filter((g) => isAbiertaPorEstado(g));
+    const abiertasOriginales = todasAbiertas.filter(
+      (g) => !g.es_retorno && !g.es_posible_retorno_otro_periodo
+    ).length;
+    const abiertasRetornos = todasAbiertas.filter(
+      (g) => g.es_retorno || g.es_posible_retorno_otro_periodo
+    ).length;
+    const abiertasPorOficina = topPorCampo(todasAbiertas, (g) => g.oficina_destino, 10);
+
     // Alertas por nivel de días sin movimiento (mismos umbrales que el
     // módulo de Alertas: 3+ alerta, 7+ investigación, 14+ crítico)
     let alertaNivel = 0;
@@ -160,6 +177,9 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
       rankingExcepciones,
       efectividadPorEntidad,
       efectividadPorOficina,
+      abiertasOriginales,
+      abiertasRetornos,
+      abiertasPorOficina,
       abiertasPorEstado: Object.entries(abiertasPorEstado).sort((a, b) => b[1] - a[1]),
     };
   }, [guias]);
@@ -248,6 +268,9 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
       rankingExcepciones: resumen.rankingExcepciones,
       efectividadPorEntidad: resumen.efectividadPorEntidad,
       efectividadPorOficina: resumen.efectividadPorOficina,
+      abiertasOriginales: resumen.abiertasOriginales,
+      abiertasRetornos: resumen.abiertasRetornos,
+      abiertasPorOficina: resumen.abiertasPorOficina,
       abiertasPorEstado: resumen.abiertasPorEstado,
     });
   }
@@ -472,6 +495,47 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Abiertas: Originales vs Retornos, y por oficina */}
+        <div className="mb-5">
+          <div className="font-bold text-[12.5px] mb-2">Guías Abiertas — Originales vs Retornos</div>
+          <div className="grid grid-cols-2 gap-2.5 mb-3">
+            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-3 text-center">
+              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Originales</div>
+              <div className="text-lg font-extrabold text-[var(--vg-blue)]">{resumen.abiertasOriginales.toLocaleString('es-MX')}</div>
+            </div>
+            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-3 text-center">
+              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Retornos</div>
+              <div className="text-lg font-extrabold text-[var(--vg-purple)]">{resumen.abiertasRetornos.toLocaleString('es-MX')}</div>
+            </div>
+          </div>
+          <div className="text-[11.5px] font-bold text-[var(--vg-text2)] mb-1.5">Por Oficina</div>
+          <div className="border border-[var(--vg-border)] rounded-lg overflow-hidden">
+            <table className="vg-table">
+              <thead>
+                <tr>
+                  <th>Oficina</th>
+                  <th>Guías Abiertas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resumen.abiertasPorOficina.map(({ key, count }) => (
+                  <tr key={key}>
+                    <td className="font-medium">{key}</td>
+                    <td className="font-bold">{count}</td>
+                  </tr>
+                ))}
+                {!resumen.abiertasPorOficina.length && (
+                  <tr>
+                    <td colSpan={2} className="text-center text-[var(--vg-text3)] py-3">
+                      Sin guías abiertas en este corte
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
 
