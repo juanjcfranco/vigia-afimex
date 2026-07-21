@@ -397,15 +397,6 @@ export interface CierreExportData {
   rankingExcepciones: [string, number][];
   efectividadPorEntidad: { key: string; total: number; efectividad: number | null }[];
   efectividadPorOficina: { key: string; total: number; efectividad: number | null }[];
-  topLowEntidad?: {
-    top: { key: string; efectividad: number | null } | null;
-    low: { key: string; efectividad: number | null } | null;
-  };
-  topLowOficina?: {
-    top: { key: string; efectividad: number | null } | null;
-    low: { key: string; efectividad: number | null } | null;
-  };
-  facturacion: { label: string; value: string; color: string; detail?: string }[];
   abiertasPorEstado: [string, number][];
   alertas?: { label: string; value: string; color: string; detail?: string }[];
   guiasPorCantidadExcepciones?: [string, number][];
@@ -450,11 +441,29 @@ export function exportCierrePDF(data: CierreExportData) {
       </table>
     </div>`;
 
-  const rankingHtml = tablaSimple(
-    'Ranking de Excepciones',
-    ['Excepción', 'Guías'],
-    data.rankingExcepciones.map(([exc, n]) => [exc, String(n)])
-  );
+  const rankingHtml = `
+    <div class="seccion">
+      <div class="seccion-titulo">Ranking de Excepciones</div>
+      ${barraHtml(
+        data.rankingExcepciones.map(([key, count]) => ({ key, count })),
+        data.rankingExcepciones.reduce((s, [, n]) => s + n, 0),
+        '#7C3AED'
+      )}
+    </div>`;
+
+  // Gráfico (barras de %) + tabla completa, para Entidad y Oficina. Ya
+  // vienen ordenadas de mayor a menor efectividad desde CierreModal.
+  const efectEntidadChartHtml = `
+    <div class="seccion">
+      <div class="seccion-titulo">Efectividad por Entidad</div>
+      ${barraEfectividadHtml(data.efectividadPorEntidad.slice(0, 15))}
+    </div>`;
+
+  const efectOficinaChartHtml = `
+    <div class="seccion">
+      <div class="seccion-titulo">Efectividad por Oficina</div>
+      ${barraEfectividadHtml(data.efectividadPorOficina.slice(0, 15))}
+    </div>`;
 
   const efectEntidadHtml = tablaSimple(
     `Efectividad por Entidad — Todas (${data.efectividadPorEntidad.length})`,
@@ -468,32 +477,21 @@ export function exportCierrePDF(data: CierreExportData) {
     data.efectividadPorOficina.map((o) => [o.key, String(o.total), o.efectividad !== null ? `${o.efectividad}%` : '—'])
   );
 
-  const topLowCard = (label: string, item: { key: string; efectividad: number | null } | null, emoji: string) => `
-    <div class="kpi-card" style="border-top-color:#1E3A8A">
-      <div class="kpi-label">${emoji} ${escapeHtml(label)}</div>
-      <div style="font-size:11px;font-weight:700;margin-top:4px;">${item ? escapeHtml(item.key) : '—'}</div>
-      <div class="kpi-value" style="font-size:15px;">${item && item.efectividad !== null ? `${item.efectividad}%` : '—'}</div>
-    </div>`;
-
-  const topLowHtml =
-    data.topLowEntidad && data.topLowOficina
-      ? `
-    <div class="seccion">
-      <div class="seccion-titulo">Mejor y Peor Desempeño</div>
-      <div class="kpi-grid">
-        ${topLowCard('Mejor Entidad', data.topLowEntidad.top, '🏆')}
-        ${topLowCard('Peor Entidad', data.topLowEntidad.low, '⚠️')}
-        ${topLowCard('Mejor Oficina', data.topLowOficina.top, '🏆')}
-        ${topLowCard('Peor Oficina', data.topLowOficina.low, '⚠️')}
-      </div>
-    </div>`
-      : '';
-
   const abiertasHtml = tablaSimple(
     'Resumen de Guías Abiertas',
     ['Estado', 'Guías'],
     data.abiertasPorEstado.map(([estado, n]) => [estado, String(n)])
   );
+
+  const abiertasChartHtml = `
+    <div class="seccion">
+      <div class="seccion-titulo">Guías Abiertas por Estado</div>
+      ${barraHtml(
+        data.abiertasPorEstado.map(([key, count]) => ({ key, count })),
+        data.abiertasPorEstado.reduce((s, [, n]) => s + n, 0),
+        '#EA7C1A'
+      )}
+    </div>`;
 
   const excPorCantidadHtml = data.guiasPorCantidadExcepciones
     ? tablaSimple(
@@ -543,6 +541,14 @@ export function exportCierrePDF(data: CierreExportData) {
         .seccion table tbody tr { page-break-inside: avoid; }
         .dos-columnas { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         .footer { margin-top: 16px; font-size: 10px; color: #94A3B8; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 10px; }
+        .barra-fila { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+        .barra-label { font-size: 11px; font-weight: 600; width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .barra-track { flex: 1; background: #F1F5F9; border-radius: 4px; height: 10px; overflow: hidden; }
+        .barra-fill { height: 100%; border-radius: 4px; }
+        .barra-valor { font-size: 10.5px; font-weight: 700; width: 22%; text-align: right; white-space: nowrap; }
+        .barra-pct { font-weight: 500; color: #94A3B8; }
+        .sin-datos { font-size: 11px; color: #94A3B8; padding: 8px 0; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
         @media print {
           body { padding: 10px; }
           .seccion { page-break-inside: avoid; }
@@ -583,17 +589,17 @@ export function exportCierrePDF(data: CierreExportData) {
 
       ${excPorCantidadHtml}
 
-      ${topLowHtml}
+      <div class="dos-columnas">
+        ${efectEntidadChartHtml}
+        ${efectOficinaChartHtml}
+      </div>
 
       <div class="dos-columnas">
         ${efectEntidadHtml}
         ${efectOficinaHtml}
       </div>
 
-      <div class="seccion">
-        <div class="seccion-titulo">Facturación</div>
-        <div class="kpi-grid">${kpiCards(data.facturacion)}</div>
-      </div>
+      ${abiertasChartHtml}
 
       ${abiertasHtml}
 

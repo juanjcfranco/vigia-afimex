@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Guia, Carga, TarifaCliente } from '@/lib/types';
+import { useMemo } from 'react';
+import { Guia, Carga } from '@/lib/types';
 import {
   isEntregada,
   isAbiertaPorEstado,
@@ -10,20 +10,9 @@ import {
   calcularEfectividad,
   colorEfectividad,
   getExcepciones,
-  calcularItemsFacturables,
   formatearPeriodo,
 } from '@/lib/business-logic';
 import { exportCierrePDF } from '@/lib/export';
-
-const TARIFAS_DEFAULT: TarifaCliente = {
-  id: '',
-  cliente: '',
-  tarifa_entrega_original: 100,
-  tarifa_devolucion: 40,
-  tarifa_retorno_entregado: 100,
-  tarifa_posible_retorno: 40,
-  actualizado_en: '',
-};
 
 interface CierreModalProps {
   open: boolean;
@@ -44,31 +33,6 @@ function resumenDe(lista: Guia[]) {
 }
 
 export default function CierreModal({ open, onClose, guias, cargaActiva }: CierreModalProps) {
-  const [tarifas, setTarifas] = useState<TarifaCliente>(TARIFAS_DEFAULT);
-
-  const cargarTarifas = () => {
-    const cliente = cargaActiva?.cliente || guias[0]?.cliente;
-    if (!cliente) return;
-    fetch(`/api/tarifas?cliente=${encodeURIComponent(cliente)}`)
-      .then((r) => r.json())
-      .then((j) => {
-        if (j.error) {
-          console.error('Error al cargar tarifas:', j.error);
-          return;
-        }
-        if (j.tarifas && j.tarifas.length) {
-          setTarifas(j.tarifas[0]);
-        } else {
-          setTarifas({ ...TARIFAS_DEFAULT, cliente });
-        }
-      })
-      .catch((err) => {
-        console.error('Error de red al cargar tarifas:', err);
-      });
-  };
-
-  useEffect(cargarTarifas, [cargaActiva, guias]);
-
   const resumen = useMemo(() => {
     // KPIs idénticos al módulo Resumen
     const devolucionesConRetorno = guias.filter((g) => g.es_devolucion && g.retorno_guia);
@@ -115,7 +79,9 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10);
 
-    // Efectividad completa por entidad y por oficina (todas, ordenadas por volumen)
+    // Efectividad completa por entidad y por oficina — ordenadas de mayor
+    // a menor efectividad (antes se ordenaba por volumen). Los grupos sin
+    // dato de efectividad (null) quedan al final, sin importar el orden.
     function porCampo(campo: keyof Guia) {
       const grupos: Record<string, Guia[]> = {};
       guiasOriginales.forEach((g) => {
@@ -125,37 +91,15 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
       });
       return Object.entries(grupos)
         .map(([key, lista]) => ({ key, ...resumenDe(lista) }))
-        .sort((a, b) => b.total - a.total);
+        .sort((a, b) => {
+          if (a.efectividad === null && b.efectividad === null) return 0;
+          if (a.efectividad === null) return 1;
+          if (b.efectividad === null) return -1;
+          return b.efectividad - a.efectividad;
+        });
     }
     const efectividadPorEntidad = porCampo('entidad_destinatario');
     const efectividadPorOficina = porCampo('oficina_destino');
-
-    // Top y low desempeño (excluyendo grupos con muy poco volumen para que
-    // el "mejor"/"peor" sea representativo, no un caso aislado de 1 guía)
-    function topYLow(lista: { key: string; total: number; efectividad: number | null }[]) {
-      const conDato = lista.filter((x) => x.efectividad !== null && x.total >= 5);
-      if (!conDato.length) return { top: null, low: null };
-      const ordenado = [...conDato].sort((a, b) => (b.efectividad! - a.efectividad!));
-      return { top: ordenado[0], low: ordenado[ordenado.length - 1] };
-    }
-    const topLowEntidad = topYLow(efectividadPorEntidad);
-    const topLowOficina = topYLow(efectividadPorOficina);
-
-    // Facturación — usa las tarifas configuradas para este cliente
-    // (tabla tarifas_cliente), no valores fijos
-    const itemsFacturables = calcularItemsFacturables(guias, tarifas);
-    const entregasFacturables = itemsFacturables.filter((i) => i.tipo === 'ENTREGA_ORIGINAL');
-    const devolucionesFacturables = itemsFacturables.filter((i) => i.tipo === 'DEVOLUCION');
-    const posibleRetornoFacturable = itemsFacturables.filter((i) => i.tipo === 'POSIBLE_RETORNO_OTRO_PERIODO');
-    const retornosEntregadosFacturable = itemsFacturables.filter((i) => i.tipo === 'RETORNO_ENTREGADO');
-    // Suma el monto REAL de cada ítem (item.tarifa, ya calculado con la
-    // tarifa configurada), en vez de "cantidad × constante fija" — así no
-    // se puede desalinear del monto que realmente aplica calcularItemsFacturables.
-    const montoEntregas = entregasFacturables.reduce((s, i) => s + i.tarifa, 0);
-    const montoDevoluciones = devolucionesFacturables.reduce((s, i) => s + i.tarifa, 0);
-    const montoPosibleRetorno = posibleRetornoFacturable.reduce((s, i) => s + i.tarifa, 0);
-    const montoRetornosEntregados = retornosEntregadosFacturable.reduce((s, i) => s + i.tarifa, 0);
-    const montoTotalFacturacion = montoEntregas + montoDevoluciones + montoPosibleRetorno + montoRetornosEntregados;
 
     // Resumen de guías abiertas por estado
     const abiertasGuias = guiasOriginales.filter((g) => isAbiertaPorEstado(g));
@@ -216,20 +160,9 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
       rankingExcepciones,
       efectividadPorEntidad,
       efectividadPorOficina,
-      topLowEntidad,
-      topLowOficina,
-      montoEntregas,
-      montoDevoluciones,
-      montoPosibleRetorno,
-      montoRetornosEntregados,
-      montoTotalFacturacion,
-      entregasFacturablesCount: entregasFacturables.length,
-      devolucionesFacturablesCount: devolucionesFacturables.length,
-      posibleRetornoFacturableCount: posibleRetornoFacturable.length,
-      retornosEntregadosFacturableCount: retornosEntregadosFacturable.length,
       abiertasPorEstado: Object.entries(abiertasPorEstado).sort((a, b) => b[1] - a[1]),
     };
-  }, [guias, tarifas]);
+  }, [guias]);
 
   async function guardarCierre() {
     await fetch('/api/cierres', {
@@ -315,34 +248,6 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
       rankingExcepciones: resumen.rankingExcepciones,
       efectividadPorEntidad: resumen.efectividadPorEntidad,
       efectividadPorOficina: resumen.efectividadPorOficina,
-      topLowEntidad: resumen.topLowEntidad,
-      topLowOficina: resumen.topLowOficina,
-      facturacion: [
-        {
-          label: `Entregas ($${tarifas.tarifa_entrega_original} c/u)`,
-          value: `${resumen.entregasFacturablesCount} · $${resumen.montoEntregas.toLocaleString('es-MX')}`,
-          color: '#0B9B67',
-          detail: 'Guías originales con Estado = ENTREGADA',
-        },
-        {
-          label: `Devoluciones ($${tarifas.tarifa_devolucion} c/u)`,
-          value: `${resumen.devolucionesFacturablesCount} · $${resumen.montoDevoluciones.toLocaleString('es-MX')}`,
-          color: '#DC2626',
-          detail: 'Se factura al autorizar la devolución',
-        },
-        {
-          label: `Posible Retorno ($${tarifas.tarifa_posible_retorno} c/u)`,
-          value: `${resumen.posibleRetornoFacturableCount} · $${resumen.montoPosibleRetorno.toLocaleString('es-MX')}`,
-          color: '#B45309',
-          detail: 'Retornos sin vínculo en este corte',
-        },
-        {
-          label: `Retornos Generados ($${tarifas.tarifa_retorno_entregado} c/u)`,
-          value: `${resumen.retornosEntregadosFacturableCount} · $${resumen.montoRetornosEntregados.toLocaleString('es-MX')}`,
-          color: '#7C3AED',
-          detail: 'Paquete de regreso ya recibido físicamente',
-        },
-      ],
       abiertasPorEstado: resumen.abiertasPorEstado,
     });
   }
@@ -505,43 +410,9 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
           </div>
         </div>
 
-        {/* Efectividad por entidad y oficina — completa, con top y low */}
+        {/* Efectividad por entidad y oficina — completa, ordenada de mayor a menor */}
         <div className="mb-5">
           <div className="font-bold text-[12.5px] mb-2">Efectividad por Entidad y Oficina</div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-3">
-            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-2.5 text-center">
-              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">🏆 Mejor Entidad</div>
-              <div className="text-[13px] font-bold truncate">{resumen.topLowEntidad.top?.key || '—'}</div>
-              <div className="text-base font-extrabold" style={{ color: colorEfectividad(resumen.topLowEntidad.top?.efectividad ?? null) }}>
-                {resumen.topLowEntidad.top ? `${resumen.topLowEntidad.top.efectividad}%` : '—'}
-              </div>
-            </div>
-            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-2.5 text-center">
-              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">⚠️ Peor Entidad</div>
-              <div className="text-[13px] font-bold truncate">{resumen.topLowEntidad.low?.key || '—'}</div>
-              <div className="text-base font-extrabold" style={{ color: colorEfectividad(resumen.topLowEntidad.low?.efectividad ?? null) }}>
-                {resumen.topLowEntidad.low ? `${resumen.topLowEntidad.low.efectividad}%` : '—'}
-              </div>
-            </div>
-            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-2.5 text-center">
-              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">🏆 Mejor Oficina</div>
-              <div className="text-[13px] font-bold truncate">{resumen.topLowOficina.top?.key || '—'}</div>
-              <div className="text-base font-extrabold" style={{ color: colorEfectividad(resumen.topLowOficina.top?.efectividad ?? null) }}>
-                {resumen.topLowOficina.top ? `${resumen.topLowOficina.top.efectividad}%` : '—'}
-              </div>
-            </div>
-            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-2.5 text-center">
-              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">⚠️ Peor Oficina</div>
-              <div className="text-[13px] font-bold truncate">{resumen.topLowOficina.low?.key || '—'}</div>
-              <div className="text-base font-extrabold" style={{ color: colorEfectividad(resumen.topLowOficina.low?.efectividad ?? null) }}>
-                {resumen.topLowOficina.low ? `${resumen.topLowOficina.low.efectividad}%` : '—'}
-              </div>
-            </div>
-          </div>
-          <div className="text-[10px] text-[var(--vg-text3)] mb-2 italic">
-            Mejor/peor calculado solo entre entidades u oficinas con 5+ guías, para que el dato sea representativo.
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <div className="text-[11.5px] font-bold text-[var(--vg-text2)] mb-1.5">
@@ -599,49 +470,6 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
                     </tbody>
                   </table>
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Facturación */}
-        <div className="mb-5">
-          <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
-            <div className="font-bold text-[12.5px]">Facturación</div>
-            <span className="text-[10px] text-[var(--vg-text2)]">
-              Tarifas de <strong>{tarifas.cliente || cargaActiva?.cliente || '—'}</strong>: ${tarifas.tarifa_entrega_original} / ${tarifas.tarifa_devolucion} / ${tarifas.tarifa_retorno_entregado} / ${tarifas.tarifa_posible_retorno}
-              {' '}<span className="text-[var(--vg-text3)]">(configúralas desde el módulo de Facturación)</span>
-            </span>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
-            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-2.5 text-center">
-              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Entregas (${tarifas.tarifa_entrega_original} c/u)</div>
-              <div className="text-base font-extrabold text-[var(--vg-green)]">
-                {resumen.entregasFacturablesCount} · ${resumen.montoEntregas.toLocaleString('es-MX')}
-              </div>
-            </div>
-            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-2.5 text-center">
-              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Devoluciones (${tarifas.tarifa_devolucion} c/u)</div>
-              <div className="text-base font-extrabold text-[var(--vg-red)]">
-                {resumen.devolucionesFacturablesCount} · ${resumen.montoDevoluciones.toLocaleString('es-MX')}
-              </div>
-            </div>
-            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-2.5 text-center">
-              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Posible Retorno (${tarifas.tarifa_posible_retorno} c/u)</div>
-              <div className="text-base font-extrabold" style={{ color: '#B45309' }}>
-                {resumen.posibleRetornoFacturableCount} · ${resumen.montoPosibleRetorno.toLocaleString('es-MX')}
-              </div>
-            </div>
-            <div className="bg-white border border-[var(--vg-border)] rounded-lg p-2.5 text-center">
-              <div className="text-[10px] text-[var(--vg-text2)] font-semibold">Retornos Generados (${tarifas.tarifa_retorno_entregado} c/u)</div>
-              <div className="text-base font-extrabold text-[var(--vg-purple)]">
-                {resumen.retornosEntregadosFacturableCount} · ${resumen.montoRetornosEntregados.toLocaleString('es-MX')}
-              </div>
-            </div>
-            <div className="bg-[var(--vg-blue-light)] border border-blue-200 rounded-lg p-2.5 text-center">
-              <div className="text-[10px] text-[var(--vg-blue)] font-semibold">Monto Total</div>
-              <div className="text-base font-extrabold text-[var(--vg-blue)]">
-                ${resumen.montoTotalFacturacion.toLocaleString('es-MX')}
               </div>
             </div>
           </div>
