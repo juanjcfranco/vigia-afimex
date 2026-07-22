@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Guia, Indemnizacion, EstadoIndemnizacion } from '@/lib/types';
+import { Guia, Indemnizacion, EstadoIndemnizacion, ContactoOficina } from '@/lib/types';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
 import IndemnizacionModal from '@/components/IndemnizacionModal';
@@ -26,6 +26,7 @@ function EstadoBadge({ estado }: { estado: EstadoIndemnizacion }) {
 
 export default function IndemnizacionesModule({ guias }: { guias: Guia[] }) {
   const [indemnizaciones, setIndemnizaciones] = useState<Indemnizacion[]>([]);
+  const [contactos, setContactos] = useState<ContactoOficina[]>([]);
   const [cargando, setCargando] = useState(true);
   const [filtroEstado, setFiltroEstado] = useState<EstadoIndemnizacion | ''>('');
   const [seleccionadas, setSeleccionadas] = useState<Set<string>>(new Set());
@@ -47,6 +48,12 @@ export default function IndemnizacionesModule({ guias }: { guias: Guia[] }) {
   }
 
   useEffect(cargar, []);
+
+  useEffect(() => {
+    fetch('/api/contactos')
+      .then((r) => r.json())
+      .then((j) => setContactos(j.contactos || []));
+  }, []);
 
   const kpisPorEstado = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -351,6 +358,7 @@ export default function IndemnizacionesModule({ guias }: { guias: Guia[] }) {
         existente={nuevoCaso ? null : casoEditando}
         guiasPrecargadas={nuevoCaso ? [] : guiasDelCasoEditando}
         oficinas={oficinas}
+        contactos={contactos}
       />
     </div>
   );

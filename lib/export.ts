@@ -2,6 +2,7 @@
 
 import * as XLSX from 'xlsx';
 import { LOGO_AFIMEX_BASE64 } from './logo-base64';
+import { Indemnizacion } from './types';
 
 export interface ColumnaExport<T> {
   header: string;
@@ -227,6 +228,129 @@ export function exportAcuseConcentradoPDF(alertas: Array<{
 // ============================================================
 // Acuse de envío de correo de alerta
 // ============================================================
+// ============================================================
+// PDF de resumen de un caso de indemnización — pensado para adjuntar
+// manualmente al correo de autorización (ver enviarPorCorreo en el
+// modal: un mailto no puede traer adjuntos automáticos, así que este PDF
+// se abre aparte para que el usuario le dé "Guardar como PDF" y lo
+// arrastre al correo que se acaba de abrir).
+// ============================================================
+export function exportIndemnizacionPDF(caso: Indemnizacion) {
+  const win = window.open('', '_blank');
+  if (!win) {
+    alert('Tu navegador bloqueó la ventana de impresión. Habilita pop-ups para este sitio.');
+    return;
+  }
+
+  const fechaGenerado = new Date().toLocaleString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const fila = (label: string, value: string) => `
+    <tr>
+      <td style="padding:5px 10px;color:#64748B;font-weight:600;width:220px;border-bottom:1px solid #F1F5F9;">${escapeHtml(label)}</td>
+      <td style="padding:5px 10px;font-weight:600;border-bottom:1px solid #F1F5F9;">${escapeHtml(value || '—')}</td>
+    </tr>`;
+
+  win.document.write(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="utf-8"/>
+      <title>Indemnización ${escapeHtml(caso.folio)}</title>
+      <style>
+        * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
+        body { font-family: Arial, Helvetica, sans-serif; padding: 28px; color: #1E293B; max-width: 800px; margin: 0 auto; }
+        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1E3A8A; padding-bottom: 14px; margin-bottom: 18px; }
+        .header h1 { font-size: 18px; color: #1E3A8A; margin: 0 0 4px 0; }
+        .header .subtitulo { font-size: 12px; color: #64748B; }
+        .header .meta { font-size: 11px; color: #94A3B8; text-align: right; }
+        .estado-badge { display: inline-block; color: white; font-weight: 800; font-size: 12px; border-radius: 20px; padding: 3px 14px; }
+        .seccion { border: 1px solid #E2E8F0; border-radius: 8px; margin-bottom: 14px; overflow: hidden; }
+        .seccion-titulo { background: #F8FAFC; padding: 8px 10px; font-weight: 800; font-size: 12px; color: #1E3A8A; border-bottom: 1px solid #E2E8F0; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .investigacion-box { padding: 10px; font-size: 12px; white-space: pre-wrap; }
+        .footer { margin-top: 16px; font-size: 10px; color: #94A3B8; text-align: right; }
+        @media print { body { padding: 10mm; } @page { size: portrait; margin: 12mm; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div style="display:flex;align-items:center;gap:14px;">
+          <img src="${LOGO_AFIMEX_BASE64}" alt="AFIMEX" style="height:36px"/>
+          <div>
+            <h1>Caso de Indemnización — ${escapeHtml(caso.folio)}</h1>
+            <div class="subtitulo">Resumen de incidencia · VIGÍA</div>
+          </div>
+        </div>
+        <div class="meta">
+          Generado: ${escapeHtml(fechaGenerado)}<br/>
+          <span class="estado-badge" style="background:${
+            { PENDIENTE: '#EA7C1A', APROBADA: '#1E3A8A', PAGADA: '#0B9B67', RECHAZADA: '#DC2626' }[caso.estado]
+          }">${escapeHtml(caso.estado)}</span>
+        </div>
+      </div>
+
+      <div class="seccion">
+        <div class="seccion-titulo">Resumen de Incidencia</div>
+        <table>
+          <tbody>
+            ${fila('Folio', caso.folio)}
+            ${fila('Cliente', caso.cliente || '')}
+            ${fila('Guía(s)', caso.guias.join(', '))}
+            ${fila('Destino', `${caso.oficina || '—'}${caso.tipo_destino ? ` (${caso.tipo_destino})` : ''}`)}
+            ${fila('Oficina de incidencia', caso.oficina_incidencia || '')}
+            ${fila('Fecha de registro', caso.fecha || '')}
+            ${fila('Fecha último movimiento', caso.fecha_mov || '')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="seccion">
+        <div class="seccion-titulo">Incidencia</div>
+        <table>
+          <tbody>
+            ${fila('Tipo', caso.tipo_incidencia || '')}
+            ${fila('Último escaneo', caso.scan_estatus || '')}
+            ${fila('Ubicación escaneo', caso.scan_loc || '')}
+            ${fila('Usuario escaneo', caso.scan_user || '')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="seccion">
+        <div class="seccion-titulo">Investigación</div>
+        <div class="investigacion-box">${escapeHtml(caso.investigacion || 'Sin detalle registrado.')}</div>
+      </div>
+
+      <div class="seccion">
+        <div class="seccion-titulo">Resolución Económica</div>
+        <table>
+          <tbody>
+            ${fila('Importe declarado', `$${(caso.importe || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`)}
+            ${fila('Indemnización', `$${(caso.indemnizacion || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`)}
+            ${fila('Importe recuperable', `$${(caso.recuperable || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`)}
+            ${fila('Cargo a AFIMEX', `$${(caso.cargo_afimex || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`)}
+            ${fila('Tipo de indemnización', caso.tipo_indemnizacion || '')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
+
+      <script>
+        window.onload = function() { window.print(); };
+      </script>
+    </body>
+    </html>
+  `);
+  win.document.close();
+}
+
 export function exportAcusePDF(alerta: {
   oficina: string;
   guias_incluidas: string[];
