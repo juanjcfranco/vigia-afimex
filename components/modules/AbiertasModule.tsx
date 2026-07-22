@@ -19,12 +19,25 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   const [contactos, setContactos] = useState<ContactoOficina[]>([]);
   const [modalTipo, setModalTipo] = useState<TipoAccionMasiva | null>(null);
   const [modalAlertaDias, setModalAlertaDias] = useState(false);
+  const [guiasIndemnizadas, setGuiasIndemnizadas] = useState<Set<string>>(new Set());
+  const [marcando, setMarcando] = useState(false);
 
   useEffect(() => {
     fetch('/api/contactos')
       .then((r) => r.json())
       .then((j) => setContactos(j.contactos || []));
   }, []);
+
+  function cargarIndemnizadas() {
+    fetch('/api/indemnizaciones')
+      .then((r) => r.json())
+      .then((j) => {
+        const set = new Set<string>();
+        (j.indemnizaciones || []).forEach((i: { guias: string[] }) => i.guias.forEach((g) => set.add(g)));
+        setGuiasIndemnizadas(set);
+      });
+  }
+  useEffect(cargarIndemnizadas, []);
 
   // Mismo criterio de elegibilidad que Acciones: no devoluciones, no entregadas,
   // no canceladas, no pre-documentadas (basado en estado puro, no Calificación)
@@ -94,6 +107,42 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
     () => filas.filter((g) => seleccionadas.has(g.guia)),
     [filas, seleccionadas]
   );
+
+  // Crea UN caso de indemnización (folio nuevo) que cubre TODAS las guías
+  // seleccionadas en este momento — igual que un robo o siniestro que
+  // afecta varios paquetes juntos. Si se quieren casos separados, hay que
+  // seleccionar y marcar de una en una. Los detalles (tipo de incidencia,
+  // monto, etc.) se completan después en el módulo Indemnizaciones.
+  async function marcarParaIndemnizacion() {
+    if (!guiasSeleccionadasObj.length) return;
+    setMarcando(true);
+    try {
+      const g0 = guiasSeleccionadasObj[0];
+      const res = await fetch('/api/indemnizaciones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          guias: guiasSeleccionadasObj.map((g) => g.guia),
+          cliente: g0.cliente || '',
+          fecha: new Date().toISOString().slice(0, 10),
+          fecha_mov: g0.f_historia || null,
+          oficina: g0.oficina_destino || '',
+          oficina_incidencia: g0.oficina_destino || '',
+          estado: 'PENDIENTE',
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json();
+        throw new Error(j.error || 'No se pudo marcar para indemnización');
+      }
+      cargarIndemnizadas();
+      setSeleccionadas(new Set());
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al marcar para indemnización');
+    } finally {
+      setMarcando(false);
+    }
+  }
 
   const { sorted, sortKey, sortDir, requestSort } = useSortableTable<Guia>(filas, (g, key) => {
     switch (key) {
@@ -250,6 +299,13 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
               ⏰ Alerta sin movimiento
             </button>
             <button
+              onClick={marcarParaIndemnizacion}
+              disabled={marcando}
+              className="text-[11.5px] font-semibold text-white bg-[#B45309] rounded-md px-3 py-1 disabled:opacity-50"
+            >
+              🏷️ {marcando ? 'Marcando...' : 'Marcar para Indemnización'}
+            </button>
+            <button
               onClick={() => setSeleccionadas(new Set())}
               className="text-[11.5px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-3 py-1 bg-white"
             >
@@ -327,6 +383,11 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                     ) : (
                       <span className="text-[10px] font-bold text-white bg-[var(--vg-blue)] rounded-full px-1.5 py-0.5">
                         Original
+                      </span>
+                    )}
+                    {guiasIndemnizadas.has(g.guia) && (
+                      <span className="ml-1 text-[10px] font-bold text-white bg-[#B45309] rounded-full px-1.5 py-0.5">
+                        🏷️ Indemnización
                       </span>
                     )}
                   </td>

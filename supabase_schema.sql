@@ -127,6 +127,40 @@ create table if not exists acciones_log (
   realizado_en timestamptz default now()
 );
 
+-- 6b. INDEMNIZACIONES: registro persistente de casos de indemnización.
+-- INDEPENDIENTE de `guias`/`cargas` a propósito — se identifica por número
+-- de guía, no por carga_id, para que sobreviva a que se vuelva a subir el
+-- Excel (una guía puede aparecer en varias cargas distintas a lo largo del
+-- tiempo, pero su indemnización es un solo caso persistente).
+create table if not exists indemnizaciones (
+  id uuid primary key default gen_random_uuid(),
+  folio text unique not null,          -- IND-000001, generado por la app
+  guias text[] not null,               -- puede cubrir más de una guía por caso
+  cliente text,
+  fecha date,                          -- fecha de registro del caso
+  fecha_mov date,                      -- fecha de último movimiento (al momento de registrar)
+  oficina text,                        -- oficina destino
+  tipo_destino text,                   -- Oficina / Concesionario
+  oficina_incidencia text,             -- dónde ocurrió la incidencia (puede diferir del destino)
+  importe numeric default 0,           -- importe declarado del contenido
+  tipo_incidencia text,                -- Robo / Extravío / Daño parcial / etc.
+  scan_loc text,                       -- ubicación del último escaneo
+  scan_dt timestamptz,                 -- fecha/hora del último escaneo
+  scan_user text,                      -- usuario que hizo el último escaneo
+  scan_estatus text,                   -- estatus registrado en ese escaneo
+  investigacion text,                  -- descripción de la investigación
+  indemnizacion numeric default 0,     -- monto a indemnizar (MXN)
+  recuperable numeric default 0,       -- importe recuperable (MXN)
+  cargo_afimex numeric default 0,      -- max(0, indemnizacion - recuperable), calculado y guardado
+  tipo_indemnizacion text,             -- Pago / Nota de crédito
+  estado text default 'PENDIENTE',     -- PENDIENTE / APROBADA / PAGADA / RECHAZADA
+  pay_ref text,                        -- folio/referencia de pago cuando estado=PAGADA
+  creado_por text,
+  creado_en timestamptz default now(),
+  actualizado_en timestamptz default now()
+);
+create index if not exists idx_indemnizaciones_guias on indemnizaciones using gin (guias);
+
 -- 7. CIERRES: reportes de cierre operativo guardados
 create table if not exists cierres_operativos (
   id uuid primary key default gen_random_uuid(),
@@ -148,6 +182,7 @@ alter table excepciones_catalogo enable row level security;
 alter table contactos_oficina enable row level security;
 alter table alertas_log enable row level security;
 alter table acciones_log enable row level security;
+alter table indemnizaciones enable row level security;
 alter table cierres_operativos enable row level security;
 
 create policy "allow_all_cargas" on cargas for all using (true) with check (true);
@@ -156,6 +191,7 @@ create policy "allow_all_catalogo" on excepciones_catalogo for all using (true) 
 create policy "allow_all_contactos" on contactos_oficina for all using (true) with check (true);
 create policy "allow_all_alertas" on alertas_log for all using (true) with check (true);
 create policy "allow_all_acciones" on acciones_log for all using (true) with check (true);
+create policy "allow_all_indemnizaciones" on indemnizaciones for all using (true) with check (true);
 create policy "allow_all_cierres" on cierres_operativos for all using (true) with check (true);
 
 -- ============================================================

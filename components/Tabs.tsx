@@ -9,6 +9,7 @@ export const TABS = [
   { id: 'geo', label: '🗺 Geográfico' },
   { id: 'facturacion', label: '💵 Facturación' },
   { id: 'abiertas', label: '📂 Abiertas' },
+  { id: 'indemnizaciones', label: '💰 Indemnizaciones' },
   { id: 'predoc', label: '🔵 Pre-Documentadas' },
   { id: 'alertas', label: '📧 Alertas' },
   { id: 'guias', label: '🔍 Guías' },

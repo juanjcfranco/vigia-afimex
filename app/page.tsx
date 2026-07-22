@@ -21,6 +21,7 @@ import PredocModule from '@/components/modules/PredocModule';
 import AlertasModule from '@/components/modules/AlertasModule';
 import GuiasModule from '@/components/modules/GuiasModule';
 import HistorialModule from '@/components/modules/HistorialModule';
+import IndemnizacionesModule from '@/components/modules/IndemnizacionesModule';
 
 export default function Home() {
   const {
@@ -122,6 +123,7 @@ export default function Home() {
           {tab === 'geo' && <GeoModule guias={guiasFiltradas} />}
           {tab === 'facturacion' && <FacturacionModule guias={guiasFiltradas} />}
           {tab === 'abiertas' && <AbiertasModule guias={guiasFiltradas} />}
+          {tab === 'indemnizaciones' && <IndemnizacionesModule guias={guiasFiltradas} />}
           {tab === 'predoc' && <PredocModule guias={guiasFiltradas} />}
           {tab === 'alertas' && <AlertasModule guias={guiasFiltradas} />}
           {tab === 'guias' && <GuiasModule guias={guiasFiltradas} />}

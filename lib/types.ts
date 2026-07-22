@@ -128,6 +128,36 @@ export interface AccionLog {
   realizado_en: string;
 }
 
+export type EstadoIndemnizacion = 'PENDIENTE' | 'APROBADA' | 'PAGADA' | 'RECHAZADA';
+
+export interface Indemnizacion {
+  id: string;
+  folio: string;
+  guias: string[];
+  cliente: string | null;
+  fecha: string | null;
+  fecha_mov: string | null;
+  oficina: string | null;
+  tipo_destino: string | null;
+  oficina_incidencia: string | null;
+  importe: number | null;
+  tipo_incidencia: string | null;
+  scan_loc: string | null;
+  scan_dt: string | null;
+  scan_user: string | null;
+  scan_estatus: string | null;
+  investigacion: string | null;
+  indemnizacion: number | null;
+  recuperable: number | null;
+  cargo_afimex: number | null;
+  tipo_indemnizacion: string | null;
+  estado: EstadoIndemnizacion;
+  pay_ref: string | null;
+  creado_por: string | null;
+  creado_en: string;
+  actualizado_en: string;
+}
+
 export type AccionTipo =
   | 'REPROGRAMAR'
   | 'DEVOLVER'
