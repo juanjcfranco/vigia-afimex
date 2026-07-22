@@ -157,3 +157,22 @@ export async function PATCH(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ indemnizacion: data });
 }
+
+// Elimina uno o más casos. Borrado permanente — la guía simplemente deja
+// de tener un caso asociado (nunca "desapareció" de Abiertas: el badge de
+// Indemnización se calcula en vivo contra esta tabla, así que al borrar
+// el caso, el badge desaparece solo la próxima vez que se consulte).
+export async function DELETE(req: NextRequest) {
+  const db = supabaseAdmin();
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id');
+  const ids = searchParams.get('ids'); // lista separada por comas, para borrar varios de un jalón
+
+  if (!id && !ids) return NextResponse.json({ error: 'Falta id o ids' }, { status: 400 });
+
+  const listaIds = ids ? ids.split(',').map((s) => s.trim()).filter(Boolean) : [id as string];
+
+  const { error } = await db.from('indemnizaciones').delete().in('id', listaIds);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, eliminados: listaIds.length });
+}

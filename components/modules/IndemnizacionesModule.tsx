@@ -146,6 +146,24 @@ export default function IndemnizacionesModule({ guias }: { guias: Guia[] }) {
     cargar();
   }
 
+  // Borrado permanente. La(s) guía(s) del caso nunca "desaparecieron" de
+  // Abiertas (marcar solo pone una etiqueta, no oculta nada) — al borrar
+  // el caso aquí, el badge de Indemnización en Abiertas desaparece solo,
+  // porque se calcula en vivo contra esta misma tabla.
+  async function eliminarSeleccionados() {
+    const n = casosSeleccionados.length;
+    if (!n) return;
+    const confirmado = window.confirm(
+      `¿Eliminar ${n} caso${n > 1 ? 's' : ''} de indemnización? Esta acción no se puede deshacer. Las guías afectadas dejarán de mostrar el badge de Indemnización en Abiertas.`
+    );
+    if (!confirmado) return;
+
+    const ids = casosSeleccionados.map((c) => c.id).join(',');
+    await fetch(`/api/indemnizaciones?ids=${encodeURIComponent(ids)}`, { method: 'DELETE' });
+    setSeleccionadas(new Set());
+    cargar();
+  }
+
   return (
     <div className="p-5 space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
@@ -217,6 +235,12 @@ export default function IndemnizacionesModule({ guias }: { guias: Guia[] }) {
               style={{ backgroundColor: ESTADO_COLOR.RECHAZADA }}
             >
               Marcar Rechazada
+            </button>
+            <button
+              onClick={eliminarSeleccionados}
+              className="text-[11.5px] font-semibold text-white bg-[var(--vg-red)] rounded-md px-3 py-1"
+            >
+              🗑️ Eliminar
             </button>
             <button
               onClick={() => setSeleccionadas(new Set())}
