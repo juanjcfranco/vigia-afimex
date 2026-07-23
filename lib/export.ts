@@ -3,6 +3,7 @@
 import * as XLSX from 'xlsx';
 import { LOGO_AFIMEX_BASE64 } from './logo-base64';
 import { Indemnizacion } from './types';
+import mexicoMapData from './mexico-map-data.json';
 
 export interface ColumnaExport<T> {
   header: string;
@@ -248,13 +249,16 @@ export function exportIndemnizacionPDF(caso: Indemnizacion) {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
   });
 
-  const fila = (label: string, value: string) => `
-    <tr>
-      <td style="padding:5px 10px;color:#64748B;font-weight:600;width:220px;border-bottom:1px solid #F1F5F9;">${escapeHtml(label)}</td>
-      <td style="padding:5px 10px;font-weight:600;border-bottom:1px solid #F1F5F9;">${escapeHtml(value || '—')}</td>
-    </tr>`;
+  const monto = (n: number | null) => `$${(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+
+  const dato = (label: string, value: string) => `
+    <div class="dato">
+      <div class="dato-label">${escapeHtml(label)}</div>
+      <div class="dato-valor">${escapeHtml(value || '—')}</div>
+    </div>`;
 
   win.document.write(`
     <!DOCTYPE html>
@@ -264,17 +268,34 @@ export function exportIndemnizacionPDF(caso: Indemnizacion) {
       <title>Indemnización ${escapeHtml(caso.folio)}</title>
       <style>
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
-        body { font-family: Arial, Helvetica, sans-serif; padding: 28px; color: #1E293B; max-width: 800px; margin: 0 auto; }
-        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1E3A8A; padding-bottom: 14px; margin-bottom: 18px; }
+        body { font-family: Arial, Helvetica, sans-serif; padding: 28px; color: #1E293B; max-width: 820px; margin: 0 auto; }
+        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1E3A8A; padding-bottom: 14px; margin-bottom: 16px; }
         .header h1 { font-size: 18px; color: #1E3A8A; margin: 0 0 4px 0; }
         .header .subtitulo { font-size: 12px; color: #64748B; }
         .header .meta { font-size: 11px; color: #94A3B8; text-align: right; }
         .estado-badge { display: inline-block; color: white; font-weight: 800; font-size: 12px; border-radius: 20px; padding: 3px 14px; }
-        .seccion { border: 1px solid #E2E8F0; border-radius: 8px; margin-bottom: 14px; overflow: hidden; }
-        .seccion-titulo { background: #F8FAFC; padding: 8px 10px; font-weight: 800; font-size: 12px; color: #1E3A8A; border-bottom: 1px solid #E2E8F0; }
-        table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .investigacion-box { padding: 10px; font-size: 12px; white-space: pre-wrap; }
-        .footer { margin-top: 16px; font-size: 10px; color: #94A3B8; text-align: right; }
+        .fila { display: grid; gap: 12px; margin-bottom: 12px; }
+        .fila-2 { grid-template-columns: 1fr 2.2fr; }
+        .fila-2b { grid-template-columns: 1fr 1fr; }
+        .card { border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px; background: #fff; }
+        .card-label { font-size: 10px; font-weight: 800; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+        .guia-num { font-size: 20px; font-weight: 800; color: #1E3A8A; }
+        .datos-grid { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+        .datos-grid .dato { flex: 1 1 40%; min-width: 130px; }
+        .dato-label { font-size: 9.5px; font-weight: 700; color: #94A3B8; text-transform: uppercase; margin-bottom: 1px; }
+        .dato-valor { font-size: 12.5px; font-weight: 700; }
+        .chip { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 3px 12px; border-radius: 20px; border: 1.5px solid #1E3A8A; color: #1E3A8A; }
+        .chip-estatus { display: inline-block; font-size: 11px; font-weight: 800; padding: 2px 10px; border-radius: 20px; background: #EA7C1A; color: white; }
+        .investigacion-box { font-size: 12px; white-space: pre-wrap; line-height: 1.5; }
+        .econ-grid { display: flex; gap: 8px; margin-bottom: 0; }
+        .econ-box { flex: 1; min-width: 0; border: 1.5px solid; border-radius: 8px; padding: 8px 6px; text-align: center; }
+        .econ-label { font-size: 9.5px; font-weight: 700; text-transform: uppercase; margin-bottom: 4px; color: #64748B; }
+        .econ-valor { font-size: 15px; font-weight: 800; }
+        .firmas { display: flex; gap: 20px; margin-top: 30px; text-align: center; }
+        .firma-linea { flex: 1; border-top: 1.5px solid #1E293B; padding-top: 6px; font-size: 11px; }
+        .firma-nombre { font-weight: 700; }
+        .firma-cargo { color: #64748B; font-size: 10px; }
+        .footer { margin-top: 20px; font-size: 10px; color: #94A3B8; display: flex; justify-content: space-between; border-top: 1px solid #E2E8F0; padding-top: 8px; }
         @media print { body { padding: 10mm; } @page { size: portrait; margin: 12mm; } }
       </style>
     </head>
@@ -295,52 +316,98 @@ export function exportIndemnizacionPDF(caso: Indemnizacion) {
         </div>
       </div>
 
-      <div class="seccion">
-        <div class="seccion-titulo">Resumen de Incidencia</div>
-        <table>
-          <tbody>
-            ${fila('Folio', caso.folio)}
-            ${fila('Cliente', caso.cliente || '')}
-            ${fila('Guía(s)', caso.guias.join(', '))}
-            ${fila('Destino', `${caso.oficina || '—'}${caso.tipo_destino ? ` (${caso.tipo_destino})` : ''}`)}
-            ${fila('Oficina de incidencia', caso.oficina_incidencia || '')}
-            ${fila('Fecha de registro', caso.fecha || '')}
-            ${fila('Fecha último movimiento', caso.fecha_mov || '')}
-          </tbody>
-        </table>
+      <div class="fila fila-2">
+        <div class="card">
+          <div class="card-label">Guía(s)</div>
+          <div class="guia-num">${escapeHtml(caso.guias.join(', '))}</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Datos del Envío</div>
+          <div class="datos-grid">
+            ${dato('Cliente', caso.cliente || '')}
+            ${dato('Destino', caso.oficina || '')}
+            ${dato('Tipo', caso.tipo_destino || '')}
+            ${dato('Of. Incidencia', caso.oficina_incidencia || '')}
+            ${dato('Fecha registro', caso.fecha || '')}
+            ${dato('Último movimiento', caso.fecha_mov || '')}
+            ${dato('Importe declarado', monto(caso.importe))}
+          </div>
+        </div>
       </div>
 
-      <div class="seccion">
-        <div class="seccion-titulo">Incidencia</div>
-        <table>
-          <tbody>
-            ${fila('Tipo', caso.tipo_incidencia || '')}
-            ${fila('Último escaneo', caso.scan_estatus || '')}
-            ${fila('Ubicación escaneo', caso.scan_loc || '')}
-            ${fila('Usuario escaneo', caso.scan_user || '')}
-          </tbody>
-        </table>
+      <div class="fila fila-2b">
+        <div class="card">
+          <div class="card-label">Tipo de Incidencia</div>
+          <span class="chip">${escapeHtml(caso.tipo_incidencia || 'Sin especificar')}</span>
+        </div>
+        <div class="card">
+          <div class="card-label">Último Escaneo</div>
+          <div class="datos-grid">
+            ${dato('Ubicación', caso.scan_loc || '')}
+            ${dato('Fecha y hora', caso.scan_dt ? new Date(caso.scan_dt).toLocaleString('es-MX') : '—')}
+            ${dato('Usuario', caso.scan_user || '')}
+            <div class="dato">
+              <div class="dato-label">Estatus</div>
+              <span class="chip-estatus">${escapeHtml(caso.scan_estatus || 'Sin dato')}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="seccion">
-        <div class="seccion-titulo">Investigación</div>
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-label">Investigación</div>
         <div class="investigacion-box">${escapeHtml(caso.investigacion || 'Sin detalle registrado.')}</div>
       </div>
 
-      <div class="seccion">
-        <div class="seccion-titulo">Resolución Económica</div>
-        <table>
-          <tbody>
-            ${fila('Importe declarado', `$${(caso.importe || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`)}
-            ${fila('Indemnización', `$${(caso.indemnizacion || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`)}
-            ${fila('Importe recuperable', `$${(caso.recuperable || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`)}
-            ${fila('Cargo a AFIMEX', `$${(caso.cargo_afimex || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`)}
-            ${fila('Tipo de indemnización', caso.tipo_indemnizacion || '')}
-          </tbody>
-        </table>
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-label">Resolución Económica</div>
+        <div class="econ-grid">
+          <div class="econ-box" style="border-color:#0B9B67;">
+            <div class="econ-label">Indemnización</div>
+            <div class="econ-valor" style="color:#0B9B67;">${monto(caso.indemnizacion)}</div>
+          </div>
+          <div class="econ-box" style="border-color:#1E3A8A;">
+            <div class="econ-label">Importe Recuperable</div>
+            <div class="econ-valor" style="color:#1E3A8A;">${caso.recuperable ? monto(caso.recuperable) : '—'}</div>
+          </div>
+          <div class="econ-box" style="border-color:#DC2626;">
+            <div class="econ-label">Cargo a AFIMEX</div>
+            <div class="econ-valor" style="color:#DC2626;">${monto(caso.cargo_afimex)}</div>
+          </div>
+          <div class="econ-box" style="border-color:#E2E8F0;">
+            <div class="econ-label">Tipo de Indemnización</div>
+            <div class="econ-valor" style="font-size:12px;">${escapeHtml(caso.tipo_indemnizacion || '—')}</div>
+          </div>
+          <div class="econ-box" style="border-color:#E2E8F0;">
+            <div class="econ-label">Tipo de Pago</div>
+            <div class="econ-valor" style="font-size:12px;">${escapeHtml(caso.tipo_indemnizacion || '—')}</div>
+          </div>
+          <div class="econ-box" style="border-color:#E2E8F0;">
+            <div class="econ-label">Folio / Referencia</div>
+            <div class="econ-valor" style="font-size:12px;">${escapeHtml(caso.pay_ref || '—')}</div>
+          </div>
+        </div>
       </div>
 
-      <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
+      <div class="firmas">
+        <div class="firma-linea">
+          <div class="firma-nombre">${escapeHtml(caso.creado_por || 'Elaboró')}</div>
+          <div class="firma-cargo">KAM Cuentas Especiales</div>
+        </div>
+        <div class="firma-linea">
+          <div class="firma-nombre">&nbsp;</div>
+          <div class="firma-cargo">Autorizó</div>
+        </div>
+        <div class="firma-linea">
+          <div class="firma-nombre">&nbsp;</div>
+          <div class="firma-cargo">Enterado</div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span>AFIMEX Paquetería y Logística — ${escapeHtml(fechaGenerado)}</span>
+        <span style="font-weight:700;">${escapeHtml(caso.folio)}</span>
+      </div>
 
       <script>
         window.onload = function() { window.print(); };
@@ -1025,3 +1092,216 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
   win.document.close();
 }
 
+
+// ============================================================
+// Reporte Geográfico completo: mapas (volumen y efectividad), top
+// excepciones nacional, y las tablas COMPLETAS (no solo top 10/12) por
+// Entidad, Oficina y Ciudad — pensado para compartir o archivar, ya que
+// el módulo en pantalla solo muestra un nivel a la vez (drill-down).
+// ============================================================
+function colorVolumenMapaExport(valor: number, max: number): string {
+  if (max <= 0 || valor <= 0) return '#F1F5F9';
+  const intensidad = Math.min(1, valor / max);
+  const r = Math.round(239 - intensidad * (239 - 30));
+  const g = Math.round(246 - intensidad * (246 - 58));
+  const b = Math.round(255 - intensidad * (255 - 138));
+  return `rgb(${r},${g},${b})`;
+}
+
+function colorEfectividadMapaExport(valor: number | null): string {
+  if (valor === null) return '#F1F5F9';
+  if (valor >= 70) return '#0B9B67';
+  if (valor >= 50) return '#EA7C1A';
+  return '#DC2626';
+}
+
+function construirMapaSvg(
+  datosPorEntidad: Record<string, { total: number; efectividad: number | null }>,
+  metrica: 'volumen' | 'efectividad'
+): string {
+  const maxVolumen = Math.max(1, ...Object.values(datosPorEntidad).map((d) => d.total));
+  const paths = mexicoMapData.states
+    .map((state) => {
+      const datos = datosPorEntidad[state.name];
+      const fill = !datos
+        ? '#F1F5F9'
+        : metrica === 'volumen'
+          ? colorVolumenMapaExport(datos.total, maxVolumen)
+          : colorEfectividadMapaExport(datos.efectividad);
+      return `<path d="${state.path}" fill="${fill}" stroke="#fff" stroke-width="1"/>`;
+    })
+    .join('');
+  return `<svg viewBox="${mexicoMapData.viewBox}" style="width:100%;height:auto;max-height:340px;display:block;">${paths}</svg>`;
+}
+
+export interface GeograficoExportData {
+  cliente: string;
+  periodoTexto: string;
+  totalGuias: number;
+  efectividadNacional: number | null;
+  datosPorEntidad: Record<string, { total: number; efectividad: number | null }>;
+  porEntidad: Array<{ entidad: string; total: number; efectividad: number | null }>;
+  porOficina: Array<{ oficina: string; total: number; efectividad: number | null }>;
+  porCiudad: Array<{ ciudad: string; total: number; efectividad: number | null }>;
+  topExcepciones: Array<{ key: string; count: number }>;
+  totalConExcepcion: number;
+}
+
+export function exportGeograficoPDF(data: GeograficoExportData) {
+  const win = window.open('', '_blank');
+  if (!win) {
+    alert('Tu navegador bloqueó la ventana de impresión. Habilita pop-ups para este sitio.');
+    return;
+  }
+
+  const fechaGenerado = new Date().toLocaleString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const tabla = (titulo: string, headers: string[], rows: string[][]) => `
+    <div class="seccion">
+      <div class="seccion-titulo">${escapeHtml(titulo)} <span class="conteo">(${rows.length.toLocaleString('es-MX')})</span></div>
+      <table>
+        <thead><tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${rows.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+
+  function filasEfectividad<T extends { total: number; efectividad: number | null }>(
+    lista: T[],
+    nombre: (x: T) => string
+  ): string[][] {
+    return lista.map((x) => [nombre(x), x.total.toLocaleString('es-MX'), x.efectividad !== null ? `${x.efectividad}%` : '—']);
+  }
+
+  win.document.write(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="utf-8"/>
+      <title>VIGIA - Reporte Geográfico</title>
+      <style>
+        * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
+        body { font-family: Arial, Helvetica, sans-serif; padding: 28px; color: #1E293B; }
+        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1E3A8A; padding-bottom: 14px; margin-bottom: 18px; }
+        .header h1 { font-size: 20px; color: #1E3A8A; margin: 0 0 4px 0; }
+        .header .subtitulo { font-size: 13px; color: #64748B; }
+        .header .meta { font-size: 11px; color: #64748B; text-align: right; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; max-width: 400px; }
+        .kpi-card { border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; background: #F8FAFC; }
+        .kpi-label { font-size: 10.5px; font-weight: 700; color: #64748B; margin-bottom: 4px; text-transform: uppercase; }
+        .kpi-value { font-size: 22px; font-weight: 800; }
+        .mapas { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
+        .mapa-card { border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; }
+        .mapa-titulo { font-size: 12px; font-weight: 800; margin-bottom: 8px; color: #1E293B; }
+        .leyenda { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 10px; color: #64748B; flex-wrap: wrap; }
+        .leyenda .punto { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 3px; }
+        .seccion { border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; margin-bottom: 16px; page-break-inside: avoid; }
+        .seccion-titulo { font-size: 13px; font-weight: 800; margin-bottom: 10px; color: #1E293B; }
+        .conteo { font-weight: 500; color: #94A3B8; font-size: 11px; }
+        table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+        th { text-align: left; padding: 5px 8px; background: #F8FAFC; border-bottom: 2px solid #E2E8F0; color: #64748B; font-size: 10.5px; text-transform: uppercase; }
+        td { padding: 4px 8px; border-bottom: 1px solid #F1F5F9; }
+        .barra-fila { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+        .barra-label { font-size: 11px; font-weight: 600; width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .barra-track { flex: 1; background: #F1F5F9; border-radius: 4px; height: 10px; overflow: hidden; }
+        .barra-fill { height: 100%; border-radius: 4px; }
+        .barra-valor { font-size: 10.5px; font-weight: 700; width: 22%; text-align: right; white-space: nowrap; }
+        .barra-pct { font-weight: 500; color: #94A3B8; }
+        .sin-datos { font-size: 11px; color: #94A3B8; padding: 8px 0; }
+        .footer { margin-top: 16px; font-size: 10px; color: #94A3B8; text-align: right; }
+        @media print {
+          body { padding: 10mm; }
+          @page { size: portrait; margin: 12mm; }
+          .seccion, .mapa-card { break-inside: avoid; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div>
+          <h1>VIGÍA — Reporte Geográfico</h1>
+          <div class="subtitulo">${escapeHtml(data.cliente)} · ${escapeHtml(data.periodoTexto)}</div>
+        </div>
+        <div class="meta">Generado: ${escapeHtml(fechaGenerado)}<br/>${data.totalGuias.toLocaleString('es-MX')} guías en este corte</div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">Total de Guías</div>
+          <div class="kpi-value" style="color:#0F172A;">${data.totalGuias.toLocaleString('es-MX')}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Efectividad Nacional</div>
+          <div class="kpi-value" style="color:${
+            data.efectividadNacional === null
+              ? '#94A3B8'
+              : data.efectividadNacional >= 70
+                ? '#0B9B67'
+                : data.efectividadNacional >= 50
+                  ? '#EA7C1A'
+                  : '#DC2626'
+          };">${data.efectividadNacional !== null ? `${data.efectividadNacional}%` : '—'}</div>
+        </div>
+      </div>
+
+      <div class="mapas">
+        <div class="mapa-card">
+          <div class="mapa-titulo">Mapa de México — Volumen por Entidad</div>
+          ${construirMapaSvg(data.datosPorEntidad, 'volumen')}
+          <div class="leyenda">
+            <span>Menor volumen</span>
+            <div style="flex:1;height:8px;border-radius:4px;background:linear-gradient(to right,#EFF6FF,#1E3A8A);"></div>
+            <span>Mayor volumen</span>
+          </div>
+        </div>
+        <div class="mapa-card">
+          <div class="mapa-titulo">Mapa de México — Efectividad por Entidad</div>
+          ${construirMapaSvg(data.datosPorEntidad, 'efectividad')}
+          <div class="leyenda">
+            <span><span class="punto" style="background:#0B9B67;"></span>≥70%</span>
+            <span><span class="punto" style="background:#EA7C1A;"></span>50-69%</span>
+            <span><span class="punto" style="background:#DC2626;"></span>&lt;50%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="seccion">
+        <div class="seccion-titulo">Top Excepciones (Nacional)</div>
+        ${barraHtml(data.topExcepciones, data.totalConExcepcion, '#7C3AED')}
+      </div>
+
+      ${tabla(
+        'Efectividad y Volumen por Entidad — Completa',
+        ['Entidad', 'Guías', 'Efectividad'],
+        filasEfectividad(data.porEntidad, (x) => x.entidad)
+      )}
+
+      ${tabla(
+        'Efectividad y Volumen por Oficina — Completa',
+        ['Oficina', 'Guías', 'Efectividad'],
+        filasEfectividad(data.porOficina, (x) => x.oficina)
+      )}
+
+      ${tabla(
+        'Efectividad y Volumen por Ciudad — Completa',
+        ['Ciudad', 'Guías', 'Efectividad'],
+        filasEfectividad(data.porCiudad, (x) => x.ciudad)
+      )}
+
+      <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
+
+      <script>
+        window.onload = function() { window.print(); };
+      </script>
+    </body>
+    </html>
+  `);
+  win.document.close();
+}

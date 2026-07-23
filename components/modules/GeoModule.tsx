@@ -8,6 +8,7 @@ import MexicoMap from '@/components/MexicoMap';
 import TopListPanel from '@/components/TopListPanel';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
+import { exportGeograficoPDF } from '@/lib/export';
 
 function resumenDe(lista: Guia[]) {
   const entregadas = lista.filter((g) => isEntregada(g.estado_guia)).length;
@@ -84,6 +85,72 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
   }, [guias, entidadSel, oficinaSel]);
 
   const top12Entidades = useMemo(() => porEntidad.slice(0, 12), [porEntidad]);
+
+  // Versiones COMPLETAS (todas las oficinas / todas las ciudades, sin
+  // requerir haber seleccionado una entidad/oficina primero) — el drill
+  // down de arriba (oficinasDeEntidad/ciudadesDeOficina) solo cubre el
+  // nivel seleccionado; esto es para el reporte en PDF, que debe incluir
+  // TODO el corte de un jalón.
+  const porOficinaCompleto = useMemo(() => {
+    const grupos: Record<string, Guia[]> = {};
+    guias.forEach((g) => {
+      const key = g.oficina_destino || 'SIN OFICINA';
+      if (!grupos[key]) grupos[key] = [];
+      grupos[key].push(g);
+    });
+    return Object.entries(grupos)
+      .map(([oficina, lista]) => ({ oficina, ...resumenDe(lista) }))
+      .sort((a, b) => b.total - a.total);
+  }, [guias]);
+
+  const porCiudadCompleto = useMemo(() => {
+    const grupos: Record<string, Guia[]> = {};
+    guias.forEach((g) => {
+      const key = g.ciudad_destinatario || 'SIN CIUDAD';
+      if (!grupos[key]) grupos[key] = [];
+      grupos[key].push(g);
+    });
+    return Object.entries(grupos)
+      .map(([ciudad, lista]) => ({ ciudad, ...resumenDe(lista) }))
+      .sort((a, b) => b.total - a.total);
+  }, [guias]);
+
+  const resumenNacional = useMemo(() => resumenDe(guias), [guias]);
+  const topExcNacional = useMemo(() => calcularResumenExcepciones(guias, 15), [guias]);
+
+  function generarReporteGeografico() {
+    const clientesDistintosReporte = [...new Set(guias.map((g) => g.cliente).filter(Boolean))] as string[];
+    const cliente =
+      clienteSel ||
+      (clientesDistintosReporte.length === 1
+        ? clientesDistintosReporte[0]
+        : clientesDistintosReporte.length > 1
+          ? `Varios clientes (${clientesDistintosReporte.length})`
+          : 'Sin cliente');
+
+    const mesesDoc = guias
+      .map((g) => g.f_documentacion)
+      .filter((f): f is string => !!f)
+      .sort();
+    const periodoTexto = mesesDoc.length
+      ? mesesDoc[0].slice(0, 7) === mesesDoc[mesesDoc.length - 1].slice(0, 7)
+        ? mesesDoc[0].slice(0, 7)
+        : `${mesesDoc[0].slice(0, 7)} – ${mesesDoc[mesesDoc.length - 1].slice(0, 7)}`
+      : 'Periodo no disponible';
+
+    exportGeograficoPDF({
+      cliente,
+      periodoTexto,
+      totalGuias: guias.length,
+      efectividadNacional: resumenNacional.efectividad,
+      datosPorEntidad: datosMapa,
+      porEntidad: porEntidad.map((e) => ({ entidad: e.entidad, total: e.total, efectividad: e.efectividad })),
+      porOficina: porOficinaCompleto.map((o) => ({ oficina: o.oficina, total: o.total, efectividad: o.efectividad })),
+      porCiudad: porCiudadCompleto.map((c) => ({ ciudad: c.ciudad, total: c.total, efectividad: c.efectividad })),
+      topExcepciones: topExcNacional.porTipo,
+      totalConExcepcion: topExcNacional.total,
+    });
+  }
 
   const datosMapa = useMemo(() => {
     const map: Record<string, { total: number; efectividad: number | null }> = {};
@@ -174,6 +241,15 @@ export default function GeoModule({ guias: guiasIn }: { guias: Guia[] }) {
 
   return (
     <div className="p-5 space-y-4">
+      <div className="flex justify-end">
+        <button
+          onClick={generarReporteGeografico}
+          className="text-[12px] font-semibold text-white bg-[var(--vg-blue)] rounded-md px-3 py-1.5 hover:opacity-90"
+        >
+          📄 Exportar Reporte Geográfico (PDF)
+        </button>
+      </div>
+
       {esMultiCliente && (
         <div className="bg-white rounded-lg border border-[var(--vg-border)] p-3 flex items-center gap-2 flex-wrap">
           <span className="text-[11.5px] font-semibold text-[var(--vg-text2)]">
