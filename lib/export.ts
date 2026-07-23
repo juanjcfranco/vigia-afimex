@@ -1192,21 +1192,9 @@ export function exportGeograficoPDF(data: GeograficoExportData) {
     minute: '2-digit',
   });
 
-  const tabla = (titulo: string, headers: string[], rows: string[][]) => `
-    <div class="seccion">
-      <div class="seccion-titulo">${escapeHtml(titulo)} <span class="conteo">(${rows.length.toLocaleString('es-MX')})</span></div>
-      <table>
-        <thead><tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>
-        <tbody>
-          ${rows.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`;
-
   // Ordena por % de efectividad de mayor a menor (los que no tienen dato
-  // quedan al final, sin importar el orden) — usado para las tablas
-  // completas del PDF, que deben leerse de mejor a peor desempeño, no
-  // por volumen (el volumen ya se ve en los gráficos de barra de arriba).
+  // quedan al final, sin importar el orden) — para que cada gráfico se
+  // lea de mejor a peor desempeño.
   function ordenarPorEfectividad<T extends { efectividad: number | null }>(lista: T[]): T[] {
     return [...lista].sort((a, b) => {
       if (a.efectividad === null && b.efectividad === null) return 0;
@@ -1214,13 +1202,6 @@ export function exportGeograficoPDF(data: GeograficoExportData) {
       if (b.efectividad === null) return -1;
       return b.efectividad - a.efectividad;
     });
-  }
-
-  function filasEfectividad<T extends { total: number; efectividad: number | null }>(
-    lista: T[],
-    nombre: (x: T) => string
-  ): string[][] {
-    return lista.map((x) => [nombre(x), x.total.toLocaleString('es-MX'), x.efectividad !== null ? `${x.efectividad}%` : '—']);
   }
 
   win.document.write(`
@@ -1330,41 +1311,19 @@ export function exportGeograficoPDF(data: GeograficoExportData) {
       </div>
 
       <div class="seccion">
-        <div class="seccion-titulo">Top 15 Entidades por Volumen</div>
-        ${barraHtml(
-          data.porEntidad.slice(0, 15).map((e) => ({ key: e.entidad, count: e.total })),
-          data.totalGuias,
-          '#1E3A8A'
-        )}
+        <div class="seccion-titulo">Por Entidad — Volumen y Efectividad <span class="conteo">(${data.porEntidad.length.toLocaleString('es-MX')})</span></div>
+        ${barraEfectividadHtml(ordenarPorEfectividad(data.porEntidad).map((e) => ({ key: e.entidad, efectividad: e.efectividad, total: e.total })))}
       </div>
 
       <div class="seccion">
-        <div class="seccion-titulo">Todas las Oficinas por Volumen <span class="conteo">(${data.porOficina.length.toLocaleString('es-MX')})</span></div>
-        ${barraHtml(
-          data.porOficina.map((o) => ({ key: o.oficina, count: o.total })),
-          data.totalGuias,
-          '#0891B2'
-        )}
-      </div>
+        <div class="seccion-titulo">Por Oficina — Volumen y Efectividad <span class="conteo">(${data.porOficina.length.toLocaleString('es-MX')})</span></div>
+        ${barraEfectividadHtml(ordenarPorEfectividad(data.porOficina).map((o) => ({ key: o.oficina, efectividad: o.efectividad, total: o.total })))}
       </div>
 
-      ${tabla(
-        'Efectividad y Volumen por Entidad — Completa (ordenado por efectividad)',
-        ['Entidad', 'Guías', 'Efectividad'],
-        filasEfectividad(ordenarPorEfectividad(data.porEntidad), (x) => x.entidad)
-      )}
-
-      ${tabla(
-        'Efectividad y Volumen por Oficina — Completa (ordenado por efectividad)',
-        ['Oficina', 'Guías', 'Efectividad'],
-        filasEfectividad(ordenarPorEfectividad(data.porOficina), (x) => x.oficina)
-      )}
-
-      ${tabla(
-        'Efectividad y Volumen por Ciudad — Completa (ordenado por efectividad)',
-        ['Ciudad', 'Guías', 'Efectividad'],
-        filasEfectividad(ordenarPorEfectividad(data.porCiudad), (x) => x.ciudad)
-      )}
+      <div class="seccion">
+        <div class="seccion-titulo">Por Ciudad — Volumen y Efectividad <span class="conteo">(${data.porCiudad.length.toLocaleString('es-MX')})</span></div>
+        ${barraEfectividadHtml(ordenarPorEfectividad(data.porCiudad).map((c) => ({ key: c.ciudad, efectividad: c.efectividad, total: c.total })))}
+      </div>
 
       <div class="seccion">
         <div class="seccion-titulo">Top Excepciones (Nacional)</div>
