@@ -12,6 +12,20 @@ import { exportToExcel, exportToPDF } from '@/lib/export';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
 
+// Top N (oficina o entidad) para una lista ya filtrada (originales o
+// retornos por separado) — hook independiente para no redefinir la
+// función en cada render del componente.
+function useResumenPorCampo(lista: Guia[], campo: (g: Guia) => string | null | undefined) {
+  const datos = useMemo(() => topPorCampo(lista, campo, 10), [lista, campo]);
+  const chart = useMemo(() => datos.map(({ key, count }) => ({ name: key, total: count })), [datos]);
+  const orden = useSortableTable<{ key: string; count: number }>(datos, (item, key) => {
+    if (key === 'nombre') return item.key;
+    if (key === 'guias') return item.count;
+    return null;
+  });
+  return { datos, chart, orden };
+}
+
 export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   const [filtroEstado, setFiltroEstado] = useState('');
   const [bulkGuias, setBulkGuias] = useState<string[] | null>(null);
@@ -60,28 +74,23 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
 
   // KPI Originales vs Retornos — "base" ya mezcla ambos tipos (igual que
   // la columna "Tipo" de la tabla); esto solo separa los conteos.
-  const totalOriginales = useMemo(
-    () => base.filter((g) => !g.es_retorno && !g.es_posible_retorno_otro_periodo).length,
+  const listaOriginales = useMemo(
+    () => base.filter((g) => !g.es_retorno && !g.es_posible_retorno_otro_periodo),
     [base]
   );
-  const totalRetornos = useMemo(
-    () => base.filter((g) => g.es_retorno || g.es_posible_retorno_otro_periodo).length,
+  const listaRetornos = useMemo(
+    () => base.filter((g) => g.es_retorno || g.es_posible_retorno_otro_periodo),
     [base]
   );
+  const totalOriginales = listaOriginales.length;
+  const totalRetornos = listaRetornos.length;
 
-  // Resumen por oficina (top 10), para saber dónde se concentran las
-  // guías abiertas — incluye tanto originales como retornos, igual que
-  // la tabla principal.
-  const porOficina = useMemo(() => topPorCampo(base, (g) => g.oficina_destino, 10), [base]);
-  const porOficinaChart = useMemo(
-    () => porOficina.map(({ key, count }) => ({ name: key, total: count })),
-    [porOficina]
-  );
-  const porOficinaOrden = useSortableTable<{ key: string; count: number }>(porOficina, (item, key) => {
-    if (key === 'oficina') return item.key;
-    if (key === 'guias') return item.count;
-    return null;
-  });
+  // Resumen por oficina y por entidad, separado en Originales vs Retornos
+  // (antes se mostraba todo mezclado en un solo gráfico).
+  const oficinaOriginales = useResumenPorCampo(listaOriginales, (g) => g.oficina_destino);
+  const oficinaRetornos = useResumenPorCampo(listaRetornos, (g) => g.oficina_destino);
+  const entidadOriginales = useResumenPorCampo(listaOriginales, (g) => g.entidad_destinatario);
+  const entidadRetornos = useResumenPorCampo(listaRetornos, (g) => g.entidad_destinatario);
 
   const filas = useMemo(() => {
     let f = base;
@@ -200,42 +209,51 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
-        <div className="font-bold text-[12.5px] mb-3">Resumen por Oficina</div>
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={porOficinaChart} layout="vertical" margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-            <XAxis type="number" fontSize={11} />
-            <YAxis type="category" dataKey="name" width={130} fontSize={10} />
-            <Tooltip />
-            <Bar dataKey="total" fill="#1E3A8A" radius={[0, 4, 4, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-        <div className="overflow-x-auto vg-scroll mt-3">
-          <table className="vg-table">
-            <thead>
-              <tr>
-                <SortableTh label="Oficina" sortKey="oficina" currentKey={porOficinaOrden.sortKey} currentDir={porOficinaOrden.sortDir} onSort={porOficinaOrden.requestSort} />
-                <SortableTh label="Guías Abiertas" sortKey="guias" currentKey={porOficinaOrden.sortKey} currentDir={porOficinaOrden.sortDir} onSort={porOficinaOrden.requestSort} />
-              </tr>
-            </thead>
-            <tbody>
-              {porOficinaOrden.sorted.map(({ key, count }) => (
-                <tr key={key}>
-                  <td className="font-medium">{key}</td>
-                  <td>{count.toLocaleString('es-MX')}</td>
-                </tr>
-              ))}
-              {!porOficina.length && (
-                <tr>
-                  <td colSpan={2} className="text-center text-[var(--vg-text3)] py-4">
-                    Sin guías abiertas en este corte
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {[
+          { titulo: 'Por Oficina — Originales', col: 'Oficina', resumen: oficinaOriginales, color: '#1E3A8A' },
+          { titulo: 'Por Oficina — Retornos', col: 'Oficina', resumen: oficinaRetornos, color: '#7C3AED' },
+          { titulo: 'Por Entidad — Originales', col: 'Entidad', resumen: entidadOriginales, color: '#0891B2' },
+          { titulo: 'Por Entidad — Retornos', col: 'Entidad', resumen: entidadRetornos, color: '#B45309' },
+        ].map(({ titulo, col, resumen, color }) => (
+          <div key={titulo} className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+            <div className="font-bold text-[12.5px] mb-3">{titulo}</div>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={resumen.chart} layout="vertical" margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" fontSize={11} allowDecimals={false} />
+                <YAxis type="category" dataKey="name" width={120} fontSize={10} />
+                <Tooltip />
+                <Bar dataKey="total" fill={color} radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="overflow-x-auto vg-scroll mt-3 max-h-[220px]">
+              <table className="vg-table">
+                <thead>
+                  <tr>
+                    <SortableTh label={col} sortKey="nombre" currentKey={resumen.orden.sortKey} currentDir={resumen.orden.sortDir} onSort={resumen.orden.requestSort} />
+                    <SortableTh label="Guías" sortKey="guias" currentKey={resumen.orden.sortKey} currentDir={resumen.orden.sortDir} onSort={resumen.orden.requestSort} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {resumen.orden.sorted.map(({ key, count }) => (
+                    <tr key={key}>
+                      <td className="font-medium">{key}</td>
+                      <td>{count.toLocaleString('es-MX')}</td>
+                    </tr>
+                  ))}
+                  {!resumen.datos.length && (
+                    <tr>
+                      <td colSpan={2} className="text-center text-[var(--vg-text3)] py-4">
+                        Sin guías en este corte
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
