@@ -1203,6 +1203,19 @@ export function exportGeograficoPDF(data: GeograficoExportData) {
       </table>
     </div>`;
 
+  // Ordena por % de efectividad de mayor a menor (los que no tienen dato
+  // quedan al final, sin importar el orden) — usado para las tablas
+  // completas del PDF, que deben leerse de mejor a peor desempeño, no
+  // por volumen (el volumen ya se ve en los gráficos de barra de arriba).
+  function ordenarPorEfectividad<T extends { efectividad: number | null }>(lista: T[]): T[] {
+    return [...lista].sort((a, b) => {
+      if (a.efectividad === null && b.efectividad === null) return 0;
+      if (a.efectividad === null) return 1;
+      if (b.efectividad === null) return -1;
+      return b.efectividad - a.efectividad;
+    });
+  }
+
   function filasEfectividad<T extends { total: number; efectividad: number | null }>(
     lista: T[],
     nombre: (x: T) => string
@@ -1316,41 +1329,41 @@ export function exportGeograficoPDF(data: GeograficoExportData) {
         </div>
       </div>
 
-      <div class="dos-columnas">
-        <div class="seccion">
-          <div class="seccion-titulo">Top 15 Entidades por Volumen</div>
-          ${barraHtml(
-            data.porEntidad.slice(0, 15).map((e) => ({ key: e.entidad, count: e.total })),
-            data.totalGuias,
-            '#1E3A8A'
-          )}
-        </div>
-        <div class="seccion">
-          <div class="seccion-titulo">Top 15 Oficinas por Volumen</div>
-          ${barraHtml(
-            data.porOficina.slice(0, 15).map((o) => ({ key: o.oficina, count: o.total })),
-            data.totalGuias,
-            '#0891B2'
-          )}
-        </div>
+      <div class="seccion">
+        <div class="seccion-titulo">Top 15 Entidades por Volumen</div>
+        ${barraHtml(
+          data.porEntidad.slice(0, 15).map((e) => ({ key: e.entidad, count: e.total })),
+          data.totalGuias,
+          '#1E3A8A'
+        )}
+      </div>
+
+      <div class="seccion">
+        <div class="seccion-titulo">Todas las Oficinas por Volumen <span class="conteo">(${data.porOficina.length.toLocaleString('es-MX')})</span></div>
+        ${barraHtml(
+          data.porOficina.map((o) => ({ key: o.oficina, count: o.total })),
+          data.totalGuias,
+          '#0891B2'
+        )}
+      </div>
       </div>
 
       ${tabla(
-        'Efectividad y Volumen por Entidad — Completa',
+        'Efectividad y Volumen por Entidad — Completa (ordenado por efectividad)',
         ['Entidad', 'Guías', 'Efectividad'],
-        filasEfectividad(data.porEntidad, (x) => x.entidad)
+        filasEfectividad(ordenarPorEfectividad(data.porEntidad), (x) => x.entidad)
       )}
 
       ${tabla(
-        'Efectividad y Volumen por Oficina — Completa',
+        'Efectividad y Volumen por Oficina — Completa (ordenado por efectividad)',
         ['Oficina', 'Guías', 'Efectividad'],
-        filasEfectividad(data.porOficina, (x) => x.oficina)
+        filasEfectividad(ordenarPorEfectividad(data.porOficina), (x) => x.oficina)
       )}
 
       ${tabla(
-        'Efectividad y Volumen por Ciudad — Completa',
+        'Efectividad y Volumen por Ciudad — Completa (ordenado por efectividad)',
         ['Ciudad', 'Guías', 'Efectividad'],
-        filasEfectividad(data.porCiudad, (x) => x.ciudad)
+        filasEfectividad(ordenarPorEfectividad(data.porCiudad), (x) => x.ciudad)
       )}
 
       <div class="seccion">
