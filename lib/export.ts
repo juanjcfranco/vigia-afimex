@@ -1115,12 +1115,30 @@ function colorEfectividadMapaExport(valor: number | null): string {
   return '#DC2626';
 }
 
+// Centro aproximado de un estado (centro de su caja delimitadora), para
+// poder poner la etiqueta de porcentaje encima. No es el centroide exacto
+// del polígono, pero es una aproximación suficientemente buena para un
+// mapa de este tamaño — evita tener que traer coordenadas de etiqueta
+// hechas a mano para los 32 estados.
+function centroDePath(path: string): { x: number; y: number } {
+  const nums = (path.match(/-?\d+\.?\d*/g) || []).map(Number);
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let i = 0; i < nums.length - 1; i += 2) {
+    xs.push(nums[i]);
+    ys.push(nums[i + 1]);
+  }
+  if (!xs.length) return { x: 0, y: 0 };
+  return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+}
+
 function construirMapaSvg(
   datosPorEntidad: Record<string, { total: number; efectividad: number | null }>,
-  metrica: 'volumen' | 'efectividad'
+  metrica: 'volumen' | 'efectividad',
+  totalNacional: number
 ): string {
   const maxVolumen = Math.max(1, ...Object.values(datosPorEntidad).map((d) => d.total));
-  const paths = mexicoMapData.states
+  const partes = mexicoMapData.states
     .map((state) => {
       const datos = datosPorEntidad[state.name];
       const fill = !datos
@@ -1128,10 +1146,22 @@ function construirMapaSvg(
         : metrica === 'volumen'
           ? colorVolumenMapaExport(datos.total, maxVolumen)
           : colorEfectividadMapaExport(datos.efectividad);
-      return `<path d="${state.path}" fill="${fill}" stroke="#fff" stroke-width="1"/>`;
+      const pathHtml = `<path d="${state.path}" fill="${fill}" stroke="#fff" stroke-width="1"/>`;
+
+      // Etiqueta de porcentaje: % del volumen nacional en el mapa de
+      // volumen, o el % de efectividad directo en el mapa de efectividad.
+      // Solo se dibuja si el estado sí tiene datos y no es despreciable,
+      // para no saturar el mapa con "0.0%" en estados sin nada.
+      if (!datos || datos.total <= 0) return pathHtml;
+      const pct = metrica === 'volumen' ? (totalNacional ? (datos.total / totalNacional) * 100 : 0) : datos.efectividad;
+      if (pct === null) return pathHtml;
+      const { x, y } = centroDePath(state.path);
+      const texto = `${pct.toFixed(1)}%`;
+      const labelHtml = `<text x="${x}" y="${y}" font-size="9" font-weight="700" fill="#fff" stroke="#0F172A" stroke-width="2.2" paint-order="stroke" text-anchor="middle" dominant-baseline="middle">${texto}</text>`;
+      return pathHtml + labelHtml;
     })
     .join('');
-  return `<svg viewBox="${mexicoMapData.viewBox}" style="width:100%;height:auto;max-height:340px;display:block;">${paths}</svg>`;
+  return `<svg viewBox="${mexicoMapData.viewBox}" style="width:100%;height:auto;max-height:340px;display:block;">${partes}</svg>`;
 }
 
 export interface GeograficoExportData {
@@ -1188,37 +1218,39 @@ export function exportGeograficoPDF(data: GeograficoExportData) {
       <title>VIGIA - Reporte Geográfico</title>
       <style>
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
-        body { font-family: Arial, Helvetica, sans-serif; padding: 28px; color: #1E293B; }
-        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1E3A8A; padding-bottom: 14px; margin-bottom: 18px; }
+        body { font-family: Arial, Helvetica, sans-serif; padding: 22px; color: #1E293B; }
+        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1E3A8A; padding-bottom: 12px; margin-bottom: 14px; }
         .header h1 { font-size: 20px; color: #1E3A8A; margin: 0 0 4px 0; }
         .header .subtitulo { font-size: 13px; color: #64748B; }
         .header .meta { font-size: 11px; color: #64748B; text-align: right; }
-        .kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; max-width: 400px; }
-        .kpi-card { border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; background: #F8FAFC; }
-        .kpi-label { font-size: 10.5px; font-weight: 700; color: #64748B; margin-bottom: 4px; text-transform: uppercase; }
-        .kpi-value { font-size: 22px; font-weight: 800; }
-        .mapas { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
-        .mapa-card { border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; }
-        .mapa-titulo { font-size: 12px; font-weight: 800; margin-bottom: 8px; color: #1E293B; }
-        .leyenda { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 10px; color: #64748B; flex-wrap: wrap; }
+        .kpi-grid { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+        .kpi-card { flex: 1; min-width: 110px; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px 12px; background: #F8FAFC; }
+        .kpi-label { font-size: 10px; font-weight: 700; color: #64748B; margin-bottom: 4px; text-transform: uppercase; }
+        .kpi-value { font-size: 20px; font-weight: 800; }
+        .mapas { display: flex; gap: 16px; margin-bottom: 14px; }
+        .mapa-card { flex: 1; min-width: 0; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; }
+        .mapa-titulo { font-size: 12px; font-weight: 800; margin-bottom: 6px; color: #1E293B; }
+        .leyenda { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 10px; color: #64748B; flex-wrap: wrap; }
         .leyenda .punto { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 3px; }
-        .seccion { border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; margin-bottom: 16px; page-break-inside: avoid; }
-        .seccion-titulo { font-size: 13px; font-weight: 800; margin-bottom: 10px; color: #1E293B; }
+        .dos-columnas { display: flex; gap: 14px; margin-bottom: 14px; }
+        .dos-columnas > .seccion { flex: 1; min-width: 0; margin-bottom: 0; }
+        .seccion { border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; page-break-inside: avoid; }
+        .seccion-titulo { font-size: 13px; font-weight: 800; margin-bottom: 8px; color: #1E293B; }
         .conteo { font-weight: 500; color: #94A3B8; font-size: 11px; }
         table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
         th { text-align: left; padding: 5px 8px; background: #F8FAFC; border-bottom: 2px solid #E2E8F0; color: #64748B; font-size: 10.5px; text-transform: uppercase; }
         td { padding: 4px 8px; border-bottom: 1px solid #F1F5F9; }
-        .barra-fila { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+        .barra-fila { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
         .barra-label { font-size: 11px; font-weight: 600; width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .barra-track { flex: 1; background: #F1F5F9; border-radius: 4px; height: 10px; overflow: hidden; }
         .barra-fill { height: 100%; border-radius: 4px; }
         .barra-valor { font-size: 10.5px; font-weight: 700; width: 22%; text-align: right; white-space: nowrap; }
         .barra-pct { font-weight: 500; color: #94A3B8; }
         .sin-datos { font-size: 11px; color: #94A3B8; padding: 8px 0; }
-        .footer { margin-top: 16px; font-size: 10px; color: #94A3B8; text-align: right; }
+        .footer { margin-top: 12px; font-size: 10px; color: #94A3B8; text-align: right; }
         @media print {
           body { padding: 10mm; }
-          @page { size: portrait; margin: 12mm; }
+          @page { size: portrait; margin: 10mm; }
           .seccion, .mapa-card { break-inside: avoid; }
         }
       </style>
@@ -1249,12 +1281,24 @@ export function exportGeograficoPDF(data: GeograficoExportData) {
                   : '#DC2626'
           };">${data.efectividadNacional !== null ? `${data.efectividadNacional}%` : '—'}</div>
         </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Entidades</div>
+          <div class="kpi-value" style="color:#1E3A8A;">${data.porEntidad.length.toLocaleString('es-MX')}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Oficinas</div>
+          <div class="kpi-value" style="color:#1E3A8A;">${data.porOficina.length.toLocaleString('es-MX')}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Ciudades</div>
+          <div class="kpi-value" style="color:#1E3A8A;">${data.porCiudad.length.toLocaleString('es-MX')}</div>
+        </div>
       </div>
 
       <div class="mapas">
         <div class="mapa-card">
-          <div class="mapa-titulo">Mapa de México — Volumen por Entidad</div>
-          ${construirMapaSvg(data.datosPorEntidad, 'volumen')}
+          <div class="mapa-titulo">Mapa de México — % del Volumen por Entidad</div>
+          ${construirMapaSvg(data.datosPorEntidad, 'volumen', data.totalGuias)}
           <div class="leyenda">
             <span>Menor volumen</span>
             <div style="flex:1;height:8px;border-radius:4px;background:linear-gradient(to right,#EFF6FF,#1E3A8A);"></div>
@@ -1262,8 +1306,8 @@ export function exportGeograficoPDF(data: GeograficoExportData) {
           </div>
         </div>
         <div class="mapa-card">
-          <div class="mapa-titulo">Mapa de México — Efectividad por Entidad</div>
-          ${construirMapaSvg(data.datosPorEntidad, 'efectividad')}
+          <div class="mapa-titulo">Mapa de México — % de Efectividad por Entidad</div>
+          ${construirMapaSvg(data.datosPorEntidad, 'efectividad', data.totalGuias)}
           <div class="leyenda">
             <span><span class="punto" style="background:#0B9B67;"></span>≥70%</span>
             <span><span class="punto" style="background:#EA7C1A;"></span>50-69%</span>
@@ -1272,9 +1316,23 @@ export function exportGeograficoPDF(data: GeograficoExportData) {
         </div>
       </div>
 
-      <div class="seccion">
-        <div class="seccion-titulo">Top Excepciones (Nacional)</div>
-        ${barraHtml(data.topExcepciones, data.totalConExcepcion, '#7C3AED')}
+      <div class="dos-columnas">
+        <div class="seccion">
+          <div class="seccion-titulo">Top 15 Entidades por Volumen</div>
+          ${barraHtml(
+            data.porEntidad.slice(0, 15).map((e) => ({ key: e.entidad, count: e.total })),
+            data.totalGuias,
+            '#1E3A8A'
+          )}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo">Top 15 Oficinas por Volumen</div>
+          ${barraHtml(
+            data.porOficina.slice(0, 15).map((o) => ({ key: o.oficina, count: o.total })),
+            data.totalGuias,
+            '#0891B2'
+          )}
+        </div>
       </div>
 
       ${tabla(
@@ -1294,6 +1352,11 @@ export function exportGeograficoPDF(data: GeograficoExportData) {
         ['Ciudad', 'Guías', 'Efectividad'],
         filasEfectividad(data.porCiudad, (x) => x.ciudad)
       )}
+
+      <div class="seccion">
+        <div class="seccion-titulo">Top Excepciones (Nacional)</div>
+        ${barraHtml(data.topExcepciones, data.totalConExcepcion, '#7C3AED')}
+      </div>
 
       <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
 
