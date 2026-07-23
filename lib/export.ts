@@ -1230,6 +1230,7 @@ export function exportGeograficoPDF(data: GeograficoExportData) {
         .dos-columnas > .seccion { flex: 1; min-width: 0; margin-bottom: 0; }
         .seccion { border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; page-break-inside: avoid; }
         .seccion-titulo { font-size: 13px; font-weight: 800; margin-bottom: 8px; color: #1E293B; }
+        .aclaracion { font-size: 10.5px; color: #94A3B8; font-style: italic; margin: -4px 0 8px; }
         .conteo { font-weight: 500; color: #94A3B8; font-size: 11px; }
         table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
         th { text-align: left; padding: 5px 8px; background: #F8FAFC; border-bottom: 2px solid #E2E8F0; color: #64748B; font-size: 10.5px; text-transform: uppercase; }
@@ -1312,16 +1313,19 @@ export function exportGeograficoPDF(data: GeograficoExportData) {
 
       <div class="seccion">
         <div class="seccion-titulo">Por Entidad — Volumen y Efectividad <span class="conteo">(${data.porEntidad.length.toLocaleString('es-MX')})</span></div>
+        <div class="aclaracion">El % es la efectividad · el número entre paréntesis es el volumen (guías)</div>
         ${barraEfectividadHtml(ordenarPorEfectividad(data.porEntidad).map((e) => ({ key: e.entidad, efectividad: e.efectividad, total: e.total })))}
       </div>
 
       <div class="seccion">
         <div class="seccion-titulo">Por Oficina — Volumen y Efectividad <span class="conteo">(${data.porOficina.length.toLocaleString('es-MX')})</span></div>
+        <div class="aclaracion">El % es la efectividad · el número entre paréntesis es el volumen (guías)</div>
         ${barraEfectividadHtml(ordenarPorEfectividad(data.porOficina).map((o) => ({ key: o.oficina, efectividad: o.efectividad, total: o.total })))}
       </div>
 
       <div class="seccion">
         <div class="seccion-titulo">Por Ciudad — Volumen y Efectividad <span class="conteo">(${data.porCiudad.length.toLocaleString('es-MX')})</span></div>
+        <div class="aclaracion">El % es la efectividad · el número entre paréntesis es el volumen (guías)</div>
         ${barraEfectividadHtml(ordenarPorEfectividad(data.porCiudad).map((c) => ({ key: c.ciudad, efectividad: c.efectividad, total: c.total })))}
       </div>
 
