@@ -1344,3 +1344,240 @@ export function exportGeograficoPDF(data: GeograficoExportData) {
   `);
   win.document.close();
 }
+
+// ============================================================
+// Reporte completo del módulo Efectividad: resumen general, top
+// excepciones y devoluciones, y la efectividad completa (no solo top 15)
+// por Cliente, Oficina, Entidad y Mes — más el comparativo por cliente
+// (plaza×cliente y top excepciones) cuando el corte trae más de uno.
+// ============================================================
+export interface EfectividadExportData {
+  cliente: string;
+  periodoTexto: string;
+  totalGuias: number;
+  entregadas: number;
+  devoluciones: number;
+  abiertas: number;
+  efectividadGeneral: number | null;
+  topExcepciones: Array<{ key: string; count: number }>;
+  totalConExcepcion: number;
+  devolucionesPorOficina: Array<{ key: string; count: number }>;
+  devolucionesPorMotivo: Array<{ key: string; count: number }>;
+  totalDevoluciones: number;
+  porCliente: Array<{ key: string; total: number; efectividad: number | null }>;
+  porOficina: Array<{ key: string; total: number; efectividad: number | null }>;
+  porEntidad: Array<{ key: string; total: number; efectividad: number | null }>;
+  porMes: Array<{ key: string; total: number; efectividad: number | null }>;
+  comparativoPlazaCliente?: {
+    clientes: string[];
+    filas: Array<{ plaza: string; porCliente: Record<string, { efectividad: number | null; total: number }> }>;
+  };
+  excepcionesPorCliente?: Array<{ cliente: string; items: Array<{ key: string; count: number }>; total: number }>;
+}
+
+export function exportEfectividadPDF(data: EfectividadExportData) {
+  const win = window.open('', '_blank');
+  if (!win) {
+    alert('Tu navegador bloqueó la ventana de impresión. Habilita pop-ups para este sitio.');
+    return;
+  }
+
+  const fechaGenerado = new Date().toLocaleString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  function ordenarPorEfectividadEf<T extends { efectividad: number | null }>(lista: T[]): T[] {
+    return [...lista].sort((a, b) => {
+      if (a.efectividad === null && b.efectividad === null) return 0;
+      if (a.efectividad === null) return 1;
+      if (b.efectividad === null) return -1;
+      return b.efectividad - a.efectividad;
+    });
+  }
+
+  const bloquePorCampo = (titulo: string, lista: Array<{ key: string; total: number; efectividad: number | null }>, ordenarPorEfec: boolean) => `
+    <div class="seccion">
+      <div class="seccion-titulo">${escapeHtml(titulo)} <span class="conteo">(${lista.length.toLocaleString('es-MX')})</span></div>
+      ${
+        ordenarPorEfec
+          ? `<div class="aclaracion">El % es la efectividad · el número entre paréntesis es el volumen (guías)</div>
+             ${barraEfectividadHtml(ordenarPorEfectividadEf(lista).map((x) => ({ key: x.key, efectividad: x.efectividad, total: x.total })))}`
+          : `<div class="aclaracion">Orden cronológico · el % es la efectividad de ese mes</div>
+             ${barraEfectividadHtml(lista.map((x) => ({ key: x.key, efectividad: x.efectividad, total: x.total })))}`
+      }
+    </div>`;
+
+  const comparativoHtml = data.comparativoPlazaCliente
+    ? `
+    <div class="seccion">
+      <div class="seccion-titulo">🔀 Comparativo por Cliente — Efectividad por Plaza (Entidad)</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Entidad</th>
+            ${data.comparativoPlazaCliente.clientes.map((c) => `<th>${escapeHtml(c)}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${data.comparativoPlazaCliente.filas
+            .map(
+              (fila) => `
+            <tr>
+              <td class="celda-fuerte">${escapeHtml(fila.plaza)}</td>
+              ${data.comparativoPlazaCliente!.clientes
+                .map((c) => {
+                  const d = fila.porCliente[c];
+                  if (!d || d.total <= 0) return `<td class="celda-vacia">—</td>`;
+                  const color =
+                    d.efectividad === null ? '#94A3B8' : d.efectividad >= 70 ? '#0B9B67' : d.efectividad >= 50 ? '#EA7C1A' : '#DC2626';
+                  return `<td><span style="font-weight:800;color:${color};">${d.efectividad !== null ? `${d.efectividad}%` : '—'}</span> <span class="celda-vol">(${d.total})</span></td>`;
+                })
+                .join('')}
+            </tr>`
+            )
+            .join('')}
+        </tbody>
+      </table>
+    </div>`
+    : '';
+
+  const excPorClienteHtml =
+    data.excepcionesPorCliente && data.excepcionesPorCliente.length
+      ? `
+    <div class="seccion">
+      <div class="seccion-titulo">Top 3 Excepciones por Cliente</div>
+      <div class="cols-excepciones">
+        ${data.excepcionesPorCliente
+          .map(
+            (c) => `
+          <div class="mini-card">
+            <div class="mini-card-titulo">${escapeHtml(c.cliente)}</div>
+            ${barraHtml(c.items, c.total, '#7C3AED')}
+          </div>`
+          )
+          .join('')}
+      </div>
+    </div>`
+      : '';
+
+  win.document.write(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="utf-8"/>
+      <title>VIGIA - Reporte de Efectividad</title>
+      <style>
+        * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
+        body { font-family: Arial, Helvetica, sans-serif; padding: 22px; color: #1E293B; }
+        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1E3A8A; padding-bottom: 12px; margin-bottom: 14px; }
+        .header h1 { font-size: 20px; color: #1E3A8A; margin: 0 0 4px 0; }
+        .header .subtitulo { font-size: 13px; color: #64748B; }
+        .header .meta { font-size: 11px; color: #64748B; text-align: right; }
+        .kpi-grid { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+        .kpi-card { flex: 1; min-width: 110px; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px 12px; background: #F8FAFC; }
+        .kpi-label { font-size: 10px; font-weight: 700; color: #64748B; margin-bottom: 4px; text-transform: uppercase; }
+        .kpi-value { font-size: 20px; font-weight: 800; }
+        .seccion { border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; page-break-inside: avoid; }
+        .seccion-titulo { font-size: 13px; font-weight: 800; margin-bottom: 8px; color: #1E293B; }
+        .aclaracion { font-size: 10.5px; color: #94A3B8; font-style: italic; margin: -4px 0 8px; }
+        .conteo { font-weight: 500; color: #94A3B8; font-size: 11px; }
+        .dos-columnas { display: flex; gap: 14px; margin-bottom: 14px; }
+        .dos-columnas > .seccion { flex: 1; min-width: 0; margin-bottom: 0; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        th { text-align: left; padding: 5px 8px; background: #F8FAFC; border-bottom: 2px solid #E2E8F0; color: #64748B; font-size: 10px; text-transform: uppercase; }
+        td { padding: 4px 8px; border-bottom: 1px solid #F1F5F9; }
+        .celda-fuerte { font-weight: 700; }
+        .celda-vacia { color: #CBD5E1; }
+        .celda-vol { font-size: 9.5px; color: #94A3B8; }
+        .cols-excepciones { display: flex; gap: 10px; flex-wrap: wrap; }
+        .mini-card { flex: 1; min-width: 180px; border: 1px solid #E2E8F0; border-radius: 6px; padding: 8px 10px; }
+        .mini-card-titulo { font-size: 11px; font-weight: 800; margin-bottom: 6px; }
+        .barra-fila { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .barra-label { font-size: 11px; font-weight: 600; width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .barra-track { flex: 1; background: #F1F5F9; border-radius: 4px; height: 10px; overflow: hidden; }
+        .barra-fill { height: 100%; border-radius: 4px; }
+        .barra-valor { font-size: 10.5px; font-weight: 700; width: 22%; text-align: right; white-space: nowrap; }
+        .barra-pct { font-weight: 500; color: #94A3B8; }
+        .sin-datos { font-size: 11px; color: #94A3B8; padding: 8px 0; }
+        .footer { margin-top: 12px; font-size: 10px; color: #94A3B8; text-align: right; }
+        @media print {
+          body { padding: 10mm; }
+          @page { size: portrait; margin: 10mm; }
+          .seccion { break-inside: avoid; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div>
+          <h1>VIGÍA — Reporte de Efectividad</h1>
+          <div class="subtitulo">${escapeHtml(data.cliente)} · ${escapeHtml(data.periodoTexto)}</div>
+        </div>
+        <div class="meta">Generado: ${escapeHtml(fechaGenerado)}<br/>${data.totalGuias.toLocaleString('es-MX')} guías en este corte</div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">Entregadas</div>
+          <div class="kpi-value" style="color:#0B9B67;">${data.entregadas.toLocaleString('es-MX')}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Devoluciones</div>
+          <div class="kpi-value" style="color:#DC2626;">${data.devoluciones.toLocaleString('es-MX')}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Abiertas</div>
+          <div class="kpi-value" style="color:#EA7C1A;">${data.abiertas.toLocaleString('es-MX')}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Efectividad General</div>
+          <div class="kpi-value" style="color:${
+            data.efectividadGeneral === null
+              ? '#94A3B8'
+              : data.efectividadGeneral >= 70
+                ? '#0B9B67'
+                : data.efectividadGeneral >= 50
+                  ? '#EA7C1A'
+                  : '#DC2626'
+          };">${data.efectividadGeneral !== null ? `${data.efectividadGeneral}%` : '—'}</div>
+        </div>
+      </div>
+
+      <div class="dos-columnas">
+        <div class="seccion">
+          <div class="seccion-titulo">Top Excepciones</div>
+          ${barraHtml(data.topExcepciones, data.totalConExcepcion, '#7C3AED')}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo">Devoluciones — Top Motivo</div>
+          ${barraHtml(data.devolucionesPorMotivo, data.totalDevoluciones, '#EA7C1A')}
+        </div>
+      </div>
+
+      <div class="seccion">
+        <div class="seccion-titulo">Devoluciones — Top Oficina Destino</div>
+        ${barraHtml(data.devolucionesPorOficina, data.totalDevoluciones, '#DC2626')}
+      </div>
+
+      ${bloquePorCampo('Efectividad por Cliente', data.porCliente, true)}
+      ${bloquePorCampo('Efectividad por Oficina', data.porOficina, true)}
+      ${bloquePorCampo('Efectividad por Entidad', data.porEntidad, true)}
+      ${bloquePorCampo('Efectividad por Mes', data.porMes, false)}
+
+      ${comparativoHtml}
+      ${excPorClienteHtml}
+
+      <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
+
+      <script>
+        window.onload = function() { window.print(); };
+      </script>
+    </body>
+    </html>
+  `);
+  win.document.close();
+}

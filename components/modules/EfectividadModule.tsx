@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
 import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { exportToExcel, exportToPDF } from '@/lib/export';
+import { exportToExcel, exportToPDF, exportEfectividadPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
@@ -209,8 +209,69 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
     }));
   }, [guias, esMultiCliente, clientesDistintos]);
 
+  function generarReporteEfectividad() {
+    const base = guias.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
+    const general = statsDe(base);
+
+    const clientesDistintosReporte = [...new Set(guias.map((g) => g.cliente).filter(Boolean))] as string[];
+    const clienteTexto =
+      clientesDistintosReporte.length === 1
+        ? clientesDistintosReporte[0]
+        : clientesDistintosReporte.length > 1
+          ? `Varios clientes (${clientesDistintosReporte.length})`
+          : 'Sin cliente';
+
+    const mesesDoc = guias
+      .map((g) => g.f_documentacion)
+      .filter((f): f is string => !!f)
+      .sort();
+    const periodoTexto = mesesDoc.length
+      ? mesesDoc[0].slice(0, 7) === mesesDoc[mesesDoc.length - 1].slice(0, 7)
+        ? formatearPeriodo(mesesDoc[0].slice(0, 7))
+        : `${formatearPeriodo(mesesDoc[0].slice(0, 7))} – ${formatearPeriodo(mesesDoc[mesesDoc.length - 1].slice(0, 7))}`
+      : 'Periodo no disponible';
+
+    // Top excepciones y devoluciones a nivel general (no depende del
+    // filtro de "Resumen de excepciones" en pantalla, para que el PDF
+    // siempre sea el mismo sin importar qué estuviera seleccionado ahí).
+    const excGeneral = calcularResumenExcepciones(guias, 10);
+    const devGeneral = calcularResumenDevoluciones(guias, 10);
+
+    exportEfectividadPDF({
+      cliente: clienteTexto,
+      periodoTexto,
+      totalGuias: guias.length,
+      entregadas: general.entregadas,
+      devoluciones: general.devoluciones,
+      abiertas: general.abiertas,
+      efectividadGeneral: general.efectividad,
+      topExcepciones: excGeneral.porTipo,
+      totalConExcepcion: excGeneral.total,
+      devolucionesPorOficina: devGeneral.porOficina,
+      devolucionesPorMotivo: devGeneral.porMotivo,
+      totalDevoluciones: devGeneral.total,
+      porCliente: efectividadPorCampo(guias, 'cliente').map((x) => ({ key: x.key, total: x.total, efectividad: x.efectividad })),
+      porOficina: efectividadPorCampo(guias, 'oficina_destino').map((x) => ({ key: x.key, total: x.total, efectividad: x.efectividad })),
+      porEntidad: efectividadPorCampo(guias, 'entidad_destinatario').map((x) => ({ key: x.key, total: x.total, efectividad: x.efectividad })),
+      porMes: efectividadPorMes(guias).map((x) => ({ key: x.key, total: x.total, efectividad: x.efectividad })),
+      comparativoPlazaCliente: esMultiCliente ? { clientes: clientesDistintos, filas: plazaPorCliente.filas } : undefined,
+      excepcionesPorCliente: esMultiCliente
+        ? excepcionesPorCliente.map((c) => ({ cliente: c.cliente, items: c.resumen.porTipo, total: c.resumen.total }))
+        : undefined,
+    });
+  }
+
   return (
     <div className="p-5 space-y-4">
+      <div className="flex justify-end">
+        <button
+          onClick={generarReporteEfectividad}
+          className="text-[12px] font-semibold text-white bg-[var(--vg-blue)] rounded-md px-3 py-1.5 hover:opacity-90"
+        >
+          📄 Exportar Reporte de Efectividad (PDF)
+        </button>
+      </div>
+
       <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
         <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
           <div className="font-bold text-[12.5px]">Resumen de excepciones</div>
