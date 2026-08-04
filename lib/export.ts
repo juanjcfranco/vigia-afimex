@@ -870,6 +870,9 @@ export interface InformeLogisticoData {
   // Resumen geográfico (versión resumida del módulo Geográfico)
   topEntidadesVolumen: Array<{ key: string; count: number }>;
   topCiudades: Array<{ key: string; count: number }>;
+  datosPorEntidadMapa: Record<string, { total: number; efectividad: number | null }>;
+  // Guías abiertas por oficina (todas, sin tope)
+  abiertasPorOficina: Array<{ key: string; count: number }>;
   // Excepciones separadas por a quién son atribuibles
   excepcionesCliente: Array<{ key: string; count: number }>;
   totalExcepcionesCliente: number;
@@ -977,6 +980,10 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
         .kpi-label { font-size: 10.5px; font-weight: 700; color: #64748B; margin-bottom: 4px; text-transform: uppercase; }
         .kpi-value { font-size: 22px; font-weight: 800; }
         .secciones { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
+        .mapa-card { border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; }
+        .mapa-titulo { font-size: 12px; font-weight: 800; margin-bottom: 6px; color: #1E293B; }
+        .leyenda { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 10px; color: #64748B; flex-wrap: wrap; }
+        .leyenda .punto { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 3px; }
         .seccion { border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; }
         .seccion-titulo { font-size: 13px; font-weight: 800; margin-bottom: 10px; color: #1E293B; }
         .barra-fila { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
@@ -1061,7 +1068,33 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
         </div>
       </div>
 
+      <div class="seccion">
+        <div class="seccion-titulo">Guías Abiertas por Oficina <span style="font-weight:500;color:#94A3B8;font-size:11px;">(${data.abiertasPorOficina.length.toLocaleString('es-MX')})</span></div>
+        ${barraHtml(data.abiertasPorOficina, data.totalAbiertas, '#EA7C1A')}
+      </div>
+
       <div class="seccion-titulo" style="font-size:15px;margin:20px 0 10px;border-top:2px solid #1E3A8A;padding-top:16px;">📍 Resumen Geográfico</div>
+
+      <div class="secciones">
+        <div class="mapa-card">
+          <div class="mapa-titulo">Mapa de México — % del Volumen por Entidad</div>
+          ${construirMapaSvg(data.datosPorEntidadMapa, 'volumen', data.totalGuias)}
+          <div class="leyenda">
+            <span>Menor volumen</span>
+            <div style="flex:1;height:8px;border-radius:4px;background:linear-gradient(to right,#EFF6FF,#1E3A8A);"></div>
+            <span>Mayor volumen</span>
+          </div>
+        </div>
+        <div class="mapa-card">
+          <div class="mapa-titulo">Mapa de México — % de Efectividad por Entidad</div>
+          ${construirMapaSvg(data.datosPorEntidadMapa, 'efectividad', data.totalGuias)}
+          <div class="leyenda">
+            <span><span class="punto" style="background:#0B9B67;"></span>≥70%</span>
+            <span><span class="punto" style="background:#EA7C1A;"></span>50-69%</span>
+            <span><span class="punto" style="background:#DC2626;"></span>&lt;50%</span>
+          </div>
+        </div>
+      </div>
 
       <div class="secciones">
         <div class="seccion">

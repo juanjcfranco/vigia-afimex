@@ -343,6 +343,29 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     const topEntidadesVolumen = topPorCampo(guiasParaGeo, (g) => g.entidad_destinatario, 5);
     const topCiudades = topPorCampo(guiasParaGeo, (g) => g.ciudad_destinatario, 5);
 
+    // Datos por entidad para los mapas de México (mismo shape que usa
+    // GeoModule para colorear el mapa): total y efectividad por entidad.
+    const gruposEntidadMapa: Record<string, Guia[]> = {};
+    guiasParaGeo.forEach((g) => {
+      const key = g.entidad_destinatario || 'SIN DATO';
+      if (!gruposEntidadMapa[key]) gruposEntidadMapa[key] = [];
+      gruposEntidadMapa[key].push(g);
+    });
+    const datosPorEntidadMapa: Record<string, { total: number; efectividad: number | null }> = {};
+    Object.entries(gruposEntidadMapa).forEach(([entidad, lista]) => {
+      const entregadasN = lista.filter((g) => isEntregada(g.estado_guia)).length;
+      const devolucionesN = lista.filter((g) => g.es_devolucion).length;
+      const abiertasN = lista.filter((g) => isAbiertaPorEstado(g)).length;
+      datosPorEntidadMapa[entidad] = {
+        total: lista.length,
+        efectividad: calcularEfectividad(entregadasN, devolucionesN, abiertasN),
+      };
+    });
+
+    // Guías abiertas por oficina — todas, sin tope (mismo criterio que el
+    // módulo Abiertas: guías originales en tránsito).
+    const abiertasPorOficina = topPorCampo(guiasAbiertas, (g) => g.oficina_destino, 9999);
+
     const clientesDistintos = [...new Set(guias.map((g) => g.cliente).filter(Boolean))] as string[];
     const cliente =
       clientesDistintos.length === 1
@@ -390,6 +413,8 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       efectividadPorEntidad: efectividadPorEntidadInforme,
       topEntidadesVolumen,
       topCiudades,
+      datosPorEntidadMapa,
+      abiertasPorOficina,
       excepcionesCliente,
       totalExcepcionesCliente,
       excepcionesOperacion,
