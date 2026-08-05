@@ -871,8 +871,8 @@ export interface InformeLogisticoData {
   topEntidadesVolumen: Array<{ key: string; count: number }>;
   topCiudades: Array<{ key: string; count: number }>;
   datosPorEntidadMapa: Record<string, { total: number; efectividad: number | null }>;
-  // Guías abiertas por oficina (todas, sin tope)
-  abiertasPorOficina: Array<{ key: string; count: number }>;
+  // Guías abiertas por estado (todas, sin tope)
+  abiertasPorEstado: Array<{ key: string; count: number }>;
   // Excepciones separadas por a quién son atribuibles
   excepcionesCliente: Array<{ key: string; count: number }>;
   totalExcepcionesCliente: number;
@@ -1069,8 +1069,8 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
       </div>
 
       <div class="seccion">
-        <div class="seccion-titulo">Guías Abiertas por Oficina <span style="font-weight:500;color:#94A3B8;font-size:11px;">(${data.abiertasPorOficina.length.toLocaleString('es-MX')})</span></div>
-        ${barraHtml(data.abiertasPorOficina, data.totalAbiertas, '#EA7C1A')}
+        <div class="seccion-titulo">Guías Abiertas por Estado <span style="font-weight:500;color:#94A3B8;font-size:11px;">(${data.abiertasPorEstado.length.toLocaleString('es-MX')})</span></div>
+        ${barraHtml(data.abiertasPorEstado, data.totalAbiertas, '#EA7C1A')}
       </div>
 
       <div class="seccion-titulo" style="font-size:15px;margin:20px 0 10px;border-top:2px solid #1E3A8A;padding-top:16px;">📍 Resumen Geográfico</div>

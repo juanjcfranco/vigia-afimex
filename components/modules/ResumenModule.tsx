@@ -362,9 +362,10 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       };
     });
 
-    // Guías abiertas por oficina — todas, sin tope (mismo criterio que el
+    // Guías abiertas por estado (Estado_Guia, ej. LISTO PARA ENTREGAR, EN
+    // ALMACEN, EN RUTA...) — todas, sin tope (mismo criterio que el
     // módulo Abiertas: guías originales en tránsito).
-    const abiertasPorOficina = topPorCampo(guiasAbiertas, (g) => g.oficina_destino, 9999);
+    const abiertasPorEstadoInforme = topPorCampo(guiasAbiertas, (g) => g.estado_guia, 9999);
 
     const clientesDistintos = [...new Set(guias.map((g) => g.cliente).filter(Boolean))] as string[];
     const cliente =
@@ -414,7 +415,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       topEntidadesVolumen,
       topCiudades,
       datosPorEntidadMapa,
-      abiertasPorOficina,
+      abiertasPorEstado: abiertasPorEstadoInforme,
       excepcionesCliente,
       totalExcepcionesCliente,
       excepcionesOperacion,
