@@ -367,6 +367,9 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     // módulo Abiertas: guías originales en tránsito).
     const abiertasPorEstadoInforme = topPorCampo(guiasAbiertas, (g) => g.estado_guia, 9999);
 
+    // Guías abiertas por entidad — todas, sin tope.
+    const abiertasPorEntidadInforme = topPorCampo(guiasAbiertas, (g) => g.entidad_destinatario, 9999);
+
     const clientesDistintos = [...new Set(guias.map((g) => g.cliente).filter(Boolean))] as string[];
     const cliente =
       clientesDistintos.length === 1
@@ -416,6 +419,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       topCiudades,
       datosPorEntidadMapa,
       abiertasPorEstado: abiertasPorEstadoInforme,
+      abiertasPorEntidad: abiertasPorEntidadInforme,
       excepcionesCliente,
       totalExcepcionesCliente,
       excepcionesOperacion,
