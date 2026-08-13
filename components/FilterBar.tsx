@@ -132,7 +132,7 @@ export default function FilterBar({
           <option value="">Todos los días</option>
           {dias.map((d) => (
             <option key={d} value={d}>
-              {formatearDia(d)}
+              Hasta {formatearDia(d)}
             </option>
           ))}
         </select>

@@ -77,7 +77,10 @@ export function useVigiaData() {
         const mes = (g.f_documentacion || '').slice(0, 7);
         if (mes !== filtroPeriodo) return false;
       }
-      if (filtroDia && g.f_documentacion !== filtroDia) return false;
+      // "Hasta" el día seleccionado (corte acumulado dentro del periodo elegido),
+      // no un match exacto de un solo día. Comparación lexicográfica válida
+      // porque f_documentacion siempre viene normalizada a 'YYYY-MM-DD'.
+      if (filtroDia && (!g.f_documentacion || g.f_documentacion > filtroDia)) return false;
       return true;
     });
   }, [guias, filtroClientes, filtroOficina, filtroEntidad, filtroPeriodo, filtroDia]);
