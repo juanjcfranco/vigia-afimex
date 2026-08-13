@@ -15,6 +15,7 @@ import ExcepcionesModule from '@/components/modules/ExcepcionesModule';
 import AccionesModule from '@/components/modules/AccionesModule';
 import DevolucionesModule from '@/components/modules/DevolucionesModule';
 import GeoModule from '@/components/modules/GeoModule';
+import HistogramaModule from '@/components/modules/HistogramaModule';
 import FacturacionModule from '@/components/modules/FacturacionModule';
 import AbiertasModule from '@/components/modules/AbiertasModule';
 import PredocModule from '@/components/modules/PredocModule';
@@ -128,6 +129,7 @@ export default function Home() {
           {tab === 'acciones' && <AccionesModule guias={guiasFiltradas} />}
           {tab === 'devoluciones' && <DevolucionesModule guias={guiasFiltradas} />}
           {tab === 'geo' && <GeoModule guias={guiasFiltradas} />}
+          {tab === 'histograma' && <HistogramaModule guias={guiasFiltradas} />}
           {tab === 'facturacion' && <FacturacionModule guias={guiasFiltradas} />}
           {tab === 'abiertas' && <AbiertasModule guias={guiasFiltradas} />}
           {tab === 'indemnizaciones' && <IndemnizacionesModule guias={guiasFiltradas} />}

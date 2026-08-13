@@ -7,6 +7,7 @@ export const TABS = [
   { id: 'acciones', label: '⚡ Acciones' },
   { id: 'devoluciones', label: '↩ Devoluciones' },
   { id: 'geo', label: '🗺 Geográfico' },
+  { id: 'histograma', label: '📈 Histograma' },
   { id: 'facturacion', label: '💵 Facturación' },
   { id: 'abiertas', label: '📂 Abiertas' },
   { id: 'indemnizaciones', label: '💰 Indemnizaciones' },
