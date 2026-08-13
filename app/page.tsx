@@ -40,10 +40,13 @@ export default function Home() {
     setFiltroEntidad,
     filtroPeriodo,
     setFiltroPeriodo,
+    filtroDia,
+    setFiltroDia,
     clientes,
     oficinas,
     entidades,
     periodos,
+    dias,
     kpis,
     recargar,
   } = useVigiaData();
@@ -74,19 +77,23 @@ export default function Home() {
           oficinas={oficinas}
           entidades={entidades}
           periodos={periodos}
+          dias={dias}
           filtroClientes={filtroClientes}
           filtroOficina={filtroOficina}
           filtroEntidad={filtroEntidad}
           filtroPeriodo={filtroPeriodo}
+          filtroDia={filtroDia}
           onClientes={setFiltroClientes}
           onOficina={setFiltroOficina}
           onEntidad={setFiltroEntidad}
           onPeriodo={setFiltroPeriodo}
+          onDia={setFiltroDia}
           onLimpiar={() => {
             setFiltroClientes([]);
             setFiltroOficina('');
             setFiltroEntidad('');
             setFiltroPeriodo('');
+            setFiltroDia('');
           }}
         />
       )}

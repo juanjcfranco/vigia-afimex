@@ -132,6 +132,17 @@ export function formatearPeriodo(yyyyMm: string | null | undefined): string {
 }
 
 // ============================================================
+// Formatea una fecha YYYY-MM-DD a texto legible ("13 de agosto")
+// ============================================================
+export function formatearDia(yyyyMmDd: string | null | undefined): string {
+  if (!yyyyMmDd) return 'No especificado';
+  const [anio, mes, dia] = yyyyMmDd.split('-');
+  const idx = parseInt(mes, 10) - 1;
+  if (idx < 0 || idx > 11 || !anio || !dia) return yyyyMmDd;
+  return `${parseInt(dia, 10)} de ${MESES_ES[idx]}`;
+}
+
+// ============================================================
 // Facturación: tarifas por tipo de guía
 // ============================================================
 export const TARIFA_ENTREGA_ORIGINAL = 100; // guía original entregada

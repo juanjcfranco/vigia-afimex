@@ -1,21 +1,24 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { formatearPeriodo } from '@/lib/business-logic';
+import { formatearPeriodo, formatearDia } from '@/lib/business-logic';
 
 interface FilterBarProps {
   clientes?: string[];
   oficinas: string[];
   entidades: string[];
   periodos: string[];
+  dias?: string[];
   filtroClientes?: string[];
   filtroOficina: string;
   filtroEntidad: string;
   filtroPeriodo: string;
+  filtroDia?: string;
   onClientes?: (v: string[]) => void;
   onOficina: (v: string) => void;
   onEntidad: (v: string) => void;
   onPeriodo: (v: string) => void;
+  onDia?: (v: string) => void;
   onLimpiar: () => void;
 }
 
@@ -90,14 +93,17 @@ export default function FilterBar({
   oficinas,
   entidades,
   periodos,
+  dias = [],
   filtroClientes = [],
   filtroOficina,
   filtroEntidad,
   filtroPeriodo,
+  filtroDia = '',
   onClientes,
   onOficina,
   onEntidad,
   onPeriodo,
+  onDia,
   onLimpiar,
 }: FilterBarProps) {
   return (
@@ -113,6 +119,20 @@ export default function FilterBar({
           {periodos.map((p) => (
             <option key={p} value={p}>
               {formatearPeriodo(p)}
+            </option>
+          ))}
+        </select>
+      )}
+      {dias.length > 1 && onDia && (
+        <select
+          value={filtroDia}
+          onChange={(e) => onDia(e.target.value)}
+          className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
+        >
+          <option value="">Todos los días</option>
+          {dias.map((d) => (
+            <option key={d} value={d}>
+              {formatearDia(d)}
             </option>
           ))}
         </select>
@@ -144,7 +164,7 @@ export default function FilterBar({
           </option>
         ))}
       </select>
-      {(filtroClientes.length > 0 || filtroOficina || filtroEntidad || filtroPeriodo) && (
+      {(filtroClientes.length > 0 || filtroOficina || filtroEntidad || filtroPeriodo || filtroDia) && (
         <button
           onClick={onLimpiar}
           className="text-[12px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 hover:bg-[var(--vg-bg)]"

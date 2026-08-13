@@ -15,7 +15,15 @@ export function useVigiaData() {
   const [filtroClientes, setFiltroClientes] = useState<string[]>([]);
   const [filtroOficina, setFiltroOficina] = useState<string>('');
   const [filtroEntidad, setFiltroEntidad] = useState<string>('');
-  const [filtroPeriodo, setFiltroPeriodo] = useState<string>('');
+  const [filtroPeriodo, setFiltroPeriodoState] = useState<string>('');
+  const [filtroDia, setFiltroDia] = useState<string>('');
+
+  // Al cambiar de periodo, se limpia el día seleccionado si ya no aplica
+  // (evita quedar con un día de un mes que dejó de estar filtrado).
+  const setFiltroPeriodo = useCallback((v: string) => {
+    setFiltroPeriodoState(v);
+    setFiltroDia('');
+  }, []);
 
   const cargarListaCargas = useCallback(async (autoSwitchToLatest = false) => {
     try {
@@ -69,9 +77,10 @@ export function useVigiaData() {
         const mes = (g.f_documentacion || '').slice(0, 7);
         if (mes !== filtroPeriodo) return false;
       }
+      if (filtroDia && g.f_documentacion !== filtroDia) return false;
       return true;
     });
-  }, [guias, filtroClientes, filtroOficina, filtroEntidad, filtroPeriodo]);
+  }, [guias, filtroClientes, filtroOficina, filtroEntidad, filtroPeriodo, filtroDia]);
 
   const clientes = useMemo(
     () => [...new Set(guias.map((g) => g.cliente).filter(Boolean))].sort() as string[],
@@ -92,6 +101,15 @@ export function useVigiaData() {
       [...new Set(guias.map((g) => (g.f_documentacion || '').slice(0, 7)).filter(Boolean))].sort() as string[],
     [guias]
   );
+  // Días (F_Documentacion completa) disponibles para el selector de día.
+  // Si hay un periodo (mes) seleccionado, se acota a ese mes; si no, se
+  // muestran todos los días detectados en la carga activa.
+  const dias = useMemo(() => {
+    const base = filtroPeriodo
+      ? guias.filter((g) => (g.f_documentacion || '').slice(0, 7) === filtroPeriodo)
+      : guias;
+    return [...new Set(base.map((g) => g.f_documentacion).filter(Boolean))].sort() as string[];
+  }, [guias, filtroPeriodo]);
 
   const kpis = useMemo(() => {
     const total = guiasFiltradas.length;
@@ -164,10 +182,13 @@ export function useVigiaData() {
     setFiltroEntidad,
     filtroPeriodo,
     setFiltroPeriodo,
+    filtroDia,
+    setFiltroDia,
     clientes,
     oficinas,
     entidades,
     periodos,
+    dias,
     kpis,
     recargar: () => {
       // autoSwitchToLatest=true: después de subir un Excel, cambia automáticamente
