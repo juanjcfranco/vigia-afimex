@@ -2,10 +2,12 @@
 
 import { useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { formatearDia, topPorCampo, isCancelada, esRetornoAmplio } from '@/lib/business-logic';
+import { formatearDia, formatearPeriodo, topPorCampo, isCancelada, esRetornoAmplio } from '@/lib/business-logic';
 import {
-  BarChart,
-  Bar,
+  AreaChart,
+  Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -45,6 +47,12 @@ function formatearFechaCorta(yyyyMmDd: string): string {
   return `${partes[2]}/${partes[1]}`;
 }
 
+function colorDeSerie(serie: string, i: number): string {
+  if (serie === 'Otras') return COLOR_OTRAS;
+  if (serie === 'Sin dato') return COLOR_SIN_DATO;
+  return COLORES[i % COLORES.length];
+}
+
 export default function HistogramaModule({ guias }: { guias: Guia[] }) {
   const [vista, setVista] = useState<Vista>('total');
 
@@ -61,12 +69,17 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
   );
 
   // Top N categorías (oficina o entidad) para no saturar el gráfico con
-  // decenas de series; el resto cae en 'Otras'.
+  // decenas de series; el resto cae en 'Otras'. Se calcula una sola vez
+  // sobre todo el corte para que la misma categoría tenga el mismo color
+  // y significado tanto en la vista diaria como en la mensual.
   const seriesTop = useMemo(() => {
     if (vista === 'total') return [];
     return topPorCampo(guiasConFecha, (g) => campoParaVista(vista, g), TOP_N).map((t) => t.key);
   }, [guiasConFecha, vista]);
 
+  // ============================================================
+  // Vista diaria
+  // ============================================================
   const datosPorDia = useMemo(() => {
     const grupos: Record<string, Record<string, number>> = {};
     guiasConFecha.forEach((g) => {
@@ -132,6 +145,34 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
     { header: 'Total', value: (d: (typeof datosPorDia)[0]) => d.total },
   ];
 
+  // ============================================================
+  // Comparativo mensual — solo tiene sentido si el corte actual
+  // (después de filtros globales) abarca más de un periodo.
+  // ============================================================
+  const datosPorMes = useMemo(() => {
+    const grupos: Record<string, Record<string, number>> = {};
+    guiasConFecha.forEach((g) => {
+      const mes = (g.f_documentacion as string).slice(0, 7);
+      if (!grupos[mes]) grupos[mes] = {};
+      if (vista === 'total') {
+        grupos[mes].total = (grupos[mes].total || 0) + 1;
+      } else {
+        const valor = (campoParaVista(vista, g) || '').trim();
+        const key = !valor ? 'Sin dato' : seriesTop.includes(valor) ? valor : 'Otras';
+        grupos[mes][key] = (grupos[mes][key] || 0) + 1;
+      }
+    });
+    return Object.entries(grupos)
+      .map(([mes, valores]) => ({
+        mes,
+        ...valores,
+        total: Object.values(valores).reduce((s, v) => s + v, 0),
+      }))
+      .sort((a, b) => a.mes.localeCompare(b.mes));
+  }, [guiasConFecha, vista, seriesTop]);
+
+  const hayMasDeUnPeriodo = datosPorMes.length > 1;
+
   return (
     <div className="p-4 space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -189,36 +230,119 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
           </div>
         </div>
         <ResponsiveContainer width="100%" height={360}>
-          <BarChart data={datosPorDia} margin={{ bottom: 40 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis
-              dataKey="fecha"
-              tickFormatter={formatearFechaCorta}
-              angle={-40}
-              textAnchor="end"
-              interval={0}
-              fontSize={10}
-              height={50}
-            />
-            <YAxis fontSize={11} />
-            <Tooltip labelFormatter={(v) => formatearDia(String(v))} />
-            {vista !== 'total' && <Legend />}
-            {vista === 'total' ? (
-              <Bar dataKey="total" name="Guías" fill="#1E3A8A" radius={[3, 3, 0, 0]} />
-            ) : (
-              columnasSerie.map((s, i) => (
-                <Bar
+          {vista === 'total' ? (
+            <AreaChart data={datosPorDia} margin={{ bottom: 40 }}>
+              <defs>
+                <linearGradient id="gradienteTotalDia" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#1E3A8A" stopOpacity={0.35} />
+                  <stop offset="95%" stopColor="#1E3A8A" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="fecha"
+                tickFormatter={formatearFechaCorta}
+                angle={-40}
+                textAnchor="end"
+                interval={0}
+                fontSize={10}
+                height={50}
+              />
+              <YAxis fontSize={11} />
+              <Tooltip labelFormatter={(v) => formatearDia(String(v))} />
+              <Area
+                type="monotone"
+                dataKey="total"
+                name="Guías"
+                stroke="#1E3A8A"
+                strokeWidth={2.5}
+                fill="url(#gradienteTotalDia)"
+                dot={{ r: 3, fill: '#1E3A8A', strokeWidth: 0 }}
+                activeDot={{ r: 5 }}
+              />
+            </AreaChart>
+          ) : (
+            // Líneas en vez de barras apiladas: con muchos días en el eje X,
+            // apilar barras vuelve ilegible la comparación entre categorías.
+            // Una línea por categoría deja ver la tendencia de cada una por
+            // separado sin que se mezclen los colores.
+            <LineChart data={datosPorDia} margin={{ bottom: 40 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="fecha"
+                tickFormatter={formatearFechaCorta}
+                angle={-40}
+                textAnchor="end"
+                interval={0}
+                fontSize={10}
+                height={50}
+              />
+              <YAxis fontSize={11} />
+              <Tooltip labelFormatter={(v) => formatearDia(String(v))} />
+              <Legend />
+              {columnasSerie.map((s, i) => (
+                <Line
                   key={s}
+                  type="monotone"
                   dataKey={s}
                   name={s}
-                  stackId="a"
-                  fill={s === 'Otras' ? COLOR_OTRAS : s === 'Sin dato' ? COLOR_SIN_DATO : COLORES[i % COLORES.length]}
+                  stroke={colorDeSerie(s, i)}
+                  strokeWidth={2}
+                  dot={{ r: 2 }}
+                  activeDot={{ r: 5 }}
+                  connectNulls
                 />
-              ))
-            )}
-          </BarChart>
+              ))}
+            </LineChart>
+          )}
         </ResponsiveContainer>
       </div>
+
+      {hayMasDeUnPeriodo && (
+        <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+          <div className="font-bold text-[12.5px] mb-3">
+            Comparativo Mensual
+            {vista !== 'total' && ` — Desglose por ${vista === 'oficina' ? 'Oficina Destino (Top 8)' : 'Entidad (Top 8)'}`}
+          </div>
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={datosPorMes} margin={{ bottom: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="mes" tickFormatter={(v) => formatearPeriodo(String(v))} fontSize={11} />
+              <YAxis fontSize={11} />
+              <Tooltip labelFormatter={(v) => formatearPeriodo(String(v))} />
+              {vista !== 'total' && <Legend />}
+              {vista === 'total' ? (
+                <Line
+                  type="monotone"
+                  dataKey="total"
+                  name="Guías"
+                  stroke="#1E3A8A"
+                  strokeWidth={2.5}
+                  dot={{ r: 5, fill: '#1E3A8A', strokeWidth: 0 }}
+                  activeDot={{ r: 7 }}
+                />
+              ) : (
+                // Mismo tratamiento que el desglose diario: una línea por
+                // categoría, en vez de barras, para mantener consistencia
+                // visual entre ambos gráficos.
+                columnasSerie.map((s, i) => (
+                  <Line
+                    key={s}
+                    type="monotone"
+                    dataKey={s}
+                    name={s}
+                    stroke={colorDeSerie(s, i)}
+                    strokeWidth={2}
+                    dot={{ r: 4 }}
+                    activeDot={{ r: 6 }}
+                    connectNulls
+                  />
+                ))
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
       <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
         <div className="px-4 py-3 border-b border-[var(--vg-border)] flex items-center justify-between flex-wrap gap-2">
