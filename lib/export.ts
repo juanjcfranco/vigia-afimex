@@ -1884,6 +1884,18 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
           data.temporalidadGeneral
             ? `
         <div class="kpi-card">
+          <div class="kpi-label">Doc→Plataforma</div>
+          <div class="kpi-value" style="color:#1E3A8A;">${data.temporalidadGeneral.docPlataforma !== null ? `${data.temporalidadGeneral.docPlataforma}d` : '—'}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Plataforma→1ra Ruta</div>
+          <div class="kpi-value" style="color:#0B9B67;">${data.temporalidadGeneral.plataformaRuta !== null ? `${data.temporalidadGeneral.plataformaRuta}d` : '—'}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">RecibOf→1ra Ruta</div>
+          <div class="kpi-value" style="color:#B45309;">${data.temporalidadGeneral.recibofRuta !== null ? `${data.temporalidadGeneral.recibofRuta}d` : '—'}</div>
+        </div>
+        <div class="kpi-card">
           <div class="kpi-label">Plataforma→Confirmación</div>
           <div class="kpi-value" style="color:#7C3AED;">${data.temporalidadGeneral.plataformaConfirmacion !== null ? `${data.temporalidadGeneral.plataformaConfirmacion}d` : '—'}</div>
         </div>
