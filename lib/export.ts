@@ -940,7 +940,7 @@ function barraEfectividadHtml(items: Array<{ key: string; efectividad: number | 
 // nivel de Región (no por oficina) para no hacer el PDF demasiado
 // extenso — ver nota sobre desplegables en PDF más abajo.
 // ============================================================
-function bloqueTemporalidadHtml(titulo: string, subtitulo: string, lista: FilaTemporalidad[]): string {
+function bloqueTemporalidadHtml(titulo: string, subtitulo: string, lista: FilaTemporalidad[], etiquetaColumna = 'Región'): string {
   if (!lista.length) {
     return `
     <div class="seccion">
@@ -956,7 +956,7 @@ function bloqueTemporalidadHtml(titulo: string, subtitulo: string, lista: FilaTe
       <table>
         <thead>
           <tr>
-            <th>Región</th>
+            <th>${escapeHtml(etiquetaColumna)}</th>
             <th>Doc→Plataf.</th>
             <th>Plataf.→1ra Ruta</th>
             <th>RecibOf→1ra Ruta</th>
@@ -1650,6 +1650,11 @@ export interface EfectividadExportData {
   // Temporalidad por Oficina), evitando repetir la misma jerarquía tres
   // veces y haciendo el reporte mucho más compacto.
   regionOficina: FilaRegionOficina[];
+  // Temporalidad por Cliente — tabla independiente (mismas 4 columnas de
+  // días + %≤15d, pero agrupado por cliente en vez de región/oficina).
+  temporalidadPorCliente: FilaTemporalidad[];
+  // Resumen de temporalidad a nivel general, para los KPIs del inicio.
+  temporalidadGeneral: Omit<FilaTemporalidad, 'key'> | null;
 }
 
 export function exportEfectividadPDF(data: EfectividadExportData) {
@@ -1852,6 +1857,27 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
                   : '#DC2626'
           };">${data.efectividadGeneral !== null ? `${data.efectividadGeneral}%` : '—'}</div>
         </div>
+        ${
+          data.temporalidadGeneral
+            ? `
+        <div class="kpi-card">
+          <div class="kpi-label">Plataforma→Confirmación</div>
+          <div class="kpi-value" style="color:#7C3AED;">${data.temporalidadGeneral.plataformaConfirmacion !== null ? `${data.temporalidadGeneral.plataformaConfirmacion}d` : '—'}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">% Dentro de 15 Días</div>
+          <div class="kpi-value" style="color:${
+            data.temporalidadGeneral.pctVerde === null
+              ? '#94A3B8'
+              : data.temporalidadGeneral.pctVerde >= 70
+                ? '#0B9B67'
+                : data.temporalidadGeneral.pctVerde >= 50
+                  ? '#EA7C1A'
+                  : '#DC2626'
+          };">${data.temporalidadGeneral.pctVerde !== null ? `${data.temporalidadGeneral.pctVerde}%` : '—'}</div>
+        </div>`
+            : ''
+        }
       </div>
 
       <div class="seccion">
@@ -1869,6 +1895,19 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
         )}
       </div>
 
+      ${bloqueRegionOficinaHtml(data.regionOficina)}
+      ${bloqueTemporalidadHtml(
+        'Temporalidad por Cliente',
+        'Días promedio por etapa · % dentro de 15 días desde Plataforma hasta entrega/devolución (abiertas se miden contra hoy)',
+        data.temporalidadPorCliente,
+        'Cliente'
+      )}
+      ${tablaEfectividadHtml('Efectividad por Entidad', data.porEntidad)}
+      ${bloqueMesHtml}
+
+      ${comparativoHtml}
+      ${excPorClienteHtml}
+
       <div class="dos-columnas">
         <div class="seccion">
           <div class="seccion-titulo">Top Excepciones</div>
@@ -1884,13 +1923,6 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
         <div class="seccion-titulo">Devoluciones — Top Oficina Destino</div>
         ${barraHtml(data.devolucionesPorOficina, data.totalDevoluciones, '#DC2626')}
       </div>
-
-      ${bloqueRegionOficinaHtml(data.regionOficina)}
-      ${tablaEfectividadHtml('Efectividad por Entidad', data.porEntidad)}
-      ${bloqueMesHtml}
-
-      ${comparativoHtml}
-      ${excPorClienteHtml}
 
       <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
 

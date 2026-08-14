@@ -384,6 +384,10 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
       // Efectividad + Temporalidad combinadas en una sola tabla Región→
       // Oficina — reemplaza lo que antes eran 3 secciones separadas.
       regionOficina: efectividadTemporalidadPorRegionOficina(guias),
+      // Temporalidad por Cliente — tabla independiente.
+      temporalidadPorCliente: temporalidadPorCampo(guias, 'cliente'),
+      // Resumen general de temporalidad para los KPIs del inicio.
+      temporalidadGeneral: temporalidadPorCampo(guias, () => 'TOTAL')[0] ?? null,
     });
   }
 
