@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina } from '@/lib/types';
-import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS } from '@/lib/business-logic';
+import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import BulkSearch from '@/components/BulkSearch';
 import AlertaDiasBadge from '@/components/AlertaDiasBadge';
@@ -76,12 +76,14 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
 
   // KPI Originales vs Retornos — "base" ya mezcla ambos tipos (igual que
   // la columna "Tipo" de la tabla); esto solo separa los conteos.
+  // esRetornoAmplio() también trata como retorno cualquier oficina de
+  // Región VIRTUAL (UPS *, QUIKEN, QUERETARO, CALL CENTER, REEXPEDICIONES).
   const listaOriginales = useMemo(
-    () => base.filter((g) => !g.es_retorno && !g.es_posible_retorno_otro_periodo),
+    () => base.filter((g) => !esRetornoAmplio(g)),
     [base]
   );
   const listaRetornos = useMemo(
-    () => base.filter((g) => g.es_retorno || g.es_posible_retorno_otro_periodo),
+    () => base.filter((g) => esRetornoAmplio(g)),
     [base]
   );
   const totalOriginales = listaOriginales.length;
@@ -174,7 +176,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   const { sorted, sortKey, sortDir, requestSort } = useSortableTable<Guia>(filas, (g, key) => {
     switch (key) {
       case 'tipo':
-        return g.es_retorno || g.es_posible_retorno_otro_periodo ? 'Retorno' : 'Original';
+        return esRetornoAmplio(g) ? 'Retorno' : 'Original';
       case 'guia':
         return g.guia;
       case 'estado':
@@ -201,7 +203,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   });
 
   const columnasExport = [
-    { header: 'Tipo', value: (g: Guia) => (g.es_retorno || g.es_posible_retorno_otro_periodo) ? 'Retorno' : 'Original' },
+    { header: 'Tipo', value: (g: Guia) => esRetornoAmplio(g) ? 'Retorno' : 'Original' },
     { header: 'Guía', value: (g: Guia) => g.guia },
     { header: 'Estado', value: (g: Guia) => g.estado_guia || '' },
     { header: 'Origen', value: (g: Guia) => g.of_origen || '' },
@@ -493,7 +495,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
             </thead>
             <tbody>
               {sorted.map((g) => {
-                const esRetorno = g.es_retorno || g.es_posible_retorno_otro_periodo;
+                const esRetorno = esRetornoAmplio(g);
                 return (
                 <tr key={g.id}>
                   <td>

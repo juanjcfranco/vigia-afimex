@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, esGuiaOriginal, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo, topPorCampo, categoriaExcepcion, diasEntreFechas, obtenerRegion, temporalidadPorCampo } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, esGuiaOriginal, esRetornoAmplio, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo, topPorCampo, categoriaExcepcion, diasEntreFechas, obtenerRegion, temporalidadPorCampo } from '@/lib/business-logic';
 import { exportInformeLogisticoPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
 import KpiCard from '@/components/KpiCard';
@@ -98,8 +98,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     const canceladas = guias.filter(
       (g) =>
         isCancelada(g.estado_guia) &&
-        !g.es_retorno &&
-        !g.es_posible_retorno_otro_periodo &&
+        !esRetornoAmplio(g) &&
         !g.es_predoc &&
         !g.es_documentada
     ).length;
@@ -244,7 +243,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       // "(RETORNO)" quedaba muy saturado con rebanadas diminutas. Su
       // propio desglose vive en las tarjetas de "Guías de Retorno" y
       // "Posible Retorno" más arriba.
-      .filter((g) => !g.es_predoc && !g.es_documentada && !g.es_retorno && !g.es_posible_retorno_otro_periodo)
+      .filter((g) => !g.es_predoc && !g.es_documentada && !esRetornoAmplio(g))
       .forEach((g) => {
         const e = g.estado_guia || 'SIN ESTADO';
         counts[e] = (counts[e] || 0) + 1;
@@ -296,7 +295,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
   // Mismo filtro que `estados` (sin predoc, documentada, ni retornos) —
   // es el denominador correcto para los % del pie y su tabla.
   const totalEstadosBase = useMemo(
-    () => guias.filter((g) => !g.es_predoc && !g.es_documentada && !g.es_retorno && !g.es_posible_retorno_otro_periodo).length,
+    () => guias.filter((g) => !g.es_predoc && !g.es_documentada && !esRetornoAmplio(g)).length,
     [guias]
   );
   const estadosOrden = useSortableTable<[string, number]>(estados, (item, key) => {

@@ -61,12 +61,11 @@ export function isCancelada(estado: string | null): boolean {
 export function esGuiaOriginal(
   g: Pick<
     Guia,
-    'estado_guia' | 'es_retorno' | 'es_posible_retorno_otro_periodo' | 'es_predoc' | 'es_documentada'
+    'estado_guia' | 'es_retorno' | 'es_posible_retorno_otro_periodo' | 'es_predoc' | 'es_documentada' | 'oficina_destino'
   >
 ): boolean {
   return (
-    !g.es_retorno &&
-    !g.es_posible_retorno_otro_periodo &&
+    !esRetornoAmplio(g) &&
     !g.es_predoc &&
     !g.es_documentada &&
     !isCancelada(g.estado_guia)
@@ -102,16 +101,25 @@ export function isAbiertaPorEstado(
 // de ninguna forma, un retorno: ni explícito (es_retorno) ni un posible
 // retorno de otro periodo (mismo Cliente_Paga y Nombre_Destinatario).
 export function esEntregaEfectiva(
-  g: Pick<Guia, 'estado_guia' | 'es_predoc' | 'es_documentada' | 'es_retorno' | 'es_posible_retorno_otro_periodo'>
+  g: Pick<Guia, 'estado_guia' | 'es_predoc' | 'es_documentada' | 'es_retorno' | 'es_posible_retorno_otro_periodo' | 'oficina_destino'>
 ): boolean {
-  if (g.es_predoc || g.es_documentada || g.es_retorno || g.es_posible_retorno_otro_periodo) return false;
+  if (g.es_predoc || g.es_documentada || esRetornoAmplio(g)) return false;
   return isEntregada(g.estado_guia);
 }
 
 // Una guía es "retorno" en sentido amplio (para conteos de retorno) si es
 // explícitamente un retorno O un posible retorno de otro periodo.
-export function esRetornoAmplio(g: Pick<Guia, 'es_retorno' | 'es_posible_retorno_otro_periodo'>): boolean {
-  return g.es_retorno || g.es_posible_retorno_otro_periodo;
+// Trata como "retorno" no solo lo marcado explícitamente (es_retorno,
+// es_posible_retorno_otro_periodo), sino también cualquier guía cuya
+// oficina destino caiga en la Región "VIRTUAL" (UPS *, QUIKEN, QUERETARO,
+// CALL CENTER, REEXPEDICIONES — ver REGIONES_POR_OFICINA más abajo).
+// Estas oficinas son pases/redirecciones, no destinos reales, así que se
+// excluyen de "Guías Procesadas" con el mismo criterio que un retorno.
+// Como esta función ya se usa en esGuiaOriginal(), efectividadPorCampo(),
+// temporalidadPorCampo(), el Histograma, etc., extenderla aquí propaga la
+// regla a toda la app sin tener que tocar cada lugar por separado.
+export function esRetornoAmplio(g: Pick<Guia, 'es_retorno' | 'es_posible_retorno_otro_periodo' | 'oficina_destino'>): boolean {
+  return !!g.es_retorno || !!g.es_posible_retorno_otro_periodo || obtenerRegion(g.oficina_destino) === 'VIRTUAL';
 }
 
 // ============================================================
@@ -1023,6 +1031,7 @@ export function calcularTiempoPromedioEntrega(
     | 'es_devolucion'
     | 'f_documentacion'
     | 'f_confirmacion'
+    | 'oficina_destino'
   >[]
 ): TiempoPromedioEntrega {
   const hoyIso = new Date().toISOString().slice(0, 10);
@@ -1030,9 +1039,10 @@ export function calcularTiempoPromedioEntrega(
   const diasAbiertas: number[] = [];
 
   guias.forEach((g) => {
-    // Ninguna guía de retorno (explícita o posible de otro periodo), ni
-    // pre-documentada, ni documentada entra a este cálculo, en ningún grupo.
-    if (g.es_predoc || g.es_documentada || g.es_retorno || g.es_posible_retorno_otro_periodo) return;
+    // Ninguna guía de retorno (explícita, posible de otro periodo, o de
+    // oficina virtual), ni pre-documentada, ni documentada entra a este
+    // cálculo, en ningún grupo.
+    if (g.es_predoc || g.es_documentada || esRetornoAmplio(g)) return;
 
     if (isEntregada(g.estado_guia)) {
       const dias = diasEntreFechas(g.f_documentacion, g.f_confirmacion);

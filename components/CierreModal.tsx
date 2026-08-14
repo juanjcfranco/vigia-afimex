@@ -7,6 +7,7 @@ import {
   isAbiertaPorEstado,
   isCancelada,
   esGuiaOriginal,
+  esRetornoAmplio,
   calcularEfectividad,
   colorEfectividad,
   getExcepciones,
@@ -50,8 +51,7 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
     const canceladas = guias.filter(
       (g) =>
         isCancelada(g.estado_guia) &&
-        !g.es_retorno &&
-        !g.es_posible_retorno_otro_periodo &&
+        !esRetornoAmplio(g) &&
         !g.es_predoc &&
         !g.es_documentada
     ).length;
@@ -118,12 +118,8 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
     // "dónde están las guías paradas ahora mismo", no el cálculo de
     // efectividad.
     const todasAbiertas = guias.filter((g) => isAbiertaPorEstado(g));
-    const abiertasOriginales = todasAbiertas.filter(
-      (g) => !g.es_retorno && !g.es_posible_retorno_otro_periodo
-    ).length;
-    const abiertasRetornos = todasAbiertas.filter(
-      (g) => g.es_retorno || g.es_posible_retorno_otro_periodo
-    ).length;
+    const abiertasOriginales = todasAbiertas.filter((g) => !esRetornoAmplio(g)).length;
+    const abiertasRetornos = todasAbiertas.filter((g) => esRetornoAmplio(g)).length;
     const abiertasPorOficina = topPorCampo(todasAbiertas, (g) => g.oficina_destino, 10);
 
     // Alertas por nivel de días sin movimiento (mismos umbrales que el

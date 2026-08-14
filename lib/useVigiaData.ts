@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Guia, Carga } from './types';
-import { isEntregada, isAbiertaPorEstado, calcularEfectividad, esGuiaOriginal } from './business-logic';
+import { isEntregada, isAbiertaPorEstado, calcularEfectividad, esGuiaOriginal, esRetornoAmplio } from './business-logic';
 
 export function useVigiaData() {
   const [cargas, setCargas] = useState<Carga[]>([]);
@@ -116,7 +116,7 @@ export function useVigiaData() {
 
   const kpis = useMemo(() => {
     const total = guiasFiltradas.length;
-    const guiasRetorno = guiasFiltradas.filter((g) => g.es_retorno || g.es_posible_retorno_otro_periodo);
+    const guiasRetorno = guiasFiltradas.filter((g) => esRetornoAmplio(g));
     const guiasOriginales = guiasFiltradas.filter(esGuiaOriginal);
     const entregadas = guiasOriginales.filter((g) => isEntregada(g.estado_guia)).length;
     const devoluciones = guiasOriginales.filter((g) => g.es_devolucion).length;
