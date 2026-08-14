@@ -88,7 +88,6 @@ interface FilaTemporalidad {
   nPlataformaConfirmacion: number;
   verde: number;
   rojo: number;
-  ambar: number;
   sinDato: number;
   pctVerde: number | null;
   total: number;
@@ -103,7 +102,6 @@ function temporalidadDe(lista: Guia[]): Omit<FilaTemporalidad, 'key'> {
   };
   let verde = 0;
   let rojo = 0;
-  let ambar = 0;
   let sinDato = 0;
   const hoyIso = new Date().toISOString().slice(0, 10);
 
@@ -117,26 +115,26 @@ function temporalidadDe(lista: Guia[]): Omit<FilaTemporalidad, 'key'> {
     const d = diasEntreFechas(g.fecha_plataforma, g.f_confirmacion);
     if (d !== null) acc.plataformaConfirmacion.push(d);
 
+    // Fecha de referencia según el desenlace de la guía. Las que SIGUEN
+    // ABIERTAS se miden contra HOY — el reloj sigue corriendo, no se
+    // excluyen del cálculo solo porque aún no se resuelven.
+    let fechaFin: string | null;
     if (isEntregada(g.estado_guia)) {
-      const vida = diasEntreFechas(g.fecha_plataforma, g.f_confirmacion);
-      if (vida === null) sinDato++;
-      else if (vida <= 15) verde++;
-      else rojo++;
+      fechaFin = g.f_confirmacion;
     } else if (g.es_devolucion) {
-      const referencia = g.f_entrega || g.f_historia;
-      const vida = diasEntreFechas(g.fecha_plataforma, referencia);
-      if (vida === null) sinDato++;
-      else if (vida <= 15) verde++;
-      else rojo++;
-    } else if (g.fecha_plataforma) {
-      const enCurso = diasEntreFechas(g.fecha_plataforma, hoyIso);
-      if (enCurso !== null && enCurso > 15) ambar++;
+      fechaFin = g.f_entrega || g.f_historia;
+    } else {
+      fechaFin = hoyIso;
     }
+    const vida = diasEntreFechas(g.fecha_plataforma, fechaFin);
+    if (vida === null) sinDato++;
+    else if (vida <= 15) verde++;
+    else rojo++;
   });
 
   const promedio = (arr: number[]): number | null =>
     arr.length ? Number((arr.reduce((s, v) => s + v, 0) / arr.length).toFixed(1)) : null;
-  const totalResueltas = verde + rojo;
+  const totalClasificadas = verde + rojo;
 
   return {
     docPlataforma: promedio(acc.docPlataforma),
@@ -149,9 +147,8 @@ function temporalidadDe(lista: Guia[]): Omit<FilaTemporalidad, 'key'> {
     nPlataformaConfirmacion: acc.plataformaConfirmacion.length,
     verde,
     rojo,
-    ambar,
     sinDato,
-    pctVerde: totalResueltas ? Number(((verde / totalResueltas) * 100).toFixed(1)) : null,
+    pctVerde: totalClasificadas ? Number(((verde / totalClasificadas) * 100).toFixed(1)) : null,
     total: lista.length,
   };
 }
@@ -610,7 +607,7 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
           <div>
             <div className="font-bold text-[12.5px]">Temporalidad por {etiquetaTemporalidad[vistaTemporalidad]}</div>
             <div className="text-[11px] text-[var(--vg-text2)]">
-              Días promedio por etapa · % dentro de 15 días desde Plataforma hasta entrega o devolución
+              Días promedio por etapa · % dentro de 15 días desde Plataforma hasta entrega/devolución (abiertas se miden contra hoy)
             </div>
           </div>
           <div className="flex gap-1 bg-[var(--vg-bg)] p-1 rounded-md">

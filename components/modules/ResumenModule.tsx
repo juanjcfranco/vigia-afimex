@@ -190,48 +190,41 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
   const semaforoVida = useMemo(() => {
     let verde = 0;
     let rojo = 0;
-    let ambar = 0;
     let sinDato = 0;
     const hoyIso = new Date().toISOString().slice(0, 10);
 
     guiasOriginales.forEach((g) => {
+      // Fecha de referencia según el desenlace de la guía. Para las que
+      // SIGUEN ABIERTAS, la referencia es HOY — el reloj sigue corriendo,
+      // no se excluyen del cálculo solo porque aún no se resuelven. Esto
+      // es clave: una guía abierta con 20 días desde Plataforma ya está
+      // fuera de tiempo HOY, aunque termine bien entregada después.
+      let fechaFin: string | null;
       if (isEntregada(g.estado_guia)) {
-        const vida = diasEntreFechas(g.fecha_plataforma, g.f_confirmacion);
-        if (vida === null) {
-          sinDato++;
-        } else if (vida <= 15) {
-          verde++;
-        } else {
-          rojo++;
-        }
-        return;
+        fechaFin = g.f_confirmacion;
+      } else if (g.es_devolucion) {
+        fechaFin = g.f_entrega || g.f_historia;
+      } else {
+        fechaFin = hoyIso;
       }
-      if (g.es_devolucion) {
-        const referencia = g.f_entrega || g.f_historia;
-        const vida = diasEntreFechas(g.fecha_plataforma, referencia);
-        if (vida === null) {
-          sinDato++;
-        } else if (vida <= 15) {
-          verde++;
-        } else {
-          rojo++;
-        }
-        return;
+
+      const vida = diasEntreFechas(g.fecha_plataforma, fechaFin);
+      if (vida === null) {
+        sinDato++;
+      } else if (vida <= 15) {
+        verde++;
+      } else {
+        rojo++;
       }
-      // Abierta: no entra al semáforo principal, solo a la alerta de riesgo.
-      if (!g.fecha_plataforma) return;
-      const enCurso = diasEntreFechas(g.fecha_plataforma, hoyIso);
-      if (enCurso !== null && enCurso > 15) ambar++;
     });
 
-    const totalResueltas = verde + rojo;
+    const totalClasificadas = verde + rojo;
     return {
       verde,
       rojo,
-      ambar,
       sinDato,
-      totalResueltas,
-      pctVerde: totalResueltas ? Number(((verde / totalResueltas) * 100).toFixed(1)) : null,
+      totalClasificadas,
+      pctVerde: totalClasificadas ? Number(((verde / totalClasificadas) * 100).toFixed(1)) : null,
     };
   }, [guiasOriginales]);
 
@@ -649,17 +642,17 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
           </div>
         </div>
         <div className="text-[11px] text-[var(--vg-text2)] mb-3">
-          Máximo aceptado: 15 días · Entregadas: Plataforma vs F_Confirmación · Devoluciones: Plataforma vs F_Entrega/Últ. Mov.
+          Máximo aceptado: 15 días · Entregadas: Plataforma vs F_Confirmación · Devoluciones: Plataforma vs F_Entrega/Últ. Mov. · Abiertas: Plataforma vs HOY (sigue corriendo el reloj hasta que se resuelvan)
         </div>
 
-        {semaforoVida.totalResueltas > 0 && (
+        {semaforoVida.totalClasificadas > 0 && (
           <div className="w-full h-3 rounded-full overflow-hidden flex mb-3">
-            <div className="h-full bg-[#0B9B67]" style={{ width: `${(semaforoVida.verde / semaforoVida.totalResueltas) * 100}%` }} />
-            <div className="h-full bg-[#DC2626]" style={{ width: `${(semaforoVida.rojo / semaforoVida.totalResueltas) * 100}%` }} />
+            <div className="h-full bg-[#0B9B67]" style={{ width: `${(semaforoVida.verde / semaforoVida.totalClasificadas) * 100}%` }} />
+            <div className="h-full bg-[#DC2626]" style={{ width: `${(semaforoVida.rojo / semaforoVida.totalClasificadas) * 100}%` }} />
           </div>
         )}
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <div className="border border-[var(--vg-border)] rounded-md px-3 py-2">
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-[#0B9B67]" />
@@ -673,13 +666,6 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
               <span className="text-[10.5px] font-bold text-[var(--vg-text2)]">Fuera de tiempo (&gt;15d)</span>
             </div>
             <div className="text-[18px] font-extrabold text-[#DC2626]">{semaforoVida.rojo.toLocaleString('es-MX')}</div>
-          </div>
-          <div className="border border-[var(--vg-border)] rounded-md px-3 py-2">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#EA7C1A]" />
-              <span className="text-[10.5px] font-bold text-[var(--vg-text2)]">En riesgo (abierta, &gt;15d)</span>
-            </div>
-            <div className="text-[18px] font-extrabold text-[#EA7C1A]">{semaforoVida.ambar.toLocaleString('es-MX')}</div>
           </div>
           <div className="border border-[var(--vg-border)] rounded-md px-3 py-2">
             <div className="flex items-center gap-1.5">
