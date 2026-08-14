@@ -1813,7 +1813,7 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
         .fila-oficina td { font-size: 10.5px; color: #475569; padding-left: 16px; }
         @media print {
           body { padding: 10mm; }
-          @page { size: portrait; margin: 10mm; }
+          @page { size: landscape; margin: 10mm; }
           .seccion { break-inside: avoid; }
         }
       </style>
