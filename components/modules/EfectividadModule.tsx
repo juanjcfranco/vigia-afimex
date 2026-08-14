@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas, obtenerRegion, obtenerCiclo, ORDEN_CICLOS } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas, obtenerRegion, obtenerCiclo, ORDEN_CICLOS, FilaTemporalidad, temporalidadPorCampo } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { exportToExcel, exportToPDF, exportEfectividadPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
@@ -69,104 +69,9 @@ function efectividadPorMes(guiasIn: Guia[]) {
 }
 
 // ============================================================
-// Temporalidad por oficina/entidad: mismos 4 promedios de días del
-// módulo Resumen (Doc→Plataforma, Plataforma→1ra Ruta, RecibidoOficina→
-// 1ra Ruta, Plataforma→Confirmación) y el mismo semáforo de "vida de la
-// guía" (máximo 15 días desde Plataforma hasta que se resuelve, ya sea
-// entregada o devuelta), pero desglosados por grupo en vez de un solo
-// total — para ver qué oficina/entidad concentra los tiempos más largos.
+// Temporalidad por oficina/entidad/región/cliente: ver temporalidadPorCampo()
+// y FilaTemporalidad en business-logic.ts (compartido con los PDFs).
 // ============================================================
-interface FilaTemporalidad {
-  key: string;
-  docPlataforma: number | null;
-  nDocPlataforma: number;
-  plataformaRuta: number | null;
-  nPlataformaRuta: number;
-  recibofRuta: number | null;
-  nRecibofRuta: number;
-  plataformaConfirmacion: number | null;
-  nPlataformaConfirmacion: number;
-  verde: number;
-  rojo: number;
-  sinDato: number;
-  pctVerde: number | null;
-  total: number;
-}
-
-function temporalidadDe(lista: Guia[]): Omit<FilaTemporalidad, 'key'> {
-  const acc = {
-    docPlataforma: [] as number[],
-    plataformaRuta: [] as number[],
-    recibofRuta: [] as number[],
-    plataformaConfirmacion: [] as number[],
-  };
-  let verde = 0;
-  let rojo = 0;
-  let sinDato = 0;
-  const hoyIso = new Date().toISOString().slice(0, 10);
-
-  lista.forEach((g) => {
-    const a = diasEntreFechas(g.f_documentacion, g.fecha_plataforma);
-    if (a !== null) acc.docPlataforma.push(a);
-    const b = diasEntreFechas(g.fecha_plataforma, g.primera_ruta);
-    if (b !== null) acc.plataformaRuta.push(b);
-    const c = diasEntreFechas(g.recibido_oficina, g.primera_ruta);
-    if (c !== null) acc.recibofRuta.push(c);
-    const d = diasEntreFechas(g.fecha_plataforma, g.f_confirmacion);
-    if (d !== null) acc.plataformaConfirmacion.push(d);
-
-    // Fecha de referencia según el desenlace de la guía. Las que SIGUEN
-    // ABIERTAS se miden contra HOY — el reloj sigue corriendo, no se
-    // excluyen del cálculo solo porque aún no se resuelven.
-    let fechaFin: string | null;
-    if (isEntregada(g.estado_guia)) {
-      fechaFin = g.f_confirmacion;
-    } else if (g.es_devolucion) {
-      fechaFin = g.f_entrega || g.f_historia;
-    } else {
-      fechaFin = hoyIso;
-    }
-    const vida = diasEntreFechas(g.fecha_plataforma, fechaFin);
-    if (vida === null) sinDato++;
-    else if (vida <= 15) verde++;
-    else rojo++;
-  });
-
-  const promedio = (arr: number[]): number | null =>
-    arr.length ? Number((arr.reduce((s, v) => s + v, 0) / arr.length).toFixed(1)) : null;
-  const totalClasificadas = verde + rojo;
-
-  return {
-    docPlataforma: promedio(acc.docPlataforma),
-    nDocPlataforma: acc.docPlataforma.length,
-    plataformaRuta: promedio(acc.plataformaRuta),
-    nPlataformaRuta: acc.plataformaRuta.length,
-    recibofRuta: promedio(acc.recibofRuta),
-    nRecibofRuta: acc.recibofRuta.length,
-    plataformaConfirmacion: promedio(acc.plataformaConfirmacion),
-    nPlataformaConfirmacion: acc.plataformaConfirmacion.length,
-    verde,
-    rojo,
-    sinDato,
-    pctVerde: totalClasificadas ? Number(((verde / totalClasificadas) * 100).toFixed(1)) : null,
-    total: lista.length,
-  };
-}
-
-// Mismo filtro base que efectividadPorCampo (sin retornos/predoc/documentada)
-// para que ambas tablas describan el mismo universo de guías.
-function temporalidadPorCampo(guiasIn: Guia[], campo: keyof Guia | ((g: Guia) => string | null)): FilaTemporalidad[] {
-  const guias = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
-  const grupos: Record<string, Guia[]> = {};
-  guias.forEach((g) => {
-    const key = (typeof campo === 'function' ? campo(g) : (g[campo] as string)) || 'SIN DATO';
-    if (!grupos[key]) grupos[key] = [];
-    grupos[key].push(g);
-  });
-  return Object.entries(grupos)
-    .map(([key, lista]) => ({ key, ...temporalidadDe(lista) }))
-    .sort((a, b) => b.total - a.total);
-}
 
 type VistaEfectividad = 'cliente' | 'oficina' | 'entidad' | 'region' | 'mes';
 
@@ -217,6 +122,31 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
     region: 'Región',
   };
 
+  // Drill-down Región → Oficinas: solo aplica cuando vistaTemporalidad
+  // === 'region'. Cada región es expandible para revelar sus oficinas,
+  // calculadas con la misma temporalidadPorCampo() (consistente con el
+  // resto del panel).
+  const [regionesExpandidas, setRegionesExpandidas] = useState<Set<string>>(new Set());
+  function toggleRegionExpandida(key: string) {
+    setRegionesExpandidas((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+  const oficinasPorRegion = useMemo(() => {
+    if (vistaTemporalidad !== 'region') return {};
+    const map: Record<string, FilaTemporalidad[]> = {};
+    filasTemporalidad.forEach((f) => {
+      map[f.key] = temporalidadPorCampo(
+        guias.filter((g) => obtenerRegion(g.oficina_destino) === f.key),
+        'oficina_destino'
+      );
+    });
+    return map;
+  }, [guias, vistaTemporalidad, filasTemporalidad]);
+
   // Guías abiertas (en tránsito) agrupadas por Ciclo — ordenadas según el
   // pipeline operativo real (Entrada → Distribución → Recepción → Ruta →
   // Resguardo), no por volumen ni alfabético. Incluye desglose opcional
@@ -227,7 +157,9 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   // "Abiertas" del módulo Resumen (que usa guiasOriginales = esGuiaOriginal,
   // el cual también excluye retornos) — de lo contrario este total no
   // cuadra con el de Resumen.
-  const [verCicloPorRegion, setVerCicloPorRegion] = useState(false);
+  // '' = sin desglose, '__REGIONES__' = por región, o el nombre de una
+  // región específica = drill-down a las oficinas de esa región.
+  const [desgloseCiclo, setDesgloseCiclo] = useState('');
   const abiertasPorCiclo = useMemo(() => {
     const abiertas = guias.filter((g) => isAbiertaPorEstado(g) && !esRetornoAmplio(g));
     const grupos: Record<string, Guia[]> = {};
@@ -239,18 +171,31 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
     return ORDEN_CICLOS.filter((c) => grupos[c]?.length).map((ciclo) => {
       const lista = grupos[ciclo] || [];
       const porRegion: Record<string, number> = {};
+      const porOficina: Record<string, number> = {};
       lista.forEach((g) => {
         const r = obtenerRegion(g.oficina_destino);
         porRegion[r] = (porRegion[r] || 0) + 1;
+        if (desgloseCiclo && desgloseCiclo !== '__REGIONES__' && r === desgloseCiclo) {
+          const of = g.oficina_destino || 'SIN OFICINA';
+          porOficina[of] = (porOficina[of] || 0) + 1;
+        }
       });
-      return { ciclo, total: lista.length, porRegion };
+      return { ciclo, total: lista.length, porRegion, porOficina };
     });
-  }, [guias]);
+  }, [guias, desgloseCiclo]);
   const totalAbiertasCiclo = abiertasPorCiclo.reduce((s, c) => s + c.total, 0);
   const regionesEnCiclos = useMemo(
     () => [...new Set(abiertasPorCiclo.flatMap((c) => Object.keys(c.porRegion)))].sort(),
     [abiertasPorCiclo]
   );
+  const oficinasEnCiclos = useMemo(
+    () => [...new Set(abiertasPorCiclo.flatMap((c) => Object.keys(c.porOficina)))].sort(),
+    [abiertasPorCiclo]
+  );
+  // Columnas efectivamente mostradas según el nivel de desglose elegido.
+  const columnasCiclo = desgloseCiclo === '__REGIONES__' ? regionesEnCiclos : desgloseCiclo ? oficinasEnCiclos : [];
+  const valorColumnaCiclo = (fila: (typeof abiertasPorCiclo)[0], col: string) =>
+    desgloseCiclo === '__REGIONES__' ? fila.porRegion[col] || 0 : fila.porOficina[col] || 0;
 
   const campoDeVista: Record<VistaEfectividad, keyof Guia | ((g: Guia) => string | null)> = {
     cliente: 'cliente',
@@ -438,6 +383,10 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
       excepcionesPorCliente: esMultiCliente
         ? excepcionesPorCliente.map((c) => ({ cliente: c.cliente, items: c.resumen.porTipo, total: c.resumen.total }))
         : undefined,
+      // Temporalidad por Región para el PDF — a nivel general (no depende
+      // de qué vista/desglose esté seleccionado en pantalla), mismo
+      // criterio que excGeneral/devGeneral arriba.
+      temporalidadPorRegion: temporalidadPorCampo(guias, (g) => obtenerRegion(g.oficina_destino)),
     });
   }
 
@@ -674,22 +623,57 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
               </tr>
             </thead>
             <tbody>
-              {temporalidadOrdenada.map((f) => (
-                <tr key={f.key}>
-                  <td className="font-medium">{f.key}</td>
-                  <td>{f.docPlataforma !== null ? `${f.docPlataforma}d` : '—'}</td>
-                  <td>{f.plataformaRuta !== null ? `${f.plataformaRuta}d` : '—'}</td>
-                  <td>{f.recibofRuta !== null ? `${f.recibofRuta}d` : '—'}</td>
-                  <td>{f.plataformaConfirmacion !== null ? `${f.plataformaConfirmacion}d` : '—'}</td>
-                  <td>
-                    <span className="font-bold" style={{ color: colorEfectividad(f.pctVerde) }}>
-                      {f.pctVerde !== null ? `${f.pctVerde}%` : '—'}
-                    </span>
-                    <span className="text-[10px] text-[var(--vg-text3)]"> ({f.verde}/{f.verde + f.rojo})</span>
-                  </td>
-                  <td>{f.total.toLocaleString('es-MX')}</td>
-                </tr>
-              ))}
+              {temporalidadOrdenada.map((f) => {
+                const expandible = vistaTemporalidad === 'region';
+                const expandida = regionesExpandidas.has(f.key);
+                return (
+                <Fragment key={f.key}>
+                  <tr>
+                    <td className="font-medium">
+                      {expandible && (
+                        <button
+                          onClick={() => toggleRegionExpandida(f.key)}
+                          className="mr-1.5 text-[var(--vg-text2)] font-bold inline-block w-3"
+                          aria-label="Expandir oficinas"
+                        >
+                          {expandida ? '▾' : '▸'}
+                        </button>
+                      )}
+                      {f.key}
+                    </td>
+                    <td>{f.docPlataforma !== null ? `${f.docPlataforma}d` : '—'}</td>
+                    <td>{f.plataformaRuta !== null ? `${f.plataformaRuta}d` : '—'}</td>
+                    <td>{f.recibofRuta !== null ? `${f.recibofRuta}d` : '—'}</td>
+                    <td>{f.plataformaConfirmacion !== null ? `${f.plataformaConfirmacion}d` : '—'}</td>
+                    <td>
+                      <span className="font-bold" style={{ color: colorEfectividad(f.pctVerde) }}>
+                        {f.pctVerde !== null ? `${f.pctVerde}%` : '—'}
+                      </span>
+                      <span className="text-[10px] text-[var(--vg-text3)]"> ({f.verde}/{f.verde + f.rojo})</span>
+                    </td>
+                    <td>{f.total.toLocaleString('es-MX')}</td>
+                  </tr>
+                  {expandible &&
+                    expandida &&
+                    (oficinasPorRegion[f.key] || []).map((of) => (
+                      <tr key={`${f.key}__${of.key}`} className="bg-[var(--vg-bg)]">
+                        <td className="pl-7 text-[11px] text-[var(--vg-text2)]">↳ {of.key}</td>
+                        <td className="text-[11px]">{of.docPlataforma !== null ? `${of.docPlataforma}d` : '—'}</td>
+                        <td className="text-[11px]">{of.plataformaRuta !== null ? `${of.plataformaRuta}d` : '—'}</td>
+                        <td className="text-[11px]">{of.recibofRuta !== null ? `${of.recibofRuta}d` : '—'}</td>
+                        <td className="text-[11px]">{of.plataformaConfirmacion !== null ? `${of.plataformaConfirmacion}d` : '—'}</td>
+                        <td className="text-[11px]">
+                          <span className="font-semibold" style={{ color: colorEfectividad(of.pctVerde) }}>
+                            {of.pctVerde !== null ? `${of.pctVerde}%` : '—'}
+                          </span>
+                          <span className="text-[9.5px] text-[var(--vg-text3)]"> ({of.verde}/{of.verde + of.rojo})</span>
+                        </td>
+                        <td className="text-[11px]">{of.total.toLocaleString('es-MX')}</td>
+                      </tr>
+                    ))}
+                </Fragment>
+                );
+              })}
               {!filasTemporalidad.length && (
                 <tr>
                   <td colSpan={7} className="text-center text-[var(--vg-text3)] py-6">
@@ -710,14 +694,19 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
               En qué etapa del proceso están las {totalAbiertasCiclo.toLocaleString('es-MX')} guías abiertas actuales
             </div>
           </div>
-          <button
-            onClick={() => setVerCicloPorRegion((v) => !v)}
-            className={`text-[11.5px] font-semibold px-3 py-1.5 rounded-md border border-[var(--vg-border)] ${
-              verCicloPorRegion ? 'bg-[var(--vg-blue)] text-white border-[var(--vg-blue)]' : 'bg-white text-[var(--vg-text2)]'
-            }`}
+          <select
+            value={desgloseCiclo}
+            onChange={(e) => setDesgloseCiclo(e.target.value)}
+            className="text-[11.5px] font-semibold border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white text-[var(--vg-text2)]"
           >
-            Desglosar por Región
-          </button>
+            <option value="">Sin desglose</option>
+            <option value="__REGIONES__">Por Región</option>
+            {regionesEnCiclos.map((r) => (
+              <option key={r} value={r}>
+                Oficinas de {r}
+              </option>
+            ))}
+          </select>
         </div>
 
         <ResponsiveContainer width="100%" height={280}>
@@ -735,7 +724,7 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
             <thead>
               <tr>
                 <th>Ciclo</th>
-                {verCicloPorRegion && regionesEnCiclos.map((r) => <th key={r}>{r}</th>)}
+                {columnasCiclo.map((col) => <th key={col}>{col}</th>)}
                 <th>Total</th>
                 <th>% del Total Abiertas</th>
               </tr>
@@ -744,14 +733,14 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
               {abiertasPorCiclo.map((c) => (
                 <tr key={c.ciclo}>
                   <td className="font-medium">{c.ciclo}</td>
-                  {verCicloPorRegion && regionesEnCiclos.map((r) => <td key={r}>{c.porRegion[r] || 0}</td>)}
+                  {columnasCiclo.map((col) => <td key={col}>{valorColumnaCiclo(c, col)}</td>)}
                   <td className="font-bold">{c.total.toLocaleString('es-MX')}</td>
                   <td>{totalAbiertasCiclo ? `${((c.total / totalAbiertasCiclo) * 100).toFixed(1)}%` : '—'}</td>
                 </tr>
               ))}
               {!abiertasPorCiclo.length && (
                 <tr>
-                  <td colSpan={(verCicloPorRegion ? regionesEnCiclos.length : 0) + 3} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={columnasCiclo.length + 3} className="text-center text-[var(--vg-text3)] py-6">
                     No hay guías abiertas en este corte
                   </td>
                 </tr>

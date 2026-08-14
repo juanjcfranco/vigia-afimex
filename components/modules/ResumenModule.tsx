@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, esGuiaOriginal, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo, topPorCampo, categoriaExcepcion, diasEntreFechas } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, esGuiaOriginal, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo, topPorCampo, categoriaExcepcion, diasEntreFechas, obtenerRegion, temporalidadPorCampo } from '@/lib/business-logic';
 import { exportInformeLogisticoPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
 import KpiCard from '@/components/KpiCard';
@@ -55,6 +55,14 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
   // que deben usar los KPIs de Temporalidad y FPE — para que esos números
   // cuadren con "Guías Procesadas" en vez de mezclar predoc/retornos/etc.
   const guiasOriginales = useMemo(() => guias.filter(esGuiaOriginal), [guias]);
+
+  // Temporalidad por Región, para el PDF del Informe Logístico (misma
+  // función que usa Efectividad en pantalla — vive en business-logic.ts
+  // para que ambos lugares compartan el cálculo exacto).
+  const temporalidadPorRegion = useMemo(
+    () => temporalidadPorCampo(guias, (g) => obtenerRegion(g.oficina_destino)),
+    [guias]
+  );
 
   const kpis = useMemo(() => {
     const totalFilas = guias.length;
@@ -511,6 +519,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       totalExcepcionesCliente,
       excepcionesOperacion,
       totalExcepcionesOperacion,
+      temporalidadPorRegion,
     });
   }
 

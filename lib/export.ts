@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { LOGO_AFIMEX_BASE64 } from './logo-base64';
 import { Indemnizacion } from './types';
 import mexicoMapData from './mexico-map-data.json';
+import { FilaTemporalidad } from './business-logic';
 
 export interface ColumnaExport<T> {
   header: string;
@@ -880,6 +881,9 @@ export interface InformeLogisticoData {
   totalExcepcionesCliente: number;
   excepcionesOperacion: Array<{ key: string; count: number }>;
   totalExcepcionesOperacion: number;
+  // Temporalidad por Región (agregado ago-2026) — nivel región únicamente
+  // para no hacer el informe demasiado extenso.
+  temporalidadPorRegion: FilaTemporalidad[];
 }
 
 function colorEfectividadInforme(valor: number | null): string {
@@ -926,6 +930,60 @@ function barraEfectividadHtml(items: Array<{ key: string; efectividad: number | 
         </div>`;
     })
     .join('');
+}
+
+// ============================================================
+// Tabla de Temporalidad (Doc→Plataforma, Plataforma→1ra Ruta,
+// RecibidoOficina→1ra Ruta, Plataforma→Confirmación, y % dentro de 15
+// días) para un desglose por grupo (región, oficina, etc.) — reutilizada
+// en el Informe Logístico y el Reporte de Efectividad. Se mantiene al
+// nivel de Región (no por oficina) para no hacer el PDF demasiado
+// extenso — ver nota sobre desplegables en PDF más abajo.
+// ============================================================
+function bloqueTemporalidadHtml(titulo: string, subtitulo: string, lista: FilaTemporalidad[]): string {
+  if (!lista.length) {
+    return `
+    <div class="seccion">
+      <div class="seccion-titulo">${escapeHtml(titulo)}</div>
+      <div class="sin-datos">Sin datos de temporalidad para este corte</div>
+    </div>`;
+  }
+  const fmtDias = (n: number | null) => (n !== null ? `${n}d` : '—');
+  return `
+    <div class="seccion">
+      <div class="seccion-titulo">${escapeHtml(titulo)}</div>
+      <div class="aclaracion">${escapeHtml(subtitulo)}</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Región</th>
+            <th>Doc→Plataf.</th>
+            <th>Plataf.→1ra Ruta</th>
+            <th>RecibOf→1ra Ruta</th>
+            <th>Plataf.→Confirm.</th>
+            <th>% ≤15d</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lista
+            .map((f) => {
+              const color = f.pctVerde === null ? '#94A3B8' : f.pctVerde >= 70 ? '#0B9B67' : f.pctVerde >= 50 ? '#EA7C1A' : '#DC2626';
+              return `
+            <tr>
+              <td class="celda-fuerte">${escapeHtml(f.key)}</td>
+              <td>${fmtDias(f.docPlataforma)}</td>
+              <td>${fmtDias(f.plataformaRuta)}</td>
+              <td>${fmtDias(f.recibofRuta)}</td>
+              <td>${fmtDias(f.plataformaConfirmacion)}</td>
+              <td><span style="font-weight:800;color:${color};">${f.pctVerde !== null ? `${f.pctVerde}%` : '—'}</span> <span class="celda-vol">(${f.verde}/${f.verde + f.rojo})</span></td>
+              <td>${f.total.toLocaleString('es-MX')}</td>
+            </tr>`;
+            })
+            .join('')}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
@@ -1120,6 +1178,12 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
           ${barraEfectividadHtml(data.efectividadPorEntidad)}
         </div>
       </div>
+
+      ${bloqueTemporalidadHtml(
+        'Temporalidad por Región',
+        'Días promedio por etapa · % dentro de 15 días desde Plataforma hasta entrega/devolución (abiertas se miden contra hoy)',
+        data.temporalidadPorRegion
+      )}
 
       <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
 
@@ -1413,6 +1477,9 @@ export interface EfectividadExportData {
     filas: Array<{ plaza: string; porCliente: Record<string, { efectividad: number | null; total: number }> }>;
   };
   excepcionesPorCliente?: Array<{ cliente: string; items: Array<{ key: string; count: number }>; total: number }>;
+  // Temporalidad por Región (agregado ago-2026) — nivel región únicamente
+  // para no hacer el reporte demasiado extenso.
+  temporalidadPorRegion: FilaTemporalidad[];
 }
 
 export function exportEfectividadPDF(data: EfectividadExportData) {
@@ -1607,6 +1674,12 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
       ${bloquePorCampo('Efectividad por Oficina', data.porOficina, true)}
       ${bloquePorCampo('Efectividad por Entidad', data.porEntidad, true)}
       ${bloquePorCampo('Efectividad por Mes', data.porMes, false)}
+
+      ${bloqueTemporalidadHtml(
+        'Temporalidad por Región',
+        'Días promedio por etapa · % dentro de 15 días desde Plataforma hasta entrega/devolución (abiertas se miden contra hoy)',
+        data.temporalidadPorRegion
+      )}
 
       ${comparativoHtml}
       ${excPorClienteHtml}

@@ -244,6 +244,111 @@ export function obtenerCiclo(estado: string | null | undefined): string {
 }
 
 // ============================================================
+// Temporalidad por campo (oficina/entidad/región/cliente/etc.): 4
+// promedios de días (Doc→Plataforma, Plataforma→1ra Ruta, RecibidoOficina
+// →1ra Ruta, Plataforma→Confirmación) y el semáforo de "vida de la guía"
+// (máximo 15 días desde Plataforma hasta que se resuelve — entregada o
+// devuelta — usando HOY como referencia mientras sigue abierta),
+// desglosados por grupo. Se usa en Efectividad (pantalla) y en los PDFs
+// de Informe Logístico / Reporte de Efectividad — vive aquí (no en un
+// módulo) para que ambos lugares compartan exactamente el mismo cálculo.
+// ============================================================
+export interface FilaTemporalidad {
+  key: string;
+  docPlataforma: number | null;
+  nDocPlataforma: number;
+  plataformaRuta: number | null;
+  nPlataformaRuta: number;
+  recibofRuta: number | null;
+  nRecibofRuta: number;
+  plataformaConfirmacion: number | null;
+  nPlataformaConfirmacion: number;
+  verde: number;
+  rojo: number;
+  sinDato: number;
+  pctVerde: number | null;
+  total: number;
+}
+
+export function temporalidadDe(lista: Guia[]): Omit<FilaTemporalidad, 'key'> {
+  const acc = {
+    docPlataforma: [] as number[],
+    plataformaRuta: [] as number[],
+    recibofRuta: [] as number[],
+    plataformaConfirmacion: [] as number[],
+  };
+  let verde = 0;
+  let rojo = 0;
+  let sinDato = 0;
+  const hoyIso = new Date().toISOString().slice(0, 10);
+
+  lista.forEach((g) => {
+    const a = diasEntreFechas(g.f_documentacion, g.fecha_plataforma);
+    if (a !== null) acc.docPlataforma.push(a);
+    const b = diasEntreFechas(g.fecha_plataforma, g.primera_ruta);
+    if (b !== null) acc.plataformaRuta.push(b);
+    const c = diasEntreFechas(g.recibido_oficina, g.primera_ruta);
+    if (c !== null) acc.recibofRuta.push(c);
+    const d = diasEntreFechas(g.fecha_plataforma, g.f_confirmacion);
+    if (d !== null) acc.plataformaConfirmacion.push(d);
+
+    // Fecha de referencia según el desenlace de la guía. Las que SIGUEN
+    // ABIERTAS se miden contra HOY — el reloj sigue corriendo, no se
+    // excluyen del cálculo solo porque aún no se resuelven.
+    let fechaFin: string | null;
+    if (isEntregada(g.estado_guia)) {
+      fechaFin = g.f_confirmacion;
+    } else if (g.es_devolucion) {
+      fechaFin = g.f_entrega || g.f_historia;
+    } else {
+      fechaFin = hoyIso;
+    }
+    const vida = diasEntreFechas(g.fecha_plataforma, fechaFin);
+    if (vida === null) sinDato++;
+    else if (vida <= 15) verde++;
+    else rojo++;
+  });
+
+  const promedio = (arr: number[]): number | null =>
+    arr.length ? Number((arr.reduce((s, v) => s + v, 0) / arr.length).toFixed(1)) : null;
+  const totalClasificadas = verde + rojo;
+
+  return {
+    docPlataforma: promedio(acc.docPlataforma),
+    nDocPlataforma: acc.docPlataforma.length,
+    plataformaRuta: promedio(acc.plataformaRuta),
+    nPlataformaRuta: acc.plataformaRuta.length,
+    recibofRuta: promedio(acc.recibofRuta),
+    nRecibofRuta: acc.recibofRuta.length,
+    plataformaConfirmacion: promedio(acc.plataformaConfirmacion),
+    nPlataformaConfirmacion: acc.plataformaConfirmacion.length,
+    verde,
+    rojo,
+    sinDato,
+    pctVerde: totalClasificadas ? Number(((verde / totalClasificadas) * 100).toFixed(1)) : null,
+    total: lista.length,
+  };
+}
+
+// Mismo filtro base que efectividadPorCampo (sin retornos/predoc/documentada)
+// para que ambas tablas describan el mismo universo de guías.
+export function temporalidadPorCampo(
+  guiasIn: Guia[],
+  campo: keyof Guia | ((g: Guia) => string | null)
+): FilaTemporalidad[] {
+  const guias = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
+  const grupos: Record<string, Guia[]> = {};
+  guias.forEach((g) => {
+    const key = (typeof campo === 'function' ? campo(g) : (g[campo] as string)) || 'SIN DATO';
+    if (!grupos[key]) grupos[key] = [];
+    grupos[key].push(g);
+  });
+  return Object.entries(grupos)
+    .map(([key, lista]) => ({ key, ...temporalidadDe(lista) }))
+    .sort((a, b) => b.total - a.total);
+}
+
+// ============================================================
 // Formatea un periodo YYYY-MM a texto legible ("Mayo 2026")
 // ============================================================
 const MESES_ES = [
