@@ -175,9 +175,10 @@ type VistaEfectividad = 'cliente' | 'oficina' | 'entidad' | 'mes';
 
 export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   const [vista, setVista] = useState<VistaEfectividad>('oficina');
-  const [vistaTemporalidad, setVistaTemporalidad] = useState<'oficina' | 'entidad'>('oficina');
+  const [vistaTemporalidad, setVistaTemporalidad] = useState<'cliente' | 'oficina' | 'entidad'>('oficina');
 
-  const campoTemporalidad: Record<'oficina' | 'entidad', keyof Guia> = {
+  const campoTemporalidad: Record<'cliente' | 'oficina' | 'entidad', keyof Guia> = {
+    cliente: 'cliente',
     oficina: 'oficina_destino',
     entidad: 'entidad_destinatario',
   };
@@ -211,7 +212,7 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
         return null;
     }
   });
-  const etiquetaTemporalidad: Record<'oficina' | 'entidad', string> = { oficina: 'Oficina', entidad: 'Entidad' };
+  const etiquetaTemporalidad: Record<'cliente' | 'oficina' | 'entidad', string> = { cliente: 'Cliente', oficina: 'Oficina', entidad: 'Entidad' };
 
   const campoDeVista: Record<VistaEfectividad, keyof Guia> = {
     cliente: 'cliente',
@@ -571,6 +572,14 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
             </div>
           </div>
           <div className="flex gap-1 bg-[var(--vg-bg)] p-1 rounded-md">
+            <button
+              onClick={() => setVistaTemporalidad('cliente')}
+              className={`text-[11.5px] font-semibold px-3 py-1 rounded ${
+                vistaTemporalidad === 'cliente' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'
+              }`}
+            >
+              Cliente
+            </button>
             <button
               onClick={() => setVistaTemporalidad('oficina')}
               className={`text-[11.5px] font-semibold px-3 py-1 rounded ${
