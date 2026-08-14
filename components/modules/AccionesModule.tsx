@@ -12,6 +12,8 @@ import AlertaCriticaModal from '@/components/AlertaCriticaModal';
 import { exportToExcel, exportToPDF } from '@/lib/export';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
+import TemporalidadKpis from '@/components/TemporalidadKpis';
+import { TemporalidadHeaders, TemporalidadCells, temporalidadColumnasExport, temporalidadSortValue } from '@/components/TemporalidadColumnas';
 
 export default function AccionesModule({ guias }: { guias: Guia[] }) {
   const [filtroAccion, setFiltroAccion] = useState('');
@@ -127,7 +129,7 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
       case 'fechaultimaexc':
         return ultimaExcepcion(g).fecha;
       default:
-        return null;
+        return temporalidadSortValue(g, key);
     }
   });
 
@@ -146,10 +148,12 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
     { header: 'Exc.3', value: (g: Guia) => g.excepcion_3 || '' },
     { header: 'Exc.4', value: (g: Guia) => g.excepcion_4 || '' },
     { header: 'Exc.5', value: (g: Guia) => g.excepcion_5 || '' },
+    ...temporalidadColumnasExport(),
   ];
 
   return (
-    <div className="p-5">
+    <div className="p-5 space-y-4">
+      <TemporalidadKpis guias={base} />
       <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
         <div className="px-4 py-3 border-b border-[var(--vg-border)] flex items-center justify-between flex-wrap gap-2">
           <div>
@@ -283,6 +287,7 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Exc.3" sortKey="exc3" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Exc.4" sortKey="exc4" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Exc.5" sortKey="exc5" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <TemporalidadHeaders sortKey={sortKey} sortDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
@@ -323,12 +328,13 @@ export default function AccionesModule({ guias }: { guias: Guia[] }) {
                     <td>{g.excepcion_3 || '—'}</td>
                     <td>{g.excepcion_4 || '—'}</td>
                     <td>{g.excepcion_5 || '—'}</td>
+                    <TemporalidadCells guia={g} />
                   </tr>
                 );
               })}
               {!filas.length && (
                 <tr>
-                  <td colSpan={13} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={20} className="text-center text-[var(--vg-text3)] py-6">
                     No hay guías que requieran acción con este filtro
                   </td>
                 </tr>

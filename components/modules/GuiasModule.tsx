@@ -7,6 +7,8 @@ import BulkSearch from '@/components/BulkSearch';
 import { exportToExcel, exportToPDF } from '@/lib/export';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
+import TemporalidadKpis from '@/components/TemporalidadKpis';
+import { TemporalidadHeaders, TemporalidadCells, temporalidadColumnasExport, temporalidadSortValue } from '@/components/TemporalidadColumnas';
 
 const PAGE_SIZE = 200;
 
@@ -55,7 +57,7 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
         case 'fdoc':
           return g.f_documentacion;
         default:
-          return null;
+          return temporalidadSortValue(g, key);
       }
     }
   );
@@ -84,10 +86,12 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
     { header: 'COD', value: (g: Guia) => g.cod || 0 },
     { header: 'Acción', value: (g: Guia) => g.accion_recomendada || '' },
     { header: 'F. Documentación', value: (g: Guia) => g.f_documentacion || '' },
+    ...temporalidadColumnasExport(),
   ];
 
   return (
-    <div className="p-5">
+    <div className="p-5 space-y-4">
+      <TemporalidadKpis guias={filasCompletas} />
       <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
         <div className="px-4 py-3 border-b border-[var(--vg-border)] flex items-center gap-2 flex-wrap">
           <div className="font-bold text-[13px] mr-3">Consulta de Guías</div>
@@ -163,6 +167,7 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="COD" sortKey="cod" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Acción" sortKey="accion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="F. Documentación" sortKey="fdoc" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <TemporalidadHeaders sortKey={sortKey} sortDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
@@ -179,11 +184,12 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
                     <AccionBadge accion={g.accion_recomendada} />
                   </td>
                   <td>{g.f_documentacion || '—'}</td>
+                  <TemporalidadCells guia={g} />
                 </tr>
               ))}
               {!filas.length && (
                 <tr>
-                  <td colSpan={9} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={16} className="text-center text-[var(--vg-text3)] py-6">
                     No se encontraron guías
                   </td>
                 </tr>

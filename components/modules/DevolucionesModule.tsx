@@ -9,6 +9,8 @@ import { getExcepciones, topPorCampo, calcularResumenDevoluciones, retornoEstaEn
 import TopListPanel from '@/components/TopListPanel';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
+import TemporalidadKpis from '@/components/TemporalidadKpis';
+import { TemporalidadHeaders, TemporalidadCells, temporalidadColumnasExport, temporalidadSortValue } from '@/components/TemporalidadColumnas';
 
 type VistaTop = 'oficina' | 'entidad' | 'ciudad';
 
@@ -101,7 +103,7 @@ export default function DevolucionesModule({ guias, guiasTodas }: { guias: Guia[
       case 'estatus':
         return x.completado ? 1 : 0;
       default:
-        return null;
+        return temporalidadSortValue(x.dev, key);
     }
   });
 
@@ -150,10 +152,15 @@ export default function DevolucionesModule({ guias, guiasTodas }: { guias: Guia[
     { header: 'Estado Retorno', value: (x: (typeof filas)[0]) => x.dev.retorno_estado || '' },
     { header: 'Últ. Mov. Retorno', value: (x: (typeof filas)[0]) => x.retornoFila?.f_historia || '' },
     { header: 'Estatus', value: (x: (typeof filas)[0]) => (x.completado ? 'Completado' : 'Pendiente') },
+    ...temporalidadColumnasExport().map((c) => ({
+      header: c.header,
+      value: (x: (typeof filas)[0]) => c.value(x.dev),
+    })),
   ];
 
   return (
     <div className="p-5 space-y-4">
+      <TemporalidadKpis guias={devoluciones} />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard
           title="Guías Devueltas"
@@ -309,6 +316,7 @@ export default function DevolucionesModule({ guias, guiasTodas }: { guias: Guia[
                 <SortableTh label="Estado Retorno" sortKey="estado_retorno" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Últ. Mov. Retorno" sortKey="ultmov_retorno" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Estatus" sortKey="estatus" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <TemporalidadHeaders sortKey={sortKey} sortDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
@@ -337,11 +345,12 @@ export default function DevolucionesModule({ guias, guiasTodas }: { guias: Guia[
                       <span className="text-[var(--vg-amber)] font-bold">⏳ Pendiente</span>
                     )}
                   </td>
+                  <TemporalidadCells guia={dev} />
                 </tr>
               ))}
               {!filas.length && (
                 <tr>
-                  <td colSpan={11} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={18} className="text-center text-[var(--vg-text3)] py-6">
                     No hay devoluciones que coincidan con el filtro
                   </td>
                 </tr>

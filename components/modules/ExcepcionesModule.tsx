@@ -10,6 +10,8 @@ import AccionBadge from '@/components/AccionBadge';
 import AlertaDiasBadge from '@/components/AlertaDiasBadge';
 import BulkSearch from '@/components/BulkSearch';
 import { exportToExcel, exportToPDF } from '@/lib/export';
+import TemporalidadKpis from '@/components/TemporalidadKpis';
+import { TemporalidadHeaders, TemporalidadCells, temporalidadColumnasExport, temporalidadSortValue } from '@/components/TemporalidadColumnas';
 
 type VistaTop = 'cliente' | 'oficina' | 'entidad' | 'ciudad';
 
@@ -163,7 +165,7 @@ export default function ExcepcionesModule({ guias }: { guias: Guia[] }) {
       case 'cod':
         return g.cod;
       default:
-        return null;
+        return temporalidadSortValue(g, key);
     }
   });
 
@@ -190,10 +192,12 @@ export default function ExcepcionesModule({ guias }: { guias: Guia[] }) {
     { header: 'Últ. Mov.', value: (g: Guia) => g.f_historia || '' },
     { header: 'Días sin Mov.', value: (g: Guia) => g.dias_sin_movimiento ?? '' },
     { header: 'COD', value: (g: Guia) => g.cod || 0 },
+    ...temporalidadColumnasExport(),
   ];
 
   return (
-    <div className="p-5">
+    <div className="p-5 space-y-4">
+      <TemporalidadKpis guias={base} />
       <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
         <div className="px-4 py-3 border-b border-[var(--vg-border)] flex items-center justify-between flex-wrap gap-2">
           <div>
@@ -434,6 +438,7 @@ export default function ExcepcionesModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Exc.4" sortKey="exc4" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Exc.5" sortKey="exc5" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="COD" sortKey="cod" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <TemporalidadHeaders sortKey={sortKey} sortDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
@@ -465,11 +470,12 @@ export default function ExcepcionesModule({ guias }: { guias: Guia[] }) {
                   <td>{g.excepcion_4 || '—'}</td>
                   <td>{g.excepcion_5 || '—'}</td>
                   <td>{g.cod ? `$${g.cod.toLocaleString('es-MX')}` : '—'}</td>
+                  <TemporalidadCells guia={g} />
                 </tr>
               ))}
               {!filas.length && (
                 <tr>
-                  <td colSpan={13} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={20} className="text-center text-[var(--vg-text3)] py-6">
                     No hay guías que coincidan con el filtro
                   </td>
                 </tr>

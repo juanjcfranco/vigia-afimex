@@ -20,6 +20,13 @@ export interface Guia {
   f_confirmacion: string | null;
   fpe: string | null;
 
+  // Temporalidad (agregado ago-2026): 3 fechas nuevas del proceso interno
+  // de Afimex, usadas para medir cuánto tarda cada etapa antes de llegar
+  // al cliente final. Ver calcularTemporalidad() en business-logic.ts.
+  fecha_plataforma: string | null; // fecha en que Afimex recibe la guía
+  primera_ruta: string | null; // primera salida a ruta de última milla (no transbordos)
+  recibido_oficina: string | null; // fecha en que la oficina destino recibe la guía
+
   nombre_recibio: string | null;
   nombre_destinatario: string | null;
   d_tipo_domicilio: string | null;

@@ -11,6 +11,8 @@ import AlertaSinMovimientoModal from '@/components/AlertaSinMovimientoModal';
 import { exportToExcel, exportToPDF } from '@/lib/export';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
+import TemporalidadKpis from '@/components/TemporalidadKpis';
+import { TemporalidadHeaders, TemporalidadCells, temporalidadColumnasExport, temporalidadSortValue } from '@/components/TemporalidadColumnas';
 
 // Top N (oficina o entidad) para una lista ya filtrada (originales o
 // retornos por separado) — hook independiente para no redefinir la
@@ -174,7 +176,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
       case 'fechacreacion':
         return g.f_documentacion;
       default:
-        return null;
+        return temporalidadSortValue(g, key);
     }
   });
 
@@ -188,10 +190,13 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
     { header: 'Días sin Mov.', value: (g: Guia) => g.dias_sin_movimiento ?? '' },
     { header: 'Últ. Mov.', value: (g: Guia) => g.f_historia || '' },
     { header: 'Fecha Creación', value: (g: Guia) => g.f_documentacion || '' },
+    ...temporalidadColumnasExport(),
   ];
 
   return (
     <div className="p-5 space-y-4">
+      <TemporalidadKpis guias={base} />
+
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg border border-[var(--vg-border)] p-3">
           <div className="text-[10.5px] font-semibold text-[var(--vg-text2)] mb-1">Originales</div>
@@ -379,6 +384,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Días sin Mov." sortKey="dias" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Últ. Mov." sortKey="ultmov" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Fecha Creación" sortKey="fechacreacion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <TemporalidadHeaders sortKey={sortKey} sortDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
@@ -424,12 +430,13 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                   </td>
                   <td>{g.f_historia || '—'}</td>
                   <td>{g.f_documentacion || '—'}</td>
+                  <TemporalidadCells guia={g} />
                 </tr>
                 );
               })}
               {!filas.length && (
                 <tr>
-                  <td colSpan={10} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={17} className="text-center text-[var(--vg-text3)] py-6">
                     No hay guías abiertas con este filtro
                   </td>
                 </tr>

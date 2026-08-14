@@ -617,6 +617,89 @@ export function diasEntreFechas(inicio: string | null, fin: string | null): numb
   return dias >= 0 ? dias : null;
 }
 
+// ============================================================
+// Temporalidad (agregado ago-2026): mide cuánto tarda cada etapa del
+// proceso interno de Afimex antes de llegar al destinatario final, usando
+// las 3 fechas nuevas del Excel (Fecha Plataforma, Primera Ruta, Recibido
+// Oficina) cruzadas con F_Documentacion y F_Confirmacion ya existentes.
+//
+// Las 4 métricas, en el orden pedido:
+// 1. F_Documentacion → Fecha Plataforma: cuánto tarda Afimex en recibir
+//    la guía después de documentada por el cliente.
+// 2. Fecha Plataforma → Primera Ruta: cuánto tarda en salir a reparto de
+//    última milla por primera vez (sin contar transbordos).
+// 3. Recibido Oficina → Primera Ruta: cuánto tarda la oficina destino en
+//    despacharla a reparto una vez que la recibe.
+// 4. Recibido Oficina → F_Confirmacion: cuánto tarda desde que la oficina
+//    destino la recibe hasta la confirmación de entrega.
+// ============================================================
+export interface TemporalidadDias {
+  docVsPlataforma: number | null;
+  plataformaVsPrimeraRuta: number | null;
+  recibidoOfVsPrimeraRuta: number | null;
+  recibidoOfVsConfirmacion: number | null;
+}
+
+export function calcularTemporalidad(
+  g: Pick<Guia, 'f_documentacion' | 'fecha_plataforma' | 'primera_ruta' | 'recibido_oficina' | 'f_confirmacion'>
+): TemporalidadDias {
+  return {
+    docVsPlataforma: diasEntreFechas(g.f_documentacion, g.fecha_plataforma),
+    plataformaVsPrimeraRuta: diasEntreFechas(g.fecha_plataforma, g.primera_ruta),
+    recibidoOfVsPrimeraRuta: diasEntreFechas(g.recibido_oficina, g.primera_ruta),
+    recibidoOfVsConfirmacion: diasEntreFechas(g.recibido_oficina, g.f_confirmacion),
+  };
+}
+
+export interface PromedioTemporalidad {
+  docVsPlataforma: number | null;
+  plataformaVsPrimeraRuta: number | null;
+  recibidoOfVsPrimeraRuta: number | null;
+  recibidoOfVsConfirmacion: number | null;
+  muestras: {
+    docVsPlataforma: number;
+    plataformaVsPrimeraRuta: number;
+    recibidoOfVsPrimeraRuta: number;
+    recibidoOfVsConfirmacion: number;
+  };
+}
+
+// Promedio de cada métrica de temporalidad sobre una lista de guías (para
+// los KPIs de cada módulo). Cada métrica promedia solo sobre las guías
+// donde AMBAS fechas de ese par existen — no se penaliza a una métrica
+// por datos faltantes en las otras.
+export function calcularPromedioTemporalidad(
+  guias: Pick<Guia, 'f_documentacion' | 'fecha_plataforma' | 'primera_ruta' | 'recibido_oficina' | 'f_confirmacion'>[]
+): PromedioTemporalidad {
+  const acc = {
+    docVsPlataforma: [] as number[],
+    plataformaVsPrimeraRuta: [] as number[],
+    recibidoOfVsPrimeraRuta: [] as number[],
+    recibidoOfVsConfirmacion: [] as number[],
+  };
+  guias.forEach((g) => {
+    const t = calcularTemporalidad(g);
+    if (t.docVsPlataforma !== null) acc.docVsPlataforma.push(t.docVsPlataforma);
+    if (t.plataformaVsPrimeraRuta !== null) acc.plataformaVsPrimeraRuta.push(t.plataformaVsPrimeraRuta);
+    if (t.recibidoOfVsPrimeraRuta !== null) acc.recibidoOfVsPrimeraRuta.push(t.recibidoOfVsPrimeraRuta);
+    if (t.recibidoOfVsConfirmacion !== null) acc.recibidoOfVsConfirmacion.push(t.recibidoOfVsConfirmacion);
+  });
+  const promedio = (arr: number[]): number | null =>
+    arr.length ? Number((arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1)) : null;
+  return {
+    docVsPlataforma: promedio(acc.docVsPlataforma),
+    plataformaVsPrimeraRuta: promedio(acc.plataformaVsPrimeraRuta),
+    recibidoOfVsPrimeraRuta: promedio(acc.recibidoOfVsPrimeraRuta),
+    recibidoOfVsConfirmacion: promedio(acc.recibidoOfVsConfirmacion),
+    muestras: {
+      docVsPlataforma: acc.docVsPlataforma.length,
+      plataformaVsPrimeraRuta: acc.plataformaVsPrimeraRuta.length,
+      recibidoOfVsPrimeraRuta: acc.recibidoOfVsPrimeraRuta.length,
+      recibidoOfVsConfirmacion: acc.recibidoOfVsConfirmacion.length,
+    },
+  };
+}
+
 export interface TiempoPromedioEntrega {
   promedioDias: number | null;
   medianaDias: number | null;
@@ -755,6 +838,12 @@ export interface FilaExcelCruda {
   // "Entrega Retorno" — la fecha viene en "Ult Mov Retorno".
   'Estado retorno'?: string;
   'Ult Mov Retorno'?: string;
+  // Temporalidad (agregado ago-2026): fechas del proceso interno de
+  // Afimex previas a la entrega — ver Guia.fecha_plataforma/primera_ruta/
+  // recibido_oficina en types.ts para el significado de cada una.
+  'Fecha Plataforma'?: string;
+  'Primera Ruta'?: string;
+  'Recibido Oficina'?: string;
   [key: string]: unknown;
 }
 
@@ -1028,6 +1117,9 @@ export function normalizarFila(
     // ambas variantes igual que se hace con "Estado retorno".
     f_confirmacion: parseFechaExcel(campoInsensible(r, 'F_Confirmacion', 'F_Confirmación')),
     fpe: parseFechaExcel(r.FPE),
+    fecha_plataforma: parseFechaExcel(r['Fecha Plataforma']),
+    primera_ruta: parseFechaExcel(r['Primera Ruta']),
+    recibido_oficina: parseFechaExcel(r['Recibido Oficina']),
     nombre_recibio: nombreRecibio || null,
     nombre_destinatario: nombreDestinatario || null,
     d_tipo_domicilio: String(r.D_Tipo_Domicilio ?? '').trim() || null,
