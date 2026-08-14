@@ -519,6 +519,8 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       excepcionesOperacion,
       totalExcepcionesOperacion,
       temporalidadPorRegion,
+      temporalidadPorCliente: temporalidadPorCampo(guias, 'cliente'),
+      temporalidadGeneral: temporalidadPorCampo(guias, () => 'TOTAL')[0] ?? null,
     });
   }
 

@@ -884,6 +884,10 @@ export interface InformeLogisticoData {
   // Temporalidad por Región (agregado ago-2026) — nivel región únicamente
   // para no hacer el informe demasiado extenso.
   temporalidadPorRegion: FilaTemporalidad[];
+  // Temporalidad por Cliente — tabla independiente.
+  temporalidadPorCliente: FilaTemporalidad[];
+  // Resumen general de temporalidad, para los KPIs del inicio.
+  temporalidadGeneral: Omit<FilaTemporalidad, 'key'> | null;
 }
 
 function colorEfectividadInforme(valor: number | null): string {
@@ -1181,6 +1185,20 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
     },
     { label: 'Retornos Abiertos', value: k.retornosAbiertos.toLocaleString('es-MX'), color: '#7C3AED' },
     { label: 'Canceladas', value: k.canceladas.toLocaleString('es-MX'), color: '#64748B' },
+    ...(data.temporalidadGeneral
+      ? [
+          {
+            label: 'Plataforma→Confirmación',
+            value: data.temporalidadGeneral.plataformaConfirmacion !== null ? `${data.temporalidadGeneral.plataformaConfirmacion}d` : '—',
+            color: '#7C3AED',
+          },
+          {
+            label: '% Dentro de 15 Días',
+            value: data.temporalidadGeneral.pctVerde !== null ? `${data.temporalidadGeneral.pctVerde}%` : '—',
+            color: colorEfectividadInforme(data.temporalidadGeneral.pctVerde),
+          },
+        ]
+      : []),
   ]
     .map(
       (c) => `
@@ -1204,7 +1222,7 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
         .header h1 { font-size: 20px; color: #1E3A8A; margin: 0 0 4px 0; }
         .header .subtitulo { font-size: 13px; color: #64748B; }
         .header .meta { font-size: 11px; color: #64748B; text-align: right; }
-        .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 22px; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 22px; }
         .kpi-card { border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; background: #F8FAFC; }
         .kpi-label { font-size: 10.5px; font-weight: 700; color: #64748B; margin-bottom: 4px; text-transform: uppercase; }
         .kpi-value { font-size: 22px; font-weight: 800; }
@@ -1243,46 +1261,9 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
       <div class="kpi-grid">${kpiCards}</div>
 
       <div class="secciones">
-        <div class="seccion">
-          <div class="seccion-titulo">Excepciones Atribuibles al Cliente</div>
-          <div style="font-size:10px;color:#94A3B8;margin-bottom:8px;">Decisiones o circunstancias del destinatario</div>
-          ${barraHtml(data.excepcionesCliente, data.totalExcepcionesCliente, '#B45309')}
-        </div>
-        <div class="seccion">
-          <div class="seccion-titulo">Excepciones Atribuibles a la Operación</div>
-          <div style="font-size:10px;color:#94A3B8;margin-bottom:8px;">Datos, ruta, unidad u otro factor operativo</div>
-          ${barraHtml(data.excepcionesOperacion, data.totalExcepcionesOperacion, '#7C3AED')}
-        </div>
-      </div>
-
-      <div class="secciones">
-        <div class="seccion">
-          <div class="seccion-titulo">Top Oficinas por Volumen</div>
-          ${barraHtml(data.topOficinas, data.totalGuias, '#1E3A8A')}
-        </div>
-        <div class="seccion">
-          <div class="seccion-titulo">Devoluciones — Top Oficina Destino</div>
-          ${barraHtml(data.topDevolucionesPorOficina, data.totalDevoluciones, '#DC2626')}
-        </div>
-      </div>
-
-      <div class="secciones">
-        <div class="seccion">
-          <div class="seccion-titulo">Devoluciones — Top Motivo</div>
-          ${barraHtml(data.topDevolucionesPorMotivo, data.totalDevoluciones, '#EA7C1A')}
-        </div>
-        <div class="seccion">
-          <div class="seccion-titulo">Temporalidad de Guías Abiertas</div>
-          ${barraHtml(
-            [
-              { key: 'Menos de 3 días', count: data.temporalidadAbiertas.menos3 },
-              { key: '4 a 7 días', count: data.temporalidadAbiertas.entre4y7 },
-              { key: '8 a 14 días', count: data.temporalidadAbiertas.entre8y14 },
-              { key: '15+ días', count: data.temporalidadAbiertas.mas15 },
-            ],
-            data.totalAbiertas,
-            '#EA7C1A'
-          )}
+        <div class="seccion" style="grid-column: span 2;">
+          <div class="seccion-titulo">Efectividad por Entidad</div>
+          ${barraEfectividadHtml(data.efectividadPorEntidad)}
         </div>
       </div>
 
@@ -1297,6 +1278,42 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
         </div>
       </div>
 
+      ${bloqueTemporalidadHtml(
+        'Temporalidad por Región',
+        'Días promedio por etapa · % dentro de 15 días desde Plataforma hasta entrega/devolución (abiertas se miden contra hoy)',
+        data.temporalidadPorRegion
+      )}
+      ${bloqueTemporalidadHtml(
+        'Temporalidad por Cliente',
+        'Días promedio por etapa · % dentro de 15 días desde Plataforma hasta entrega/devolución (abiertas se miden contra hoy)',
+        data.temporalidadPorCliente,
+        'Cliente'
+      )}
+
+      <div class="secciones">
+        <div class="seccion">
+          <div class="seccion-titulo">Excepciones Atribuibles al Cliente</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:8px;">Decisiones o circunstancias del destinatario</div>
+          ${barraHtml(data.excepcionesCliente, data.totalExcepcionesCliente, '#B45309')}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo">Excepciones Atribuibles a la Operación</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:8px;">Datos, ruta, unidad u otro factor operativo</div>
+          ${barraHtml(data.excepcionesOperacion, data.totalExcepcionesOperacion, '#7C3AED')}
+        </div>
+      </div>
+
+      <div class="secciones">
+        <div class="seccion">
+          <div class="seccion-titulo">Devoluciones — Top Motivo</div>
+          ${barraHtml(data.topDevolucionesPorMotivo, data.totalDevoluciones, '#EA7C1A')}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo">Devoluciones — Top Oficina Destino</div>
+          ${barraHtml(data.topDevolucionesPorOficina, data.totalDevoluciones, '#DC2626')}
+        </div>
+      </div>
+
       <div class="seccion">
         <div class="seccion-titulo">Guías Abiertas por Estado <span style="font-weight:500;color:#94A3B8;font-size:11px;">(${data.abiertasPorEstado.length.toLocaleString('es-MX')})</span></div>
         ${barraHtml(data.abiertasPorEstado, data.totalAbiertas, '#EA7C1A')}
@@ -1305,6 +1322,25 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
       <div class="seccion">
         <div class="seccion-titulo">Guías Abiertas por Entidad <span style="font-weight:500;color:#94A3B8;font-size:11px;">(${data.abiertasPorEntidad.length.toLocaleString('es-MX')})</span></div>
         ${barraHtml(data.abiertasPorEntidad, data.totalAbiertas, '#1E3A8A')}
+      </div>
+
+      <div class="seccion">
+        <div class="seccion-titulo">Temporalidad de Guías Abiertas (días sin movimiento)</div>
+        ${barraHtml(
+          [
+            { key: 'Menos de 3 días', count: data.temporalidadAbiertas.menos3 },
+            { key: '4 a 7 días', count: data.temporalidadAbiertas.entre4y7 },
+            { key: '8 a 14 días', count: data.temporalidadAbiertas.entre8y14 },
+            { key: '15+ días', count: data.temporalidadAbiertas.mas15 },
+          ],
+          data.totalAbiertas,
+          '#EA7C1A'
+        )}
+      </div>
+
+      <div class="seccion">
+        <div class="seccion-titulo">Top Oficinas por Volumen</div>
+        ${barraHtml(data.topOficinas, data.totalGuias, '#1E3A8A')}
       </div>
 
       <div class="seccion-titulo" style="font-size:15px;margin:20px 0 10px;border-top:2px solid #1E3A8A;padding-top:16px;">📍 Resumen Geográfico</div>
@@ -1340,19 +1376,6 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
           ${barraHtml(data.topCiudades, data.totalGuias, '#0891B2')}
         </div>
       </div>
-
-      <div class="secciones">
-        <div class="seccion" style="grid-column: span 2;">
-          <div class="seccion-titulo">Efectividad por Entidad</div>
-          ${barraEfectividadHtml(data.efectividadPorEntidad)}
-        </div>
-      </div>
-
-      ${bloqueTemporalidadHtml(
-        'Temporalidad por Región',
-        'Días promedio por etapa · % dentro de 15 días desde Plataforma hasta entrega/devolución (abiertas se miden contra hoy)',
-        data.temporalidadPorRegion
-      )}
 
       <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
 
