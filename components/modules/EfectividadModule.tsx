@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { exportToExcel, exportToPDF, exportEfectividadPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
@@ -68,10 +68,150 @@ function efectividadPorMes(guiasIn: Guia[]) {
     .map(([key, lista]) => ({ key: key === 'SIN FECHA' ? key : formatearPeriodo(key), ...statsDe(lista) }));
 }
 
+// ============================================================
+// Temporalidad por oficina/entidad: mismos 4 promedios de días del
+// módulo Resumen (Doc→Plataforma, Plataforma→1ra Ruta, RecibidoOficina→
+// 1ra Ruta, Plataforma→Confirmación) y el mismo semáforo de "vida de la
+// guía" (máximo 15 días desde Plataforma hasta que se resuelve, ya sea
+// entregada o devuelta), pero desglosados por grupo en vez de un solo
+// total — para ver qué oficina/entidad concentra los tiempos más largos.
+// ============================================================
+interface FilaTemporalidad {
+  key: string;
+  docPlataforma: number | null;
+  nDocPlataforma: number;
+  plataformaRuta: number | null;
+  nPlataformaRuta: number;
+  recibofRuta: number | null;
+  nRecibofRuta: number;
+  plataformaConfirmacion: number | null;
+  nPlataformaConfirmacion: number;
+  verde: number;
+  rojo: number;
+  ambar: number;
+  sinDato: number;
+  pctVerde: number | null;
+  total: number;
+}
+
+function temporalidadDe(lista: Guia[]): Omit<FilaTemporalidad, 'key'> {
+  const acc = {
+    docPlataforma: [] as number[],
+    plataformaRuta: [] as number[],
+    recibofRuta: [] as number[],
+    plataformaConfirmacion: [] as number[],
+  };
+  let verde = 0;
+  let rojo = 0;
+  let ambar = 0;
+  let sinDato = 0;
+  const hoyIso = new Date().toISOString().slice(0, 10);
+
+  lista.forEach((g) => {
+    const a = diasEntreFechas(g.f_documentacion, g.fecha_plataforma);
+    if (a !== null) acc.docPlataforma.push(a);
+    const b = diasEntreFechas(g.fecha_plataforma, g.primera_ruta);
+    if (b !== null) acc.plataformaRuta.push(b);
+    const c = diasEntreFechas(g.recibido_oficina, g.primera_ruta);
+    if (c !== null) acc.recibofRuta.push(c);
+    const d = diasEntreFechas(g.fecha_plataforma, g.f_confirmacion);
+    if (d !== null) acc.plataformaConfirmacion.push(d);
+
+    if (isEntregada(g.estado_guia)) {
+      const vida = diasEntreFechas(g.fecha_plataforma, g.f_confirmacion);
+      if (vida === null) sinDato++;
+      else if (vida <= 15) verde++;
+      else rojo++;
+    } else if (g.es_devolucion) {
+      const referencia = g.f_entrega || g.f_historia;
+      const vida = diasEntreFechas(g.fecha_plataforma, referencia);
+      if (vida === null) sinDato++;
+      else if (vida <= 15) verde++;
+      else rojo++;
+    } else if (g.fecha_plataforma) {
+      const enCurso = diasEntreFechas(g.fecha_plataforma, hoyIso);
+      if (enCurso !== null && enCurso > 15) ambar++;
+    }
+  });
+
+  const promedio = (arr: number[]): number | null =>
+    arr.length ? Number((arr.reduce((s, v) => s + v, 0) / arr.length).toFixed(1)) : null;
+  const totalResueltas = verde + rojo;
+
+  return {
+    docPlataforma: promedio(acc.docPlataforma),
+    nDocPlataforma: acc.docPlataforma.length,
+    plataformaRuta: promedio(acc.plataformaRuta),
+    nPlataformaRuta: acc.plataformaRuta.length,
+    recibofRuta: promedio(acc.recibofRuta),
+    nRecibofRuta: acc.recibofRuta.length,
+    plataformaConfirmacion: promedio(acc.plataformaConfirmacion),
+    nPlataformaConfirmacion: acc.plataformaConfirmacion.length,
+    verde,
+    rojo,
+    ambar,
+    sinDato,
+    pctVerde: totalResueltas ? Number(((verde / totalResueltas) * 100).toFixed(1)) : null,
+    total: lista.length,
+  };
+}
+
+// Mismo filtro base que efectividadPorCampo (sin retornos/predoc/documentada)
+// para que ambas tablas describan el mismo universo de guías.
+function temporalidadPorCampo(guiasIn: Guia[], campo: keyof Guia): FilaTemporalidad[] {
+  const guias = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
+  const grupos: Record<string, Guia[]> = {};
+  guias.forEach((g) => {
+    const key = (g[campo] as string) || 'SIN DATO';
+    if (!grupos[key]) grupos[key] = [];
+    grupos[key].push(g);
+  });
+  return Object.entries(grupos)
+    .map(([key, lista]) => ({ key, ...temporalidadDe(lista) }))
+    .sort((a, b) => b.total - a.total);
+}
+
 type VistaEfectividad = 'cliente' | 'oficina' | 'entidad' | 'mes';
 
 export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   const [vista, setVista] = useState<VistaEfectividad>('oficina');
+  const [vistaTemporalidad, setVistaTemporalidad] = useState<'oficina' | 'entidad'>('oficina');
+
+  const campoTemporalidad: Record<'oficina' | 'entidad', keyof Guia> = {
+    oficina: 'oficina_destino',
+    entidad: 'entidad_destinatario',
+  };
+  const filasTemporalidad = useMemo(
+    () => temporalidadPorCampo(guias, campoTemporalidad[vistaTemporalidad]),
+    [guias, vistaTemporalidad]
+  );
+  const top15Temporalidad = filasTemporalidad.slice(0, 15).map((f) => ({ ...f, pctNum: f.pctVerde ?? 0 }));
+  const {
+    sorted: temporalidadOrdenada,
+    sortKey: sortKeyTemp,
+    sortDir: sortDirTemp,
+    requestSort: requestSortTemp,
+  } = useSortableTable<FilaTemporalidad>(filasTemporalidad, (f, key) => {
+    switch (key) {
+      case 'key':
+        return f.key;
+      case 'docPlataforma':
+        return f.docPlataforma;
+      case 'plataformaRuta':
+        return f.plataformaRuta;
+      case 'recibofRuta':
+        return f.recibofRuta;
+      case 'plataformaConfirmacion':
+        return f.plataformaConfirmacion;
+      case 'pctVerde':
+        return f.pctVerde;
+      case 'total':
+        return f.total;
+      default:
+        return null;
+    }
+  });
+  const etiquetaTemporalidad: Record<'oficina' | 'entidad', string> = { oficina: 'Oficina', entidad: 'Entidad' };
 
   const campoDeVista: Record<VistaEfectividad, keyof Guia> = {
     cliente: 'cliente',
@@ -420,6 +560,90 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
+      </div>
+
+      <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div>
+            <div className="font-bold text-[12.5px]">Temporalidad por {etiquetaTemporalidad[vistaTemporalidad]}</div>
+            <div className="text-[11px] text-[var(--vg-text2)]">
+              Días promedio por etapa · % dentro de 15 días desde Plataforma hasta entrega o devolución
+            </div>
+          </div>
+          <div className="flex gap-1 bg-[var(--vg-bg)] p-1 rounded-md">
+            <button
+              onClick={() => setVistaTemporalidad('oficina')}
+              className={`text-[11.5px] font-semibold px-3 py-1 rounded ${
+                vistaTemporalidad === 'oficina' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'
+              }`}
+            >
+              Oficina
+            </button>
+            <button
+              onClick={() => setVistaTemporalidad('entidad')}
+              className={`text-[11.5px] font-semibold px-3 py-1 rounded ${
+                vistaTemporalidad === 'entidad' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'
+              }`}
+            >
+              Entidad
+            </button>
+          </div>
+        </div>
+
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={top15Temporalidad} margin={{ bottom: 80 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="key" angle={-40} textAnchor="end" interval={0} fontSize={10} height={100} />
+            <YAxis fontSize={11} unit="%" />
+            <Tooltip formatter={(v) => `${v}%`} labelFormatter={(v) => `${v} — % dentro de 15 días`} />
+            <Bar dataKey="pctNum" radius={[4, 4, 0, 0]}>
+              {top15Temporalidad.map((entry, i) => (
+                <Cell key={i} fill={colorEfectividad(entry.pctVerde)} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+
+        <div className="max-h-[420px] overflow-y-auto vg-scroll mt-3">
+          <table className="vg-table">
+            <thead>
+              <tr>
+                <SortableTh label={etiquetaTemporalidad[vistaTemporalidad]} sortKey="key" currentKey={sortKeyTemp} currentDir={sortDirTemp} onSort={requestSortTemp} />
+                <SortableTh label="Doc→Plataf. (d)" sortKey="docPlataforma" currentKey={sortKeyTemp} currentDir={sortDirTemp} onSort={requestSortTemp} />
+                <SortableTh label="Plataf.→1ra Ruta (d)" sortKey="plataformaRuta" currentKey={sortKeyTemp} currentDir={sortDirTemp} onSort={requestSortTemp} />
+                <SortableTh label="RecibOf→1ra Ruta (d)" sortKey="recibofRuta" currentKey={sortKeyTemp} currentDir={sortDirTemp} onSort={requestSortTemp} />
+                <SortableTh label="Plataf.→Confirm. (d)" sortKey="plataformaConfirmacion" currentKey={sortKeyTemp} currentDir={sortDirTemp} onSort={requestSortTemp} />
+                <SortableTh label="% ≤15d" sortKey="pctVerde" currentKey={sortKeyTemp} currentDir={sortDirTemp} onSort={requestSortTemp} />
+                <SortableTh label="Total" sortKey="total" currentKey={sortKeyTemp} currentDir={sortDirTemp} onSort={requestSortTemp} />
+              </tr>
+            </thead>
+            <tbody>
+              {temporalidadOrdenada.map((f) => (
+                <tr key={f.key}>
+                  <td className="font-medium">{f.key}</td>
+                  <td>{f.docPlataforma !== null ? `${f.docPlataforma}d` : '—'}</td>
+                  <td>{f.plataformaRuta !== null ? `${f.plataformaRuta}d` : '—'}</td>
+                  <td>{f.recibofRuta !== null ? `${f.recibofRuta}d` : '—'}</td>
+                  <td>{f.plataformaConfirmacion !== null ? `${f.plataformaConfirmacion}d` : '—'}</td>
+                  <td>
+                    <span className="font-bold" style={{ color: colorEfectividad(f.pctVerde) }}>
+                      {f.pctVerde !== null ? `${f.pctVerde}%` : '—'}
+                    </span>
+                    <span className="text-[10px] text-[var(--vg-text3)]"> ({f.verde}/{f.verde + f.rojo})</span>
+                  </td>
+                  <td>{f.total.toLocaleString('es-MX')}</td>
+                </tr>
+              ))}
+              {!filasTemporalidad.length && (
+                <tr>
+                  <td colSpan={7} className="text-center text-[var(--vg-text3)] py-6">
+                    Sin datos para este corte
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
