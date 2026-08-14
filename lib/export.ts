@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 import { LOGO_AFIMEX_BASE64 } from './logo-base64';
 import { Indemnizacion } from './types';
 import mexicoMapData from './mexico-map-data.json';
-import { FilaTemporalidad } from './business-logic';
+import { FilaTemporalidad, FilaRegionOficina, FilaEfectividadTemporalidad } from './business-logic';
 
 export interface ColumnaExport<T> {
   header: string;
@@ -986,6 +986,175 @@ function bloqueTemporalidadHtml(titulo: string, subtitulo: string, lista: FilaTe
     </div>`;
 }
 
+// ============================================================
+// Tabla única: Efectividad + Temporalidad por Región → Oficina. Cada
+// región es una fila resaltada, seguida de sus oficinas indentadas —
+// consolida lo que antes eran listas separadas (Efectividad por Oficina,
+// Efectividad por Región, Temporalidad por Oficina) en una sola tabla
+// compacta, evitando repetir la misma jerarquía tres veces.
+// ============================================================
+function bloqueRegionOficinaHtml(data: FilaRegionOficina[]): string {
+  if (!data.length) {
+    return `
+    <div class="seccion">
+      <div class="seccion-titulo">Efectividad y Temporalidad — Región → Oficina</div>
+      <div class="sin-datos">Sin datos para este corte</div>
+    </div>`;
+  }
+  const fmtDias = (n: number | null) => (n !== null ? `${n}d` : '—');
+  const filaEfectividad = (f: FilaEfectividadTemporalidad) => {
+    const color = colorEfectividadInforme(f.efectividad);
+    return `<span style="font-weight:800;color:${color};">${f.efectividad !== null ? `${f.efectividad}%` : '—'}</span>`;
+  };
+  const filaPct15 = (f: FilaEfectividadTemporalidad) => {
+    const color = f.pctVerde === null ? '#94A3B8' : f.pctVerde >= 70 ? '#0B9B67' : f.pctVerde >= 50 ? '#EA7C1A' : '#DC2626';
+    return `<span style="font-weight:800;color:${color};">${f.pctVerde !== null ? `${f.pctVerde}%` : '—'}</span>`;
+  };
+
+  const filasHtml = data
+    .map((r) => {
+      const filaRegion = `
+        <tr class="fila-region">
+          <td class="celda-fuerte">${escapeHtml(r.key)}</td>
+          <td>${r.total.toLocaleString('es-MX')}</td>
+          <td>${filaEfectividad(r)}</td>
+          <td>${fmtDias(r.docPlataforma)}</td>
+          <td>${fmtDias(r.plataformaRuta)}</td>
+          <td>${fmtDias(r.recibofRuta)}</td>
+          <td>${fmtDias(r.plataformaConfirmacion)}</td>
+          <td>${filaPct15(r)}</td>
+        </tr>`;
+      const filasOficina = r.oficinas
+        .map(
+          (of) => `
+        <tr class="fila-oficina">
+          <td>↳ ${escapeHtml(of.key)}</td>
+          <td>${of.total.toLocaleString('es-MX')}</td>
+          <td>${filaEfectividad(of)}</td>
+          <td>${fmtDias(of.docPlataforma)}</td>
+          <td>${fmtDias(of.plataformaRuta)}</td>
+          <td>${fmtDias(of.recibofRuta)}</td>
+          <td>${fmtDias(of.plataformaConfirmacion)}</td>
+          <td>${filaPct15(of)}</td>
+        </tr>`
+        )
+        .join('');
+      return filaRegion + filasOficina;
+    })
+    .join('');
+
+  return `
+    <div class="seccion">
+      <div class="seccion-titulo">Efectividad y Temporalidad — Región → Oficina</div>
+      <div class="aclaracion">% ≤15d: dentro de 15 días desde Plataforma hasta entrega/devolución (abiertas se miden contra hoy)</div>
+      <table class="tabla-region-oficina">
+        <thead>
+          <tr>
+            <th>Región / Oficina</th>
+            <th>Total</th>
+            <th>Efect.</th>
+            <th>Doc→Plataf.</th>
+            <th>Plataf.→1ra Ruta</th>
+            <th>RecibOf→1ra Ruta</th>
+            <th>Plataf.→Confirm.</th>
+            <th>% ≤15d</th>
+          </tr>
+        </thead>
+        <tbody>${filasHtml}</tbody>
+      </table>
+    </div>`;
+}
+
+// ============================================================
+// Donut chart en SVG puro (funciona en print-to-PDF, a diferencia de
+// canvas/JS-driven charts). Usado para mostrar la composición Entregadas
+// / Devoluciones / Abiertas con variedad visual además de barras.
+// ============================================================
+function donutChartHtml(
+  segmentos: Array<{ label: string; valor: number; color: string }>,
+  centro: { valor: string; subtitulo: string }
+): string {
+  const total = segmentos.reduce((s, x) => s + x.valor, 0);
+  const r = 42;
+  const cx = 50;
+  const cy = 50;
+  const circunferencia = 2 * Math.PI * r;
+  let acumulado = 0;
+  const arcos = total
+    ? segmentos
+        .filter((s) => s.valor > 0)
+        .map((s) => {
+          const frac = s.valor / total;
+          const largo = frac * circunferencia;
+          const dasharray = `${largo} ${circunferencia - largo}`;
+          const offset = -acumulado * circunferencia;
+          acumulado += frac;
+          return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="16" stroke-dasharray="${dasharray}" stroke-dashoffset="${offset}" transform="rotate(-90 ${cx} ${cy})" />`;
+        })
+        .join('')
+    : `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#E2E8F0" stroke-width="16" />`;
+
+  const leyenda = segmentos
+    .map(
+      (s) => `
+      <div class="donut-leyenda-item">
+        <span class="donut-dot" style="background:${s.color};"></span>
+        <span class="donut-leyenda-label">${escapeHtml(s.label)}</span>
+        <span class="donut-leyenda-valor">${s.valor.toLocaleString('es-MX')}${total ? ` (${((s.valor / total) * 100).toFixed(1)}%)` : ''}</span>
+      </div>`
+    )
+    .join('');
+
+  return `
+    <div class="donut-wrap">
+      <div class="donut-svg-wrap">
+        <svg viewBox="0 0 100 100" class="donut-svg">
+          ${arcos}
+          <text x="50" y="47" text-anchor="middle" font-size="16" font-weight="800" fill="#1E293B">${escapeHtml(centro.valor)}</text>
+          <text x="50" y="60" text-anchor="middle" font-size="6.5" fill="#64748B">${escapeHtml(centro.subtitulo)}</text>
+        </svg>
+      </div>
+      <div class="donut-leyenda">${leyenda}</div>
+    </div>`;
+}
+
+// ============================================================
+// Line chart (sparkline) en SVG puro, para tendencias mensuales — más
+// compacto y más adecuado para series de tiempo que una barra por mes.
+// ============================================================
+function lineChartHtml(puntos: Array<{ label: string; valor: number }>): string {
+  if (puntos.length < 2) return `<div class="sin-datos">Se necesita más de un mes para mostrar tendencia</div>`;
+  const w = 600;
+  const h = 160;
+  const padX = 30;
+  const padY = 20;
+  const max = 100;
+  const min = 0;
+  const stepX = (w - padX * 2) / (puntos.length - 1);
+  const coords = puntos.map((p, i) => {
+    const x = padX + i * stepX;
+    const y = padY + (1 - (p.valor - min) / (max - min || 1)) * (h - padY * 2);
+    return { x, y, valor: p.valor, label: p.label };
+  });
+  const polyline = coords.map((c) => `${c.x},${c.y}`).join(' ');
+  const puntosHtml = coords
+    .map(
+      (c) => `
+      <circle cx="${c.x}" cy="${c.y}" r="3.5" fill="${colorEfectividadInforme(c.valor)}" />
+      <text x="${c.x}" y="${c.y - 8}" text-anchor="middle" font-size="9" font-weight="700" fill="#1E293B">${c.valor}%</text>
+      <text x="${c.x}" y="${h - 4}" text-anchor="middle" font-size="8.5" fill="#64748B">${escapeHtml(c.label)}</text>`
+    )
+    .join('');
+
+  return `
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%; height:${h}px;">
+      <line x1="${padX}" y1="${padY}" x2="${padX}" y2="${h - padY}" stroke="#E2E8F0" />
+      <line x1="${padX}" y1="${h - padY}" x2="${w - padX}" y2="${h - padY}" stroke="#E2E8F0" />
+      <polyline points="${polyline}" fill="none" stroke="#1E3A8A" stroke-width="2" />
+      ${puntosHtml}
+    </svg>`;
+}
+
 export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
   const fecha = new Date().toLocaleString('es-MX');
   const win = window.open('', '_blank');
@@ -1468,8 +1637,6 @@ export interface EfectividadExportData {
   devolucionesPorOficina: Array<{ key: string; count: number }>;
   devolucionesPorMotivo: Array<{ key: string; count: number }>;
   totalDevoluciones: number;
-  porCliente: Array<{ key: string; total: number; efectividad: number | null }>;
-  porOficina: Array<{ key: string; total: number; efectividad: number | null }>;
   porEntidad: Array<{ key: string; total: number; efectividad: number | null }>;
   porMes: Array<{ key: string; total: number; efectividad: number | null }>;
   comparativoPlazaCliente?: {
@@ -1477,9 +1644,12 @@ export interface EfectividadExportData {
     filas: Array<{ plaza: string; porCliente: Record<string, { efectividad: number | null; total: number }> }>;
   };
   excepcionesPorCliente?: Array<{ cliente: string; items: Array<{ key: string; count: number }>; total: number }>;
-  // Temporalidad por Región (agregado ago-2026) — nivel región únicamente
-  // para no hacer el reporte demasiado extenso.
-  temporalidadPorRegion: FilaTemporalidad[];
+  // Efectividad + Temporalidad combinadas en UNA tabla jerárquica Región→
+  // Oficina (agregado ago-2026) — reemplaza lo que antes eran 3 secciones
+  // separadas (Efectividad por Oficina, Efectividad por Región,
+  // Temporalidad por Oficina), evitando repetir la misma jerarquía tres
+  // veces y haciendo el reporte mucho más compacto.
+  regionOficina: FilaRegionOficina[];
 }
 
 export function exportEfectividadPDF(data: EfectividadExportData) {
@@ -1506,17 +1676,36 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
     });
   }
 
-  const bloquePorCampo = (titulo: string, lista: Array<{ key: string; total: number; efectividad: number | null }>, ordenarPorEfec: boolean) => `
+  const tablaEfectividadHtml = (
+    titulo: string,
+    lista: Array<{ key: string; total: number; efectividad: number | null }>
+  ) => `
     <div class="seccion">
       <div class="seccion-titulo">${escapeHtml(titulo)} <span class="conteo">(${lista.length.toLocaleString('es-MX')})</span></div>
-      ${
-        ordenarPorEfec
-          ? `<div class="aclaracion">El % es la efectividad · el número entre paréntesis es el volumen (guías)</div>
-             ${barraEfectividadHtml(ordenarPorEfectividadEf(lista).map((x) => ({ key: x.key, efectividad: x.efectividad, total: x.total })))}`
-          : `<div class="aclaracion">Orden cronológico · el % es la efectividad de ese mes</div>
-             ${barraEfectividadHtml(lista.map((x) => ({ key: x.key, efectividad: x.efectividad, total: x.total })))}`
-      }
+      <table>
+        <thead>
+          <tr><th>${escapeHtml(titulo.replace('Efectividad por ', ''))}</th><th>Total</th><th>Efectividad</th></tr>
+        </thead>
+        <tbody>
+          ${ordenarPorEfectividadEf(lista)
+            .map((x) => {
+              const color = colorEfectividadInforme(x.efectividad);
+              return `<tr><td class="celda-fuerte">${escapeHtml(x.key)}</td><td>${x.total.toLocaleString('es-MX')}</td><td><span style="font-weight:800;color:${color};">${x.efectividad !== null ? `${x.efectividad}%` : '—'}</span></td></tr>`;
+            })
+            .join('')}
+        </tbody>
+      </table>
     </div>`;
+
+  const bloqueMesHtml =
+    data.porMes.length > 1
+      ? `
+    <div class="seccion">
+      <div class="seccion-titulo">Efectividad por Mes — Tendencia</div>
+      <div class="aclaracion">Orden cronológico</div>
+      ${lineChartHtml(data.porMes.map((x) => ({ label: x.key, valor: x.efectividad ?? 0 })))}
+    </div>`
+      : '';
 
   const comparativoHtml = data.comparativoPlazaCliente
     ? `
@@ -1611,6 +1800,17 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
         .barra-pct { font-weight: 500; color: #94A3B8; }
         .sin-datos { font-size: 11px; color: #94A3B8; padding: 8px 0; }
         .footer { margin-top: 12px; font-size: 10px; color: #94A3B8; text-align: right; }
+        .donut-wrap { display: flex; align-items: center; gap: 18px; }
+        .donut-svg-wrap { width: 130px; flex-shrink: 0; }
+        .donut-svg { width: 100%; height: auto; }
+        .donut-leyenda { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+        .donut-leyenda-item { display: flex; align-items: center; gap: 6px; font-size: 11.5px; }
+        .donut-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .donut-leyenda-label { font-weight: 700; flex: 1; }
+        .donut-leyenda-valor { color: #64748B; font-size: 11px; }
+        .tabla-region-oficina th { position: sticky; top: 0; }
+        .fila-region td { background: #F1F5F9; font-weight: 700; border-top: 2px solid #E2E8F0; }
+        .fila-oficina td { font-size: 10.5px; color: #475569; padding-left: 16px; }
         @media print {
           body { padding: 10mm; }
           @page { size: portrait; margin: 10mm; }
@@ -1654,6 +1854,21 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
         </div>
       </div>
 
+      <div class="seccion">
+        <div class="seccion-titulo">Composición del Corte</div>
+        ${donutChartHtml(
+          [
+            { label: 'Entregadas', valor: data.entregadas, color: '#0B9B67' },
+            { label: 'Devoluciones', valor: data.devoluciones, color: '#DC2626' },
+            { label: 'Abiertas', valor: data.abiertas, color: '#EA7C1A' },
+          ],
+          {
+            valor: data.efectividadGeneral !== null ? `${data.efectividadGeneral}%` : '—',
+            subtitulo: 'Efectividad',
+          }
+        )}
+      </div>
+
       <div class="dos-columnas">
         <div class="seccion">
           <div class="seccion-titulo">Top Excepciones</div>
@@ -1670,16 +1885,9 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
         ${barraHtml(data.devolucionesPorOficina, data.totalDevoluciones, '#DC2626')}
       </div>
 
-      ${bloquePorCampo('Efectividad por Cliente', data.porCliente, true)}
-      ${bloquePorCampo('Efectividad por Oficina', data.porOficina, true)}
-      ${bloquePorCampo('Efectividad por Entidad', data.porEntidad, true)}
-      ${bloquePorCampo('Efectividad por Mes', data.porMes, false)}
-
-      ${bloqueTemporalidadHtml(
-        'Temporalidad por Región',
-        'Días promedio por etapa · % dentro de 15 días desde Plataforma hasta entrega/devolución (abiertas se miden contra hoy)',
-        data.temporalidadPorRegion
-      )}
+      ${bloqueRegionOficinaHtml(data.regionOficina)}
+      ${tablaEfectividadHtml('Efectividad por Entidad', data.porEntidad)}
+      ${bloqueMesHtml}
 
       ${comparativoHtml}
       ${excPorClienteHtml}

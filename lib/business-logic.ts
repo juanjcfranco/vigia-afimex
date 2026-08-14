@@ -349,6 +349,61 @@ export function temporalidadPorCampo(
 }
 
 // ============================================================
+// Efectividad + Temporalidad combinadas en una sola fila por grupo —
+// usada para el reporte PDF de Efectividad, que necesita ambas métricas
+// juntas en una sola tabla (en vez de dos secciones separadas) para no
+// ser tan extenso. isEntregada/isAbiertaPorEstado/calcularEfectividad ya
+// están definidas más arriba en este mismo archivo.
+// ============================================================
+export interface FilaEfectividadTemporalidad extends FilaTemporalidad {
+  entregadas: number;
+  devoluciones: number;
+  abiertas: number;
+  efectividad: number | null;
+}
+
+function efectividadYTemporalidadDe(lista: Guia[]): Omit<FilaEfectividadTemporalidad, 'key'> {
+  const entregadas = lista.filter((g) => isEntregada(g.estado_guia)).length;
+  const devoluciones = lista.filter((g) => g.es_devolucion).length;
+  const abiertas = lista.filter((g) => isAbiertaPorEstado(g)).length;
+  const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
+  return { entregadas, devoluciones, abiertas, efectividad, ...temporalidadDe(lista) };
+}
+
+export function efectividadYTemporalidadPorCampo(
+  guiasIn: Guia[],
+  campo: keyof Guia | ((g: Guia) => string | null)
+): FilaEfectividadTemporalidad[] {
+  const guias = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
+  const grupos: Record<string, Guia[]> = {};
+  guias.forEach((g) => {
+    const key = (typeof campo === 'function' ? campo(g) : (g[campo] as string)) || 'SIN DATO';
+    if (!grupos[key]) grupos[key] = [];
+    grupos[key].push(g);
+  });
+  return Object.entries(grupos)
+    .map(([key, lista]) => ({ key, ...efectividadYTemporalidadDe(lista) }))
+    .sort((a, b) => b.total - a.total);
+}
+
+// Jerarquía Región → Oficinas, cada una con sus propias métricas de
+// efectividad + temporalidad — para la tabla única combinada del PDF.
+export interface FilaRegionOficina extends FilaEfectividadTemporalidad {
+  oficinas: FilaEfectividadTemporalidad[];
+}
+
+export function efectividadTemporalidadPorRegionOficina(guias: Guia[]): FilaRegionOficina[] {
+  const porRegion = efectividadYTemporalidadPorCampo(guias, (g) => obtenerRegion(g.oficina_destino));
+  return porRegion.map((r) => ({
+    ...r,
+    oficinas: efectividadYTemporalidadPorCampo(
+      guias.filter((g) => obtenerRegion(g.oficina_destino) === r.key),
+      'oficina_destino'
+    ),
+  }));
+}
+
+// ============================================================
 // Formatea un periodo YYYY-MM a texto legible ("Mayo 2026")
 // ============================================================
 const MESES_ES = [

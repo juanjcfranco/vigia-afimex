@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas, obtenerRegion, obtenerCiclo, ORDEN_CICLOS, FilaTemporalidad, temporalidadPorCampo } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas, obtenerRegion, obtenerCiclo, ORDEN_CICLOS, FilaTemporalidad, temporalidadPorCampo, efectividadTemporalidadPorRegionOficina } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { exportToExcel, exportToPDF, exportEfectividadPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
@@ -375,18 +375,15 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
       devolucionesPorOficina: devGeneral.porOficina,
       devolucionesPorMotivo: devGeneral.porMotivo,
       totalDevoluciones: devGeneral.total,
-      porCliente: efectividadPorCampo(guias, 'cliente').map((x) => ({ key: x.key, total: x.total, efectividad: x.efectividad })),
-      porOficina: efectividadPorCampo(guias, 'oficina_destino').map((x) => ({ key: x.key, total: x.total, efectividad: x.efectividad })),
       porEntidad: efectividadPorCampo(guias, 'entidad_destinatario').map((x) => ({ key: x.key, total: x.total, efectividad: x.efectividad })),
       porMes: efectividadPorMes(guias).map((x) => ({ key: x.key, total: x.total, efectividad: x.efectividad })),
       comparativoPlazaCliente: esMultiCliente ? { clientes: clientesDistintos, filas: plazaPorCliente.filas } : undefined,
       excepcionesPorCliente: esMultiCliente
         ? excepcionesPorCliente.map((c) => ({ cliente: c.cliente, items: c.resumen.porTipo, total: c.resumen.total }))
         : undefined,
-      // Temporalidad por Región para el PDF — a nivel general (no depende
-      // de qué vista/desglose esté seleccionado en pantalla), mismo
-      // criterio que excGeneral/devGeneral arriba.
-      temporalidadPorRegion: temporalidadPorCampo(guias, (g) => obtenerRegion(g.oficina_destino)),
+      // Efectividad + Temporalidad combinadas en una sola tabla Región→
+      // Oficina — reemplaza lo que antes eran 3 secciones separadas.
+      regionOficina: efectividadTemporalidadPorRegionOficina(guias),
     });
   }
 
