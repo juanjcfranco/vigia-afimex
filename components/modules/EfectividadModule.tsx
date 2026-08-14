@@ -225,9 +225,14 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   // Resguardo), no por volumen ni alfabético. Incluye desglose opcional
   // por Región dentro de cada ciclo (colapsable vía el mismo selector de
   // arriba no aplica aquí — usa su propio toggle simple).
+  //
+  // IMPORTANTE: excluye retornos (esRetornoAmplio) igual que el KPI
+  // "Abiertas" del módulo Resumen (que usa guiasOriginales = esGuiaOriginal,
+  // el cual también excluye retornos) — de lo contrario este total no
+  // cuadra con el de Resumen.
   const [verCicloPorRegion, setVerCicloPorRegion] = useState(false);
   const abiertasPorCiclo = useMemo(() => {
-    const abiertas = guias.filter((g) => isAbiertaPorEstado(g));
+    const abiertas = guias.filter((g) => isAbiertaPorEstado(g) && !esRetornoAmplio(g));
     const grupos: Record<string, Guia[]> = {};
     abiertas.forEach((g) => {
       const ciclo = obtenerCiclo(g.estado_guia);
