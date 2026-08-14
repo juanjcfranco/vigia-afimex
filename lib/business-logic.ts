@@ -663,7 +663,6 @@ export interface PromedioTemporalidad {
     recibidoOfVsConfirmacion: number;
   };
 }
-
 // Promedio de cada métrica de temporalidad sobre una lista de guías (para
 // los KPIs de cada módulo). Cada métrica promedia solo sobre las guías
 // donde AMBAS fechas de ese par existen — no se penaliza a una métrica
