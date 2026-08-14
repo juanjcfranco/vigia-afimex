@@ -95,17 +95,20 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   const entidadRetornos = useResumenPorCampo(listaRetornos, (g) => g.entidad_destinatario);
 
   // Ciclo (etapa del pipeline: Entrada/Distribución/Recepción/Ruta/
-  // Resguardo) y Región — sobre TODAS las abiertas (sin separar original
-  // vs retorno, ya que aquí el foco es "en qué etapa/dónde están").
-  const regionResumen = useResumenPorCampo(base, (g) => obtenerRegion(g.oficina_destino));
+  // Resguardo) y Región — sobre guías ORIGINALES únicamente (listaOriginales,
+  // no `base`), igual que hace el KPI "Abiertas" del módulo Resumen (que usa
+  // guiasOriginales = esGuiaOriginal, el cual excluye retornos). Si se
+  // incluyeran retornos aquí, el total de este panel no cuadraría con el
+  // de Resumen — mismo criterio ya corregido en Efectividad.
+  const regionResumen = useResumenPorCampo(listaOriginales, (g) => obtenerRegion(g.oficina_destino));
   const abiertasPorCiclo = useMemo(() => {
     const grupos: Record<string, number> = {};
-    base.forEach((g) => {
+    listaOriginales.forEach((g) => {
       const ciclo = obtenerCiclo(g.estado_guia);
       grupos[ciclo] = (grupos[ciclo] || 0) + 1;
     });
     return ORDEN_CICLOS.filter((c) => grupos[c]).map((ciclo) => ({ name: ciclo, total: grupos[ciclo] }));
-  }, [base]);
+  }, [listaOriginales]);
 
   const filas = useMemo(() => {
     let f = base;
@@ -214,7 +217,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
 
   return (
     <div className="p-5 space-y-4">
-      <TemporalidadKpis guias={base} />
+      <TemporalidadKpis guias={listaOriginales} />
 
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg border border-[var(--vg-border)] p-3">
@@ -235,7 +238,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
-          <div className="font-bold text-[12.5px] mb-3">Por Ciclo (etapa del proceso)</div>
+          <div className="font-bold text-[12.5px] mb-3">Por Ciclo (etapa del proceso) — Originales</div>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={abiertasPorCiclo} margin={{ bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -275,7 +278,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
         </div>
 
         <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
-          <div className="font-bold text-[12.5px] mb-3">Por Región</div>
+          <div className="font-bold text-[12.5px] mb-3">Por Región — Originales</div>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={regionResumen.chart} layout="vertical" margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} />
