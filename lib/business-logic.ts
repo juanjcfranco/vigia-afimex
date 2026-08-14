@@ -115,6 +115,135 @@ export function esRetornoAmplio(g: Pick<Guia, 'es_retorno' | 'es_posible_retorno
 }
 
 // ============================================================
+// Catálogo Región (agregado ago-2026, desde REGIONES.xlsx): mapea cada
+// oficina destino a su Región operativa. Es un catálogo estático (no
+// cambia con cada carga de guías, a diferencia de excepciones_catalogo
+// que sí vive en Supabase) — se embebe aquí igual que MESES_ES.
+//
+// Normaliza mayúsculas/espacios (y usa la misma función normalizarClave()
+// ya existente más abajo en este archivo, que además ignora acentos) en
+// AMBOS lados (clave del mapa y valor buscado) para que no se rompa por
+// variaciones como doble espacio ("MONTERREY  EXT") o mayúsculas
+// inconsistentes.
+// ============================================================
+const REGIONES_POR_OFICINA_RAW: Record<string, string> = {
+  'CIUDAD VALLES EXT': 'CONCESIONARIOS',
+  'AGUASCALIENTES EXTENDIDA': 'CONCESIONARIOS',
+  'MONTERREY  EXT': 'CONCESIONARIOS',
+  'ALAMO VERACRUZ': 'CONCESIONARIOS',
+  'ALLENDE NL': 'CONCESIONARIOS',
+  'CAMARGO': 'CONCESIONARIOS',
+  'CHIHUAHUA EXTENDIDAS': 'CONCESIONARIOS',
+  'CHINA NL': 'CONCESIONARIOS',
+  'CERRO AZUL': 'CONCESIONARIOS',
+  'CRUZ SALDIERNA': 'CONCESIONARIOS',
+  'CIUDAD MANTE': 'CONCESIONARIOS',
+  'NARANJOS VERACRUZ': 'CONCESIONARIOS',
+  'MATEHUALA EXT': 'CONCESIONARIOS',
+  'DURANGO': 'CONCESIONARIOS',
+  'ESTACION MANUEL': 'CONCESIONARIOS',
+  'GUACHOCHI': 'CONCESIONARIOS',
+  'HIDALGO TAMAULIPAS': 'CONCESIONARIOS',
+  'JIMENEZ': 'CONCESIONARIOS',
+  'JIMENEZ CUU': 'CONCESIONARIOS',
+  'LLERA DE CANALES': 'CONCESIONARIOS',
+  'MATEHUALA': 'CONCESIONARIOS',
+  'PARRAS COAH': 'CONCESIONARIOS',
+  'TUXPAN VERACRUZ': 'CONCESIONARIOS',
+  'POZA RICA': 'CONCESIONARIOS',
+  'RIO VERDE': 'CONCESIONARIOS',
+  'SABINAS COAHUILA': 'CONCESIONARIOS',
+  'SABINAS HIDALGO': 'CONCESIONARIOS',
+  'SAN FERNANDO': 'CONCESIONARIOS',
+  'SOTO LA MARINA': 'CONCESIONARIOS',
+  'TAMPICO EXTENDIDA': 'CONCESIONARIOS',
+  'TAMAZUNCHALE': 'CONCESIONARIOS',
+  'TAMPICO MANTE': 'CONCESIONARIOS',
+  'TULA': 'CONCESIONARIOS',
+  'VALLE HERMOSO': 'CONCESIONARIOS',
+  'VILLAGRAN': 'CONCESIONARIOS',
+  'TORREON EXT': 'CONCESIONARIOS',
+  'ZACATECAS': 'CONCESIONARIOS',
+  'ZACATECAS EXT': 'CONCESIONARIOS',
+  'CHIHUAHUA': 'NOROESTE',
+  'CIUDAD JUAREZ': 'NOROESTE',
+  'CUAUHTEMOC': 'NOROESTE',
+  'DELICIAS': 'NOROESTE',
+  'PARRAL': 'NOROESTE',
+  'TORREON': 'NOROESTE',
+  'LEON': 'NORTE CENTRO',
+  'CIUDAD VALLES': 'NORTE CENTRO',
+  'SAN LUIS POTOSI': 'NORTE CENTRO',
+  'SAN LUIS POTOSI CENTRO': 'NORTE CENTRO',
+  'CIUDAD VICTORIA': 'NORTE CENTRO',
+  'TAMPICO CENTRAL': 'NORTE CENTRO',
+  'TAMPICO DIVISORIA': 'NORTE CENTRO',
+  'MONCLOVA': 'NORESTE',
+  'SALTILLO': 'NORESTE',
+  'PIEDRAS NEGRAS': 'NORESTE',
+  'LINARES': 'NORESTE',
+  'MONTERREY': 'NORESTE',
+  'MATAMOROS': 'NORESTE',
+  'NUEVO LAREDO': 'NORESTE',
+  'REYNOSA': 'NORESTE',
+  'UPS CHIHUAHUA': 'VIRTUAL',
+  'QUIKEN': 'VIRTUAL',
+  'UPS SAN LUIS POTOSI': 'VIRTUAL',
+  'UPS MONTERREY': 'VIRTUAL',
+  'UPS DURANGO': 'VIRTUAL',
+  'UPS CIUDAD JUAREZ': 'VIRTUAL',
+  'UPS AGUASCALIENTES': 'VIRTUAL',
+  'QUERETARO': 'VIRTUAL',
+  'CALL CENTER': 'VIRTUAL',
+  'REEXPEDICIONES': 'VIRTUAL',
+};
+
+const REGIONES_POR_OFICINA: Record<string, string> = Object.fromEntries(
+  Object.entries(REGIONES_POR_OFICINA_RAW).map(([k, v]) => [normalizarClave(k), v])
+);
+
+export function obtenerRegion(oficina: string | null | undefined): string {
+  if (!oficina) return 'SIN REGIÓN';
+  return REGIONES_POR_OFICINA[normalizarClave(oficina)] || 'SIN REGIÓN';
+}
+
+// ============================================================
+// Catálogo Ciclo (agregado ago-2026, desde CICLOS.xlsx): mapea cada
+// Estado_Guia a la etapa del proceso (ciclo) en la que se encuentra.
+// Solo cubre estados que corresponden a guías ABIERTAS (en tránsito);
+// ENTREGADA/DEVOLUCION/CANCELADA/PRE-DOCUMENTADA no tienen ciclo porque
+// no forman parte del pipeline de tránsito — ver isAbiertaPorEstado().
+// ============================================================
+const CICLOS_POR_ESTADO_RAW: Record<string, string> = {
+  'DOCUMENTADA': 'Entrada',
+  'VENDIDA': 'Entrada',
+  'MOSTRADOR': 'Entrada',
+  'RECOLECTADA': 'Entrada',
+  'PLATAFORMA': 'Distribución',
+  'EN CONTENEDOR': 'Distribución',
+  'EMBARCADA': 'Distribución',
+  'TRANSBORDADA': 'Distribución',
+  'DESEMBARCADA': 'Recepción',
+  'LISTO PARA ENTREGAR': 'Recepción',
+  'EN RUTA': 'Ruta',
+  'EXCEPCION': 'Ruta',
+  'EN ALMACEN': 'Resguardo',
+};
+
+const CICLOS_POR_ESTADO: Record<string, string> = Object.fromEntries(
+  Object.entries(CICLOS_POR_ESTADO_RAW).map(([k, v]) => [normalizarClave(k), v])
+);
+
+// Orden real del pipeline operativo, usado para ordenar tablas/gráficos
+// de forma cronológica en vez de alfabética o por volumen.
+export const ORDEN_CICLOS = ['Entrada', 'Distribución', 'Recepción', 'Ruta', 'Resguardo', 'SIN CICLO'];
+
+export function obtenerCiclo(estado: string | null | undefined): string {
+  if (!estado) return 'SIN CICLO';
+  return CICLOS_POR_ESTADO[normalizarClave(estado)] || 'SIN CICLO';
+}
+
+// ============================================================
 // Formatea un periodo YYYY-MM a texto legible ("Mayo 2026")
 // ============================================================
 const MESES_ES = [

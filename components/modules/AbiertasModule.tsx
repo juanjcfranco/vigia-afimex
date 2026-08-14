@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina } from '@/lib/types';
-import { isAbiertaPorEstado, topPorCampo } from '@/lib/business-logic';
+import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import BulkSearch from '@/components/BulkSearch';
 import AlertaDiasBadge from '@/components/AlertaDiasBadge';
@@ -94,6 +94,19 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   const entidadOriginales = useResumenPorCampo(listaOriginales, (g) => g.entidad_destinatario);
   const entidadRetornos = useResumenPorCampo(listaRetornos, (g) => g.entidad_destinatario);
 
+  // Ciclo (etapa del pipeline: Entrada/Distribución/Recepción/Ruta/
+  // Resguardo) y Región — sobre TODAS las abiertas (sin separar original
+  // vs retorno, ya que aquí el foco es "en qué etapa/dónde están").
+  const regionResumen = useResumenPorCampo(base, (g) => obtenerRegion(g.oficina_destino));
+  const abiertasPorCiclo = useMemo(() => {
+    const grupos: Record<string, number> = {};
+    base.forEach((g) => {
+      const ciclo = obtenerCiclo(g.estado_guia);
+      grupos[ciclo] = (grupos[ciclo] || 0) + 1;
+    });
+    return ORDEN_CICLOS.filter((c) => grupos[c]).map((ciclo) => ({ name: ciclo, total: grupos[ciclo] }));
+  }, [base]);
+
   const filas = useMemo(() => {
     let f = base;
     if (filtroEstado) f = f.filter((g) => g.estado_guia === filtroEstado);
@@ -175,6 +188,10 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
         return g.f_historia;
       case 'fechacreacion':
         return g.f_documentacion;
+      case 'ciclo':
+        return obtenerCiclo(g.estado_guia);
+      case 'region':
+        return obtenerRegion(g.oficina_destino);
       default:
         return temporalidadSortValue(g, key);
     }
@@ -187,6 +204,8 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
     { header: 'Origen', value: (g: Guia) => g.of_origen || '' },
     { header: 'Oficina Destino', value: (g: Guia) => g.oficina_destino || '' },
     { header: 'Entidad', value: (g: Guia) => g.entidad_destinatario || '' },
+    { header: 'Región', value: (g: Guia) => obtenerRegion(g.oficina_destino) },
+    { header: 'Ciclo', value: (g: Guia) => obtenerCiclo(g.estado_guia) },
     { header: 'Días sin Mov.', value: (g: Guia) => g.dias_sin_movimiento ?? '' },
     { header: 'Últ. Mov.', value: (g: Guia) => g.f_historia || '' },
     { header: 'Fecha Creación', value: (g: Guia) => g.f_documentacion || '' },
@@ -210,6 +229,86 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
           <div className="text-2xl font-bold text-[var(--vg-purple)]">{totalRetornos.toLocaleString('es-MX')}</div>
           <div className="text-[10.5px] text-[var(--vg-text3)]">
             {base.length ? ((totalRetornos / base.length) * 100).toFixed(1) : '0.0'}% del total abierto
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+          <div className="font-bold text-[12.5px] mb-3">Por Ciclo (etapa del proceso)</div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={abiertasPorCiclo} margin={{ bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="name" fontSize={11} />
+              <YAxis fontSize={11} allowDecimals={false} />
+              <Tooltip />
+              <Bar dataKey="total" fill="#1E3A8A" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="overflow-x-auto vg-scroll mt-3 max-h-[180px]">
+            <table className="vg-table">
+              <thead>
+                <tr>
+                  <th>Ciclo</th>
+                  <th>Guías</th>
+                  <th>%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {abiertasPorCiclo.map(({ name, total }) => (
+                  <tr key={name}>
+                    <td className="font-medium">{name}</td>
+                    <td>{total.toLocaleString('es-MX')}</td>
+                    <td>{base.length ? `${((total / base.length) * 100).toFixed(1)}%` : '—'}</td>
+                  </tr>
+                ))}
+                {!abiertasPorCiclo.length && (
+                  <tr>
+                    <td colSpan={3} className="text-center text-[var(--vg-text3)] py-4">
+                      Sin guías en este corte
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+          <div className="font-bold text-[12.5px] mb-3">Por Región</div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={regionResumen.chart} layout="vertical" margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+              <XAxis type="number" fontSize={11} allowDecimals={false} />
+              <YAxis type="category" dataKey="name" width={110} fontSize={10} />
+              <Tooltip />
+              <Bar dataKey="total" fill="#0B9B67" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="overflow-x-auto vg-scroll mt-3 max-h-[180px]">
+            <table className="vg-table">
+              <thead>
+                <tr>
+                  <SortableTh label="Región" sortKey="nombre" currentKey={regionResumen.orden.sortKey} currentDir={regionResumen.orden.sortDir} onSort={regionResumen.orden.requestSort} />
+                  <SortableTh label="Guías" sortKey="guias" currentKey={regionResumen.orden.sortKey} currentDir={regionResumen.orden.sortDir} onSort={regionResumen.orden.requestSort} />
+                </tr>
+              </thead>
+              <tbody>
+                {regionResumen.orden.sorted.map(({ key, count }) => (
+                  <tr key={key}>
+                    <td className="font-medium">{key}</td>
+                    <td>{count.toLocaleString('es-MX')}</td>
+                  </tr>
+                ))}
+                {!regionResumen.datos.length && (
+                  <tr>
+                    <td colSpan={2} className="text-center text-[var(--vg-text3)] py-4">
+                      Sin guías en este corte
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -381,6 +480,8 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Origen" sortKey="origen" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Oficina Destino" sortKey="oficina" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Entidad" sortKey="entidad" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Región" sortKey="region" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Ciclo" sortKey="ciclo" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Días sin Mov." sortKey="dias" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Últ. Mov." sortKey="ultmov" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Fecha Creación" sortKey="fechacreacion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
@@ -420,6 +521,8 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                   <td>{g.of_origen || '—'}</td>
                   <td>{g.oficina_destino || '—'}</td>
                   <td>{g.entidad_destinatario || '—'}</td>
+                  <td>{obtenerRegion(g.oficina_destino)}</td>
+                  <td>{obtenerCiclo(g.estado_guia)}</td>
                   <td>
                     <div className="flex flex-col items-start gap-0.5">
                       <span className={g.dias_sin_movimiento && g.dias_sin_movimiento > 5 ? 'text-[var(--vg-red)] font-bold' : ''}>
@@ -436,7 +539,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
               })}
               {!filas.length && (
                 <tr>
-                  <td colSpan={17} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={19} className="text-center text-[var(--vg-text3)] py-6">
                     No hay guías abiertas con este filtro
                   </td>
                 </tr>

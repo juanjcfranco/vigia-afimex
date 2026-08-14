@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas, obtenerRegion, obtenerCiclo, ORDEN_CICLOS } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { exportToExcel, exportToPDF, exportEfectividadPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
@@ -33,13 +33,13 @@ function statsDe(lista: Guia[]) {
   return { entregadas, devoluciones, abiertas, retornosAbiertos, efectividad, total: lista.length };
 }
 
-function efectividadPorCampo(guiasIn: Guia[], campo: keyof Guia) {
+function efectividadPorCampo(guiasIn: Guia[], campo: keyof Guia | ((g: Guia) => string | null)) {
   // Excluir guías de retorno (explícitas o de otro periodo): ya están
   // contabilizadas como parte de la devolución original.
   const guias = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
   const grupos: Record<string, Guia[]> = {};
   guias.forEach((g) => {
-    const key = (g[campo] as string) || 'SIN DATO';
+    const key = (typeof campo === 'function' ? campo(g) : (g[campo] as string)) || 'SIN DATO';
     if (!grupos[key]) grupos[key] = [];
     grupos[key].push(g);
   });
@@ -158,11 +158,11 @@ function temporalidadDe(lista: Guia[]): Omit<FilaTemporalidad, 'key'> {
 
 // Mismo filtro base que efectividadPorCampo (sin retornos/predoc/documentada)
 // para que ambas tablas describan el mismo universo de guías.
-function temporalidadPorCampo(guiasIn: Guia[], campo: keyof Guia): FilaTemporalidad[] {
+function temporalidadPorCampo(guiasIn: Guia[], campo: keyof Guia | ((g: Guia) => string | null)): FilaTemporalidad[] {
   const guias = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
   const grupos: Record<string, Guia[]> = {};
   guias.forEach((g) => {
-    const key = (g[campo] as string) || 'SIN DATO';
+    const key = (typeof campo === 'function' ? campo(g) : (g[campo] as string)) || 'SIN DATO';
     if (!grupos[key]) grupos[key] = [];
     grupos[key].push(g);
   });
@@ -171,16 +171,17 @@ function temporalidadPorCampo(guiasIn: Guia[], campo: keyof Guia): FilaTemporali
     .sort((a, b) => b.total - a.total);
 }
 
-type VistaEfectividad = 'cliente' | 'oficina' | 'entidad' | 'mes';
+type VistaEfectividad = 'cliente' | 'oficina' | 'entidad' | 'region' | 'mes';
 
 export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   const [vista, setVista] = useState<VistaEfectividad>('oficina');
-  const [vistaTemporalidad, setVistaTemporalidad] = useState<'cliente' | 'oficina' | 'entidad'>('oficina');
+  const [vistaTemporalidad, setVistaTemporalidad] = useState<'cliente' | 'oficina' | 'entidad' | 'region'>('oficina');
 
-  const campoTemporalidad: Record<'cliente' | 'oficina' | 'entidad', keyof Guia> = {
+  const campoTemporalidad: Record<'cliente' | 'oficina' | 'entidad' | 'region', keyof Guia | ((g: Guia) => string | null)> = {
     cliente: 'cliente',
     oficina: 'oficina_destino',
     entidad: 'entidad_destinatario',
+    region: (g: Guia) => obtenerRegion(g.oficina_destino),
   };
   const filasTemporalidad = useMemo(
     () => temporalidadPorCampo(guias, campoTemporalidad[vistaTemporalidad]),
@@ -212,12 +213,48 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
         return null;
     }
   });
-  const etiquetaTemporalidad: Record<'cliente' | 'oficina' | 'entidad', string> = { cliente: 'Cliente', oficina: 'Oficina', entidad: 'Entidad' };
+  const etiquetaTemporalidad: Record<'cliente' | 'oficina' | 'entidad' | 'region', string> = {
+    cliente: 'Cliente',
+    oficina: 'Oficina',
+    entidad: 'Entidad',
+    region: 'Región',
+  };
 
-  const campoDeVista: Record<VistaEfectividad, keyof Guia> = {
+  // Guías abiertas (en tránsito) agrupadas por Ciclo — ordenadas según el
+  // pipeline operativo real (Entrada → Distribución → Recepción → Ruta →
+  // Resguardo), no por volumen ni alfabético. Incluye desglose opcional
+  // por Región dentro de cada ciclo (colapsable vía el mismo selector de
+  // arriba no aplica aquí — usa su propio toggle simple).
+  const [verCicloPorRegion, setVerCicloPorRegion] = useState(false);
+  const abiertasPorCiclo = useMemo(() => {
+    const abiertas = guias.filter((g) => isAbiertaPorEstado(g));
+    const grupos: Record<string, Guia[]> = {};
+    abiertas.forEach((g) => {
+      const ciclo = obtenerCiclo(g.estado_guia);
+      if (!grupos[ciclo]) grupos[ciclo] = [];
+      grupos[ciclo].push(g);
+    });
+    return ORDEN_CICLOS.filter((c) => grupos[c]?.length).map((ciclo) => {
+      const lista = grupos[ciclo] || [];
+      const porRegion: Record<string, number> = {};
+      lista.forEach((g) => {
+        const r = obtenerRegion(g.oficina_destino);
+        porRegion[r] = (porRegion[r] || 0) + 1;
+      });
+      return { ciclo, total: lista.length, porRegion };
+    });
+  }, [guias]);
+  const totalAbiertasCiclo = abiertasPorCiclo.reduce((s, c) => s + c.total, 0);
+  const regionesEnCiclos = useMemo(
+    () => [...new Set(abiertasPorCiclo.flatMap((c) => Object.keys(c.porRegion)))].sort(),
+    [abiertasPorCiclo]
+  );
+
+  const campoDeVista: Record<VistaEfectividad, keyof Guia | ((g: Guia) => string | null)> = {
     cliente: 'cliente',
     oficina: 'oficina_destino',
     entidad: 'entidad_destinatario',
+    region: (g: Guia) => obtenerRegion(g.oficina_destino),
     mes: 'f_documentacion', // no se usa directamente: 'mes' se agrupa aparte con efectividadPorMes
   };
 
@@ -246,8 +283,8 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
         return null;
     }
   });
-  const etiqueta: Record<VistaEfectividad, string> = { cliente: 'Cliente', oficina: 'Oficina', entidad: 'Entidad', mes: 'Mes' };
-  const etiquetaPlural: Record<VistaEfectividad, string> = { cliente: 'Clientes', oficina: 'Oficinas', entidad: 'Entidades', mes: 'Meses' };
+  const etiqueta: Record<VistaEfectividad, string> = { cliente: 'Cliente', oficina: 'Oficina', entidad: 'Entidad', region: 'Región', mes: 'Mes' };
+  const etiquetaPlural: Record<VistaEfectividad, string> = { cliente: 'Clientes', oficina: 'Oficinas', entidad: 'Entidades', region: 'Regiones', mes: 'Meses' };
 
   // Resumen de excepciones (mismo criterio que el módulo Excepciones:
   // excluye entregadas, devoluciones, canceladas, en ruta y predoc), para
@@ -596,6 +633,14 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
             >
               Entidad
             </button>
+            <button
+              onClick={() => setVistaTemporalidad('region')}
+              className={`text-[11.5px] font-semibold px-3 py-1 rounded ${
+                vistaTemporalidad === 'region' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'
+              }`}
+            >
+              Región
+            </button>
           </div>
         </div>
 
@@ -655,6 +700,65 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
         </div>
       </div>
 
+      <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div>
+            <div className="font-bold text-[12.5px]">Guías Abiertas por Ciclo</div>
+            <div className="text-[11px] text-[var(--vg-text2)]">
+              En qué etapa del proceso están las {totalAbiertasCiclo.toLocaleString('es-MX')} guías abiertas actuales
+            </div>
+          </div>
+          <button
+            onClick={() => setVerCicloPorRegion((v) => !v)}
+            className={`text-[11.5px] font-semibold px-3 py-1.5 rounded-md border border-[var(--vg-border)] ${
+              verCicloPorRegion ? 'bg-[var(--vg-blue)] text-white border-[var(--vg-blue)]' : 'bg-white text-[var(--vg-text2)]'
+            }`}
+          >
+            Desglosar por Región
+          </button>
+        </div>
+
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={abiertasPorCiclo} margin={{ bottom: 10 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="ciclo" fontSize={11} />
+            <YAxis fontSize={11} />
+            <Tooltip />
+            <Bar dataKey="total" name="Guías Abiertas" fill="#1E3A8A" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+
+        <div className="mt-3 overflow-x-auto vg-scroll">
+          <table className="vg-table">
+            <thead>
+              <tr>
+                <th>Ciclo</th>
+                {verCicloPorRegion && regionesEnCiclos.map((r) => <th key={r}>{r}</th>)}
+                <th>Total</th>
+                <th>% del Total Abiertas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {abiertasPorCiclo.map((c) => (
+                <tr key={c.ciclo}>
+                  <td className="font-medium">{c.ciclo}</td>
+                  {verCicloPorRegion && regionesEnCiclos.map((r) => <td key={r}>{c.porRegion[r] || 0}</td>)}
+                  <td className="font-bold">{c.total.toLocaleString('es-MX')}</td>
+                  <td>{totalAbiertasCiclo ? `${((c.total / totalAbiertasCiclo) * 100).toFixed(1)}%` : '—'}</td>
+                </tr>
+              ))}
+              {!abiertasPorCiclo.length && (
+                <tr>
+                  <td colSpan={(verCicloPorRegion ? regionesEnCiclos.length : 0) + 3} className="text-center text-[var(--vg-text3)] py-6">
+                    No hay guías abiertas en este corte
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
         <div className="px-4 py-3 flex items-center justify-between border-b border-[var(--vg-border)] flex-wrap gap-2">
           <div>
@@ -688,6 +792,14 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
                 }`}
               >
                 Entidad
+              </button>
+              <button
+                onClick={() => setVista('region')}
+                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${
+                  vista === 'region' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'
+                }`}
+              >
+                Región
               </button>
               <button
                 onClick={() => setVista('mes')}
