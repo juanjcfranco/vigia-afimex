@@ -1932,7 +1932,7 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
         .kpi-card { flex: 1; min-width: 110px; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px 12px; background: #F8FAFC; }
         .kpi-label { font-size: 10px; font-weight: 700; color: #64748B; margin-bottom: 4px; text-transform: uppercase; }
         .kpi-value { font-size: 20px; font-weight: 800; }
-        .seccion { border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; page-break-inside: avoid; }
+        .seccion { border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
         .seccion-titulo { font-size: 13px; font-weight: 800; margin-bottom: 8px; color: #1E293B; }
         .aclaracion { font-size: 10.5px; color: #94A3B8; font-style: italic; margin: -4px 0 8px; }
         .conteo { font-weight: 500; color: #94A3B8; font-size: 11px; }
@@ -1966,10 +1966,14 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
         .tabla-region-oficina th { position: sticky; top: 0; }
         .fila-region td { background: #F1F5F9; font-weight: 700; border-top: 2px solid #E2E8F0; }
         .fila-oficina td { font-size: 10.5px; color: #475569; padding-left: 16px; }
+        /* Evita cortar filas/tarjetas individuales a la mitad, pero SIN
+           forzar que el bloque .seccion completo (que puede ser alto,
+           como la tabla Región→Oficina o las tendencias) salte entero a
+           la siguiente página — eso es lo que dejaba huecos en blanco. */
+        .seccion table tr, .kpi-card, .donut-wrap, .barra-fila { break-inside: avoid; page-break-inside: avoid; }
         @media print {
           body { padding: 10mm; }
           @page { size: landscape; margin: 10mm; }
-          .seccion { break-inside: avoid; }
         }
       </style>
     </head>
