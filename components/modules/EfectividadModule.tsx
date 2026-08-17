@@ -2,8 +2,8 @@
 
 import { Fragment, useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas, obtenerRegion, obtenerCiclo, ORDEN_CICLOS, FilaTemporalidad, temporalidadPorCampo, efectividadTemporalidadPorRegionOficina } from '@/lib/business-logic';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas, obtenerRegion, obtenerCiclo, ORDEN_CICLOS, FilaTemporalidad, temporalidadPorCampo, efectividadTemporalidadPorRegionOficina, tendenciaMensualPorCampo } from '@/lib/business-logic';
+import { BarChart, Bar, LineChart, Line, Legend, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { exportToExcel, exportToPDF, exportEfectividadPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
 import { useSortableTable } from '@/lib/useSortableTable';
@@ -146,6 +146,28 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
     });
     return map;
   }, [guias, vistaTemporalidad, filasTemporalidad]);
+
+  // ============================================================
+  // Tendencias (líneas, no barras): Efectividad % y Temporalidad (% ≤15d)
+  // mes a mes, con un mismo selector Total/Cliente/Oficina para ambas
+  // — solo aplica si el corte cubre más de un mes.
+  // ============================================================
+  const [vistaTendencia, setVistaTendencia] = useState<'total' | 'cliente' | 'oficina'>('total');
+  const campoTendencia: Record<'total' | 'cliente' | 'oficina', keyof Guia | null> = {
+    total: null,
+    cliente: 'cliente',
+    oficina: 'oficina_destino',
+  };
+  const tendenciaEfectividad = useMemo(
+    () => tendenciaMensualPorCampo(guias, campoTendencia[vistaTendencia], 'efectividad'),
+    [guias, vistaTendencia]
+  );
+  const tendenciaTemporalidad = useMemo(
+    () => tendenciaMensualPorCampo(guias, campoTendencia[vistaTendencia], 'temporalidad'),
+    [guias, vistaTendencia]
+  );
+  const hayVariosMeses = tendenciaEfectividad.datos.length > 1;
+  const COLORES_TENDENCIA = ['#1E3A8A', '#0B9B67', '#DC2626', '#B45309', '#7C3AED', '#0891B2'];
 
   // Guías abiertas (en tránsito) agrupadas por Ciclo — ordenadas según el
   // pipeline operativo real (Entrada → Distribución → Recepción → Ruta →
@@ -388,6 +410,14 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
       temporalidadPorCliente: temporalidadPorCampo(guias, 'cliente'),
       // Resumen general de temporalidad para los KPIs del inicio.
       temporalidadGeneral: temporalidadPorCampo(guias, () => 'TOTAL')[0] ?? null,
+      tendencias: {
+        efectividadTotal: tendenciaMensualPorCampo(guias, null, 'efectividad'),
+        efectividadCliente: tendenciaMensualPorCampo(guias, 'cliente', 'efectividad'),
+        efectividadOficina: tendenciaMensualPorCampo(guias, 'oficina_destino', 'efectividad'),
+        temporalidadTotal: tendenciaMensualPorCampo(guias, null, 'temporalidad'),
+        temporalidadCliente: tendenciaMensualPorCampo(guias, 'cliente', 'temporalidad'),
+        temporalidadOficina: tendenciaMensualPorCampo(guias, 'oficina_destino', 'temporalidad'),
+      },
     });
   }
 
@@ -401,6 +431,91 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
           📄 Exportar Reporte de Efectividad (PDF)
         </button>
       </div>
+
+      {hayVariosMeses && (
+        <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div className="font-bold text-[12.5px]">Tendencias Mensuales</div>
+            <div className="flex gap-1 bg-[var(--vg-bg)] p-1 rounded-md">
+              <button
+                onClick={() => setVistaTendencia('total')}
+                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${vistaTendencia === 'total' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+              >
+                Total
+              </button>
+              <button
+                onClick={() => setVistaTendencia('cliente')}
+                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${vistaTendencia === 'cliente' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+              >
+                Cliente
+              </button>
+              <button
+                onClick={() => setVistaTendencia('oficina')}
+                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${vistaTendencia === 'oficina' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+              >
+                Oficina
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div>
+              <div className="text-[11.5px] font-semibold text-[var(--vg-text2)] mb-2">Efectividad %</div>
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={tendenciaEfectividad.datos} margin={{ bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="mes" tickFormatter={(v) => formatearPeriodo(String(v))} fontSize={10} />
+                  <YAxis fontSize={11} domain={[0, 100]} />
+                  <Tooltip labelFormatter={(v) => formatearPeriodo(String(v))} formatter={(v) => `${v}%`} />
+                  {tendenciaEfectividad.series.length > 1 && <Legend wrapperStyle={{ fontSize: 11 }} />}
+                  {tendenciaEfectividad.series.map((s, i) => (
+                    <Line
+                      key={s}
+                      type="monotone"
+                      dataKey={s}
+                      name={s}
+                      stroke={COLORES_TENDENCIA[i % COLORES_TENDENCIA.length]}
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                      activeDot={{ r: 5 }}
+                      connectNulls
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div>
+              <div className="text-[11.5px] font-semibold text-[var(--vg-text2)] mb-2">Temporalidad — % Dentro de 15 Días</div>
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={tendenciaTemporalidad.datos} margin={{ bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="mes" tickFormatter={(v) => formatearPeriodo(String(v))} fontSize={10} />
+                  <YAxis fontSize={11} domain={[0, 100]} />
+                  <Tooltip labelFormatter={(v) => formatearPeriodo(String(v))} formatter={(v) => `${v}%`} />
+                  {tendenciaTemporalidad.series.length > 1 && <Legend wrapperStyle={{ fontSize: 11 }} />}
+                  {tendenciaTemporalidad.series.map((s, i) => (
+                    <Line
+                      key={s}
+                      type="monotone"
+                      dataKey={s}
+                      name={s}
+                      stroke={COLORES_TENDENCIA[i % COLORES_TENDENCIA.length]}
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                      activeDot={{ r: 5 }}
+                      connectNulls
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          {vistaTendencia !== 'total' && (
+            <div className="text-[10.5px] text-[var(--vg-text3)] mt-2">
+              Top {tendenciaEfectividad.series.length} {vistaTendencia === 'cliente' ? 'clientes' : 'oficinas'} por volumen total del corte
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
         <div className="flex items-center justify-between mb-1 flex-wrap gap-2">

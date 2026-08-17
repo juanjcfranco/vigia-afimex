@@ -412,6 +412,77 @@ export function efectividadTemporalidadPorRegionOficina(guias: Guia[]): FilaRegi
 }
 
 // ============================================================
+// Tendencia mensual de una métrica (Efectividad % o % dentro de 15 días
+// de Temporalidad), total o desglosada por Top N grupos de un campo
+// (cliente, oficina, etc.) — un punto por mes por serie. Usada tanto en
+// pantalla (gráficos de línea en Efectividad) como en el PDF del Reporte
+// de Efectividad, para que ambos compartan exactamente el mismo cálculo.
+// ============================================================
+export interface PuntoTendencia {
+  mes: string;
+  [serie: string]: string | number | null;
+}
+
+function valorMetricaTendencia(lista: Guia[], metrica: 'efectividad' | 'temporalidad'): number | null {
+  if (metrica === 'efectividad') {
+    const entregadas = lista.filter((g) => isEntregada(g.estado_guia)).length;
+    const devoluciones = lista.filter((g) => g.es_devolucion).length;
+    const abiertas = lista.filter((g) => isAbiertaPorEstado(g)).length;
+    return calcularEfectividad(entregadas, devoluciones, abiertas);
+  }
+  return temporalidadDe(lista).pctVerde;
+}
+
+export function tendenciaMensualPorCampo(
+  guiasIn: Guia[],
+  campo: keyof Guia | ((g: Guia) => string | null) | null,
+  metrica: 'efectividad' | 'temporalidad',
+  topN = 6
+): { datos: PuntoTendencia[]; series: string[] } {
+  const guias = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
+
+  const porMes: Record<string, Guia[]> = {};
+  guias.forEach((g) => {
+    const mes = (g.f_documentacion || '').slice(0, 7);
+    if (!mes) return;
+    if (!porMes[mes]) porMes[mes] = [];
+    porMes[mes].push(g);
+  });
+  const meses = Object.keys(porMes).sort();
+
+  if (!campo) {
+    const datos: PuntoTendencia[] = meses.map((mes) => ({ mes, TOTAL: valorMetricaTendencia(porMes[mes], metrica) }));
+    return { datos, series: ['TOTAL'] };
+  }
+
+  const valorCampo = (g: Guia): string => (typeof campo === 'function' ? campo(g) : (g[campo] as string)) || 'SIN DATO';
+
+  // Top N grupos por volumen TOTAL del corte (no por mes) para que la
+  // misma serie represente lo mismo en todos los puntos de la línea.
+  const volumenPorGrupo: Record<string, number> = {};
+  guias.forEach((g) => {
+    const key = valorCampo(g);
+    volumenPorGrupo[key] = (volumenPorGrupo[key] || 0) + 1;
+  });
+  const topGrupos = Object.entries(volumenPorGrupo)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topN)
+    .map(([k]) => k);
+
+  const datos: PuntoTendencia[] = meses.map((mes) => {
+    const punto: PuntoTendencia = { mes };
+    const listaMes = porMes[mes];
+    topGrupos.forEach((grupo) => {
+      const sub = listaMes.filter((g) => valorCampo(g) === grupo);
+      punto[grupo] = sub.length ? valorMetricaTendencia(sub, metrica) : null;
+    });
+    return punto;
+  });
+
+  return { datos, series: topGrupos };
+}
+
+// ============================================================
 // Formatea un periodo YYYY-MM a texto legible ("Mayo 2026")
 // ============================================================
 const MESES_ES = [

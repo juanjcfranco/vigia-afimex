@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 import { LOGO_AFIMEX_BASE64 } from './logo-base64';
 import { Indemnizacion } from './types';
 import mexicoMapData from './mexico-map-data.json';
-import { FilaTemporalidad, FilaRegionOficina, FilaEfectividadTemporalidad } from './business-logic';
+import { FilaTemporalidad, FilaRegionOficina, FilaEfectividadTemporalidad, PuntoTendencia } from './business-logic';
 
 export interface ColumnaExport<T> {
   header: string;
@@ -1159,6 +1159,79 @@ function lineChartHtml(puntos: Array<{ label: string; valor: number }>): string 
     </svg>`;
 }
 
+const COLORES_TENDENCIA_PDF = ['#1E3A8A', '#0B9B67', '#DC2626', '#B45309', '#7C3AED', '#0891B2'];
+
+// ============================================================
+// Línea múltiple (una serie por cliente/oficina/etc.) en SVG puro — igual
+// que lineChartHtml, pero soporta varias líneas con leyenda. Usada para
+// las tendencias mensuales de Efectividad y Temporalidad por Cliente/
+// Oficina en el Reporte de Efectividad.
+// ============================================================
+function multiLineChartHtml(datos: PuntoTendencia[], series: string[]): string {
+  if (datos.length < 2) return `<div class="sin-datos">Se necesita más de un mes para mostrar tendencia</div>`;
+  const w = 600;
+  const h = 190;
+  const padX = 32;
+  const padY = 18;
+  const max = 100;
+  const min = 0;
+  const stepX = (w - padX * 2) / (datos.length - 1);
+  const xFor = (i: number) => padX + i * stepX;
+  const yFor = (v: number) => padY + (1 - (v - min) / (max - min || 1)) * (h - padY * 2 - 14);
+
+  const lineasHtml = series
+    .map((serie, si) => {
+      const color = COLORES_TENDENCIA_PDF[si % COLORES_TENDENCIA_PDF.length];
+      const puntos = datos
+        .map((d, i) => {
+          const v = d[serie];
+          if (v === null || v === undefined) return null;
+          return { x: xFor(i), y: yFor(Number(v)) };
+        })
+        .filter((p): p is { x: number; y: number } => p !== null);
+      if (!puntos.length) return '';
+      const polyline = puntos.map((p) => `${p.x},${p.y}`).join(' ');
+      const dots = puntos.map((p) => `<circle cx="${p.x}" cy="${p.y}" r="3" fill="${color}" />`).join('');
+      return `<polyline points="${polyline}" fill="none" stroke="${color}" stroke-width="2" />${dots}`;
+    })
+    .join('');
+
+  const etiquetaMes = (mes: string) => {
+    const [anio, m] = mes.split('-');
+    return anio && m ? `${m}/${anio.slice(2)}` : mes;
+  };
+  const etiquetasX = datos
+    .map(
+      (d, i) =>
+        `<text x="${xFor(i)}" y="${h - 4}" text-anchor="middle" font-size="8.5" fill="#64748B">${escapeHtml(etiquetaMes(String(d.mes)))}</text>`
+    )
+    .join('');
+
+  const leyenda =
+    series.length > 1
+      ? `<div class="donut-leyenda" style="flex-direction:row;flex-wrap:wrap;gap:10px;margin-top:4px;">
+          ${series
+            .map(
+              (s, i) => `
+            <div class="donut-leyenda-item" style="font-size:10px;">
+              <span class="donut-dot" style="background:${COLORES_TENDENCIA_PDF[i % COLORES_TENDENCIA_PDF.length]};width:8px;height:8px;"></span>
+              <span class="donut-leyenda-label">${escapeHtml(s)}</span>
+            </div>`
+            )
+            .join('')}
+        </div>`
+      : '';
+
+  return `
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%; height:${h}px;">
+      <line x1="${padX}" y1="${padY}" x2="${padX}" y2="${h - padY}" stroke="#E2E8F0" />
+      <line x1="${padX}" y1="${h - padY}" x2="${w - padX}" y2="${h - padY}" stroke="#E2E8F0" />
+      ${lineasHtml}
+      ${etiquetasX}
+    </svg>
+    ${leyenda}`;
+}
+
 export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
   const fecha = new Date().toLocaleString('es-MX');
   const win = window.open('', '_blank');
@@ -1678,6 +1751,17 @@ export interface EfectividadExportData {
   temporalidadPorCliente: FilaTemporalidad[];
   // Resumen de temporalidad a nivel general, para los KPIs del inicio.
   temporalidadGeneral: Omit<FilaTemporalidad, 'key'> | null;
+  // Tendencias mensuales (líneas, no barras) — Efectividad % y
+  // Temporalidad % ≤15d, cada una Total / por Cliente / por Oficina.
+  // Solo se muestran si el corte cubre más de un mes.
+  tendencias: {
+    efectividadTotal: { datos: PuntoTendencia[]; series: string[] };
+    efectividadCliente: { datos: PuntoTendencia[]; series: string[] };
+    efectividadOficina: { datos: PuntoTendencia[]; series: string[] };
+    temporalidadTotal: { datos: PuntoTendencia[]; series: string[] };
+    temporalidadCliente: { datos: PuntoTendencia[]; series: string[] };
+    temporalidadOficina: { datos: PuntoTendencia[]; series: string[] };
+  };
 }
 
 export function exportEfectividadPDF(data: EfectividadExportData) {
@@ -1928,6 +2012,42 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
             subtitulo: 'Efectividad',
           }
         )}
+      </div>
+
+      <div class="seccion">
+        <div class="seccion-titulo">Tendencia Mensual — Efectividad %</div>
+        <div class="dos-columnas" style="margin-top:8px;">
+          <div>
+            <div class="aclaracion">Total</div>
+            ${multiLineChartHtml(data.tendencias.efectividadTotal.datos, data.tendencias.efectividadTotal.series)}
+          </div>
+          <div>
+            <div class="aclaracion">Por Cliente (Top ${data.tendencias.efectividadCliente.series.length})</div>
+            ${multiLineChartHtml(data.tendencias.efectividadCliente.datos, data.tendencias.efectividadCliente.series)}
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <div class="aclaracion">Por Oficina (Top ${data.tendencias.efectividadOficina.series.length})</div>
+          ${multiLineChartHtml(data.tendencias.efectividadOficina.datos, data.tendencias.efectividadOficina.series)}
+        </div>
+      </div>
+
+      <div class="seccion">
+        <div class="seccion-titulo">Tendencia Mensual — Temporalidad (% Dentro de 15 Días)</div>
+        <div class="dos-columnas" style="margin-top:8px;">
+          <div>
+            <div class="aclaracion">Total</div>
+            ${multiLineChartHtml(data.tendencias.temporalidadTotal.datos, data.tendencias.temporalidadTotal.series)}
+          </div>
+          <div>
+            <div class="aclaracion">Por Cliente (Top ${data.tendencias.temporalidadCliente.series.length})</div>
+            ${multiLineChartHtml(data.tendencias.temporalidadCliente.datos, data.tendencias.temporalidadCliente.series)}
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <div class="aclaracion">Por Oficina (Top ${data.tendencias.temporalidadOficina.series.length})</div>
+          ${multiLineChartHtml(data.tendencias.temporalidadOficina.datos, data.tendencias.temporalidadOficina.series)}
+        </div>
       </div>
 
       ${bloqueRegionOficinaHtml(data.regionOficina)}
