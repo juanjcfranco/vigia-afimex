@@ -1792,15 +1792,18 @@ export interface EfectividadExportData {
   // Resumen de temporalidad a nivel general, para los KPIs del inicio.
   temporalidadGeneral: Omit<FilaTemporalidad, 'key'> | null;
   // Tendencias mensuales (líneas, no barras) — Efectividad % y
-  // Temporalidad % ≤15d, cada una Total / por Cliente / por Oficina.
-  // Solo se muestran si el corte cubre más de un mes.
+  // Temporalidad % ≤15d, cada una Total / por Cliente (solo si hay más de
+  // un cliente en el corte) / por Oficina / por Entidad. Solo se muestran
+  // si el corte cubre más de un mes.
   tendencias: {
     efectividadTotal: { datos: PuntoTendencia[]; series: string[] };
-    efectividadCliente: { datos: PuntoTendencia[]; series: string[] };
+    efectividadCliente: { datos: PuntoTendencia[]; series: string[] } | null;
     efectividadOficina: { datos: PuntoTendencia[]; series: string[] };
+    efectividadEntidad: { datos: PuntoTendencia[]; series: string[] };
     temporalidadTotal: { datos: PuntoTendencia[]; series: string[] };
-    temporalidadCliente: { datos: PuntoTendencia[]; series: string[] };
+    temporalidadCliente: { datos: PuntoTendencia[]; series: string[] } | null;
     temporalidadOficina: { datos: PuntoTendencia[]; series: string[] };
+    temporalidadEntidad: { datos: PuntoTendencia[]; series: string[] };
   };
 }
 
@@ -2063,15 +2066,27 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
             ${tablaTendenciaHtml(data.tendencias.efectividadTotal.datos, data.tendencias.efectividadTotal.series)}
           </div>
           <div>
+            <div class="aclaracion">Por Oficina (Top ${data.tendencias.efectividadOficina.series.length})</div>
+            ${multiLineChartHtml(data.tendencias.efectividadOficina.datos, data.tendencias.efectividadOficina.series)}
+            ${tablaTendenciaHtml(data.tendencias.efectividadOficina.datos, data.tendencias.efectividadOficina.series)}
+          </div>
+        </div>
+        <div class="dos-columnas" style="margin-top:10px;">
+          <div>
+            <div class="aclaracion">Por Entidad (Top ${data.tendencias.efectividadEntidad.series.length})</div>
+            ${multiLineChartHtml(data.tendencias.efectividadEntidad.datos, data.tendencias.efectividadEntidad.series)}
+            ${tablaTendenciaHtml(data.tendencias.efectividadEntidad.datos, data.tendencias.efectividadEntidad.series)}
+          </div>
+          ${
+            data.tendencias.efectividadCliente
+              ? `
+          <div>
             <div class="aclaracion">Por Cliente (Top ${data.tendencias.efectividadCliente.series.length})</div>
             ${multiLineChartHtml(data.tendencias.efectividadCliente.datos, data.tendencias.efectividadCliente.series)}
             ${tablaTendenciaHtml(data.tendencias.efectividadCliente.datos, data.tendencias.efectividadCliente.series)}
-          </div>
-        </div>
-        <div style="margin-top:10px;">
-          <div class="aclaracion">Por Oficina (Top ${data.tendencias.efectividadOficina.series.length})</div>
-          ${multiLineChartHtml(data.tendencias.efectividadOficina.datos, data.tendencias.efectividadOficina.series)}
-          ${tablaTendenciaHtml(data.tendencias.efectividadOficina.datos, data.tendencias.efectividadOficina.series)}
+          </div>`
+              : ''
+          }
         </div>
       </div>
 
@@ -2084,15 +2099,27 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
             ${tablaTendenciaHtml(data.tendencias.temporalidadTotal.datos, data.tendencias.temporalidadTotal.series)}
           </div>
           <div>
+            <div class="aclaracion">Por Oficina (Top ${data.tendencias.temporalidadOficina.series.length})</div>
+            ${multiLineChartHtml(data.tendencias.temporalidadOficina.datos, data.tendencias.temporalidadOficina.series)}
+            ${tablaTendenciaHtml(data.tendencias.temporalidadOficina.datos, data.tendencias.temporalidadOficina.series)}
+          </div>
+        </div>
+        <div class="dos-columnas" style="margin-top:10px;">
+          <div>
+            <div class="aclaracion">Por Entidad (Top ${data.tendencias.temporalidadEntidad.series.length})</div>
+            ${multiLineChartHtml(data.tendencias.temporalidadEntidad.datos, data.tendencias.temporalidadEntidad.series)}
+            ${tablaTendenciaHtml(data.tendencias.temporalidadEntidad.datos, data.tendencias.temporalidadEntidad.series)}
+          </div>
+          ${
+            data.tendencias.temporalidadCliente
+              ? `
+          <div>
             <div class="aclaracion">Por Cliente (Top ${data.tendencias.temporalidadCliente.series.length})</div>
             ${multiLineChartHtml(data.tendencias.temporalidadCliente.datos, data.tendencias.temporalidadCliente.series)}
             ${tablaTendenciaHtml(data.tendencias.temporalidadCliente.datos, data.tendencias.temporalidadCliente.series)}
-          </div>
-        </div>
-        <div style="margin-top:10px;">
-          <div class="aclaracion">Por Oficina (Top ${data.tendencias.temporalidadOficina.series.length})</div>
-          ${multiLineChartHtml(data.tendencias.temporalidadOficina.datos, data.tendencias.temporalidadOficina.series)}
-          ${tablaTendenciaHtml(data.tendencias.temporalidadOficina.datos, data.tendencias.temporalidadOficina.series)}
+          </div>`
+              : ''
+          }
         </div>
       </div>
 
