@@ -1232,6 +1232,46 @@ function multiLineChartHtml(datos: PuntoTendencia[], series: string[]): string {
     ${leyenda}`;
 }
 
+// ============================================================
+// Tabla de datos para una tendencia mensual — filas = series (o "Total"),
+// columnas = meses. Complementa multiLineChartHtml(): cuando hay varias
+// líneas muy juntas (ej. varias oficinas todas entre 90-96%), el gráfico
+// solo, solo, no deja leer el valor exacto — la tabla sí.
+// ============================================================
+function tablaTendenciaHtml(datos: PuntoTendencia[], series: string[], sufijo = '%'): string {
+  if (datos.length < 2) return '';
+  const etiquetaMes = (mes: string) => {
+    const [anio, m] = mes.split('-');
+    return anio && m ? `${m}/${anio.slice(2)}` : mes;
+  };
+  return `
+    <table style="margin-top:8px;">
+      <thead>
+        <tr>
+          <th>${series.length > 1 ? 'Cliente / Oficina' : ''}</th>
+          ${datos.map((d) => `<th>${escapeHtml(etiquetaMes(String(d.mes)))}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${series
+          .map((s, i) => {
+            const color = COLORES_TENDENCIA_PDF[i % COLORES_TENDENCIA_PDF.length];
+            return `
+          <tr>
+            <td class="celda-fuerte" style="${series.length > 1 ? `color:${color};` : ''}">${escapeHtml(s === 'TOTAL' ? 'Total' : s)}</td>
+            ${datos
+              .map((d) => {
+                const v = d[s];
+                return `<td>${v !== null && v !== undefined ? `${v}${sufijo}` : '—'}</td>`;
+              })
+              .join('')}
+          </tr>`;
+          })
+          .join('')}
+      </tbody>
+    </table>`;
+}
+
 export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
   const fecha = new Date().toLocaleString('es-MX');
   const win = window.open('', '_blank');
@@ -2020,15 +2060,18 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
           <div>
             <div class="aclaracion">Total</div>
             ${multiLineChartHtml(data.tendencias.efectividadTotal.datos, data.tendencias.efectividadTotal.series)}
+            ${tablaTendenciaHtml(data.tendencias.efectividadTotal.datos, data.tendencias.efectividadTotal.series)}
           </div>
           <div>
             <div class="aclaracion">Por Cliente (Top ${data.tendencias.efectividadCliente.series.length})</div>
             ${multiLineChartHtml(data.tendencias.efectividadCliente.datos, data.tendencias.efectividadCliente.series)}
+            ${tablaTendenciaHtml(data.tendencias.efectividadCliente.datos, data.tendencias.efectividadCliente.series)}
           </div>
         </div>
         <div style="margin-top:10px;">
           <div class="aclaracion">Por Oficina (Top ${data.tendencias.efectividadOficina.series.length})</div>
           ${multiLineChartHtml(data.tendencias.efectividadOficina.datos, data.tendencias.efectividadOficina.series)}
+          ${tablaTendenciaHtml(data.tendencias.efectividadOficina.datos, data.tendencias.efectividadOficina.series)}
         </div>
       </div>
 
@@ -2038,15 +2081,18 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
           <div>
             <div class="aclaracion">Total</div>
             ${multiLineChartHtml(data.tendencias.temporalidadTotal.datos, data.tendencias.temporalidadTotal.series)}
+            ${tablaTendenciaHtml(data.tendencias.temporalidadTotal.datos, data.tendencias.temporalidadTotal.series)}
           </div>
           <div>
             <div class="aclaracion">Por Cliente (Top ${data.tendencias.temporalidadCliente.series.length})</div>
             ${multiLineChartHtml(data.tendencias.temporalidadCliente.datos, data.tendencias.temporalidadCliente.series)}
+            ${tablaTendenciaHtml(data.tendencias.temporalidadCliente.datos, data.tendencias.temporalidadCliente.series)}
           </div>
         </div>
         <div style="margin-top:10px;">
           <div class="aclaracion">Por Oficina (Top ${data.tendencias.temporalidadOficina.series.length})</div>
           ${multiLineChartHtml(data.tendencias.temporalidadOficina.datos, data.tendencias.temporalidadOficina.series)}
+          ${tablaTendenciaHtml(data.tendencias.temporalidadOficina.datos, data.tendencias.temporalidadOficina.series)}
         </div>
       </div>
 

@@ -75,6 +75,41 @@ function efectividadPorMes(guiasIn: Guia[]) {
 
 type VistaEfectividad = 'cliente' | 'oficina' | 'entidad' | 'region' | 'mes';
 
+const COLORES_TENDENCIA_TABLA = ['#1E3A8A', '#0B9B67', '#DC2626', '#B45309', '#7C3AED', '#0891B2'];
+
+// Tabla compacta debajo de cada gráfico de tendencia: cuando hay varias
+// líneas muy juntas (ej. varias oficinas todas entre 90-96%), el gráfico
+// solo no deja leer el valor exacto de cada mes — esta tabla sí.
+function TablaTendenciaMini({ datos, series }: { datos: { mes: string; [k: string]: string | number | null }[]; series: string[] }) {
+  if (datos.length < 2) return null;
+  return (
+    <div className="overflow-x-auto mt-2">
+      <table className="vg-table text-[10.5px]">
+        <thead>
+          <tr>
+            <th>{series.length > 1 ? 'Cliente / Oficina' : ''}</th>
+            {datos.map((d) => (
+              <th key={d.mes}>{formatearPeriodo(d.mes)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {series.map((s, i) => (
+            <tr key={s}>
+              <td className="font-semibold" style={series.length > 1 ? { color: COLORES_TENDENCIA_TABLA[i % COLORES_TENDENCIA_TABLA.length] } : undefined}>
+                {s === 'TOTAL' ? 'Total' : s}
+              </td>
+              {datos.map((d) => (
+                <td key={d.mes}>{d[s] !== null && d[s] !== undefined ? `${d[s]}%` : '—'}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   const [vista, setVista] = useState<VistaEfectividad>('oficina');
   const [vistaTemporalidad, setVistaTemporalidad] = useState<'cliente' | 'oficina' | 'entidad' | 'region'>('oficina');
@@ -482,6 +517,7 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
                   ))}
                 </LineChart>
               </ResponsiveContainer>
+              <TablaTendenciaMini datos={tendenciaEfectividad.datos} series={tendenciaEfectividad.series} />
             </div>
             <div>
               <div className="text-[11.5px] font-semibold text-[var(--vg-text2)] mb-2">Temporalidad — % Dentro de 15 Días</div>
@@ -507,6 +543,7 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
                   ))}
                 </LineChart>
               </ResponsiveContainer>
+              <TablaTendenciaMini datos={tendenciaTemporalidad.datos} series={tendenciaTemporalidad.series} />
             </div>
           </div>
           {vistaTendencia !== 'total' && (
