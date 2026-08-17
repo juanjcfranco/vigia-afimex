@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
 import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas, obtenerRegion, obtenerCiclo, ORDEN_CICLOS, FilaTemporalidad, temporalidadPorCampo, efectividadTemporalidadPorRegionOficina, tendenciaMensualPorCampo } from '@/lib/business-logic';
 import { BarChart, Bar, LineChart, Line, Legend, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -184,26 +184,61 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
 
   // ============================================================
   // Tendencias (líneas, no barras): Efectividad % y Temporalidad (% ≤15d)
-  // mes a mes, con un mismo selector Total/Cliente/Oficina para ambas
-  // — solo aplica si el corte cubre más de un mes.
+  // mes a mes, con un mismo selector Total/Cliente/Oficina/Entidad para
+  // ambas — solo aplica si el corte cubre más de un mes. El botón
+  // "Cliente" solo se muestra si hay más de un cliente en el corte (ver
+  // esMultiCliente más abajo) — con un solo cliente sería idéntico a Total.
+  //
+  // Además de "Total" (todos los meses disponibles), se puede elegir
+  // manualmente CUÁLES meses comparar (chips togglables) — por ejemplo,
+  // comparar solo mayo vs agosto sin junio/julio de por medio.
   // ============================================================
-  const [vistaTendencia, setVistaTendencia] = useState<'total' | 'cliente' | 'oficina'>('total');
-  const campoTendencia: Record<'total' | 'cliente' | 'oficina', keyof Guia | null> = {
+  const [vistaTendencia, setVistaTendencia] = useState<'total' | 'cliente' | 'oficina' | 'entidad'>('total');
+  const campoTendencia: Record<'total' | 'cliente' | 'oficina' | 'entidad', keyof Guia | null> = {
     total: null,
     cliente: 'cliente',
     oficina: 'oficina_destino',
+    entidad: 'entidad_destinatario',
   };
+
+  const mesesDisponibles = useMemo(() => {
+    const meses = new Set<string>();
+    guias.forEach((g) => {
+      if (esRetornoAmplio(g) || g.es_predoc || g.es_documentada) return;
+      const mes = (g.f_documentacion || '').slice(0, 7);
+      if (mes) meses.add(mes);
+    });
+    return [...meses].sort();
+  }, [guias]);
+
+  const [mesesSeleccionados, setMesesSeleccionados] = useState<string[]>([]);
+  useEffect(() => {
+    // Por default se seleccionan todos los meses disponibles — el usuario
+    // puede deseleccionar los que no quiera comparar.
+    setMesesSeleccionados(mesesDisponibles);
+  }, [mesesDisponibles]);
+
+  function toggleMesTendencia(mes: string) {
+    setMesesSeleccionados((prev) => (prev.includes(mes) ? prev.filter((m) => m !== mes) : [...prev, mes].sort()));
+  }
+
+  const guiasParaTendencia = useMemo(
+    () => guias.filter((g) => mesesSeleccionados.includes((g.f_documentacion || '').slice(0, 7))),
+    [guias, mesesSeleccionados]
+  );
+
   const tendenciaEfectividad = useMemo(
-    () => tendenciaMensualPorCampo(guias, campoTendencia[vistaTendencia], 'efectividad'),
-    [guias, vistaTendencia]
+    () => tendenciaMensualPorCampo(guiasParaTendencia, campoTendencia[vistaTendencia], 'efectividad'),
+    [guiasParaTendencia, vistaTendencia]
   );
   const tendenciaTemporalidad = useMemo(
-    () => tendenciaMensualPorCampo(guias, campoTendencia[vistaTendencia], 'temporalidad'),
-    [guias, vistaTendencia]
+    () => tendenciaMensualPorCampo(guiasParaTendencia, campoTendencia[vistaTendencia], 'temporalidad'),
+    [guiasParaTendencia, vistaTendencia]
   );
-  const hayVariosMeses = tendenciaEfectividad.datos.length > 1;
+  // La sección se muestra si HAY más de un mes disponible para elegir,
+  // independientemente de cuántos estén seleccionados en este momento.
+  const hayVariosMeses = mesesDisponibles.length > 1;
   const COLORES_TENDENCIA = ['#1E3A8A', '#0B9B67', '#DC2626', '#B45309', '#7C3AED', '#0891B2'];
-
   // Guías abiertas (en tránsito) agrupadas por Ciclo — ordenadas según el
   // pipeline operativo real (Entrada → Distribución → Recepción → Ruta →
   // Resguardo), no por volumen ni alfabético. Incluye desglose opcional
@@ -356,6 +391,12 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
     [guias]
   );
   const esMultiCliente = clientesDistintos.length > 1;
+  // Si el filtro global cambia y deja de haber varios clientes mientras
+  // "Cliente" estaba seleccionado en Tendencias, regresa a "Total" (el
+  // botón ya no se muestra, pero el estado podría quedar obsoleto).
+  useEffect(() => {
+    if (!esMultiCliente && vistaTendencia === 'cliente') setVistaTendencia('total');
+  }, [esMultiCliente, vistaTendencia]);
 
   // Plaza = entidad (mismo nivel de detalle que "Efectividad por Entidad"
   // en el módulo Geográfico). Se toman las top 8 entidades por volumen
@@ -446,12 +487,14 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
       // Resumen general de temporalidad para los KPIs del inicio.
       temporalidadGeneral: temporalidadPorCampo(guias, () => 'TOTAL')[0] ?? null,
       tendencias: {
-        efectividadTotal: tendenciaMensualPorCampo(guias, null, 'efectividad'),
-        efectividadCliente: tendenciaMensualPorCampo(guias, 'cliente', 'efectividad'),
-        efectividadOficina: tendenciaMensualPorCampo(guias, 'oficina_destino', 'efectividad'),
-        temporalidadTotal: tendenciaMensualPorCampo(guias, null, 'temporalidad'),
-        temporalidadCliente: tendenciaMensualPorCampo(guias, 'cliente', 'temporalidad'),
-        temporalidadOficina: tendenciaMensualPorCampo(guias, 'oficina_destino', 'temporalidad'),
+        efectividadTotal: tendenciaMensualPorCampo(guiasParaTendencia, null, 'efectividad'),
+        efectividadCliente: esMultiCliente ? tendenciaMensualPorCampo(guiasParaTendencia, 'cliente', 'efectividad') : null,
+        efectividadOficina: tendenciaMensualPorCampo(guiasParaTendencia, 'oficina_destino', 'efectividad'),
+        efectividadEntidad: tendenciaMensualPorCampo(guiasParaTendencia, 'entidad_destinatario', 'efectividad'),
+        temporalidadTotal: tendenciaMensualPorCampo(guiasParaTendencia, null, 'temporalidad'),
+        temporalidadCliente: esMultiCliente ? tendenciaMensualPorCampo(guiasParaTendencia, 'cliente', 'temporalidad') : null,
+        temporalidadOficina: tendenciaMensualPorCampo(guiasParaTendencia, 'oficina_destino', 'temporalidad'),
+        temporalidadEntidad: tendenciaMensualPorCampo(guiasParaTendencia, 'entidad_destinatario', 'temporalidad'),
       },
     });
   }
@@ -478,19 +521,55 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
               >
                 Total
               </button>
-              <button
-                onClick={() => setVistaTendencia('cliente')}
-                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${vistaTendencia === 'cliente' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
-              >
-                Cliente
-              </button>
+              {esMultiCliente && (
+                <button
+                  onClick={() => setVistaTendencia('cliente')}
+                  className={`text-[11.5px] font-semibold px-3 py-1 rounded ${vistaTendencia === 'cliente' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+                >
+                  Cliente
+                </button>
+              )}
               <button
                 onClick={() => setVistaTendencia('oficina')}
                 className={`text-[11.5px] font-semibold px-3 py-1 rounded ${vistaTendencia === 'oficina' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
               >
                 Oficina
               </button>
+              <button
+                onClick={() => setVistaTendencia('entidad')}
+                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${vistaTendencia === 'entidad' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+              >
+                Entidad
+              </button>
             </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap mb-4 pb-3 border-b border-[var(--vg-border)]">
+            <span className="text-[10.5px] font-semibold text-[var(--vg-text2)] mr-1">Comparar:</span>
+            {mesesDisponibles.map((mes) => {
+              const activo = mesesSeleccionados.includes(mes);
+              return (
+                <button
+                  key={mes}
+                  onClick={() => toggleMesTendencia(mes)}
+                  className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${
+                    activo
+                      ? 'bg-[var(--vg-blue)] text-white border-[var(--vg-blue)]'
+                      : 'bg-white text-[var(--vg-text3)] border-[var(--vg-border)]'
+                  }`}
+                >
+                  {formatearPeriodo(mes)}
+                </button>
+              );
+            })}
+            {mesesSeleccionados.length !== mesesDisponibles.length && (
+              <button
+                onClick={() => setMesesSeleccionados(mesesDisponibles)}
+                className="text-[10.5px] font-semibold text-[var(--vg-blue)] px-2 py-1"
+              >
+                Seleccionar todos
+              </button>
+            )}
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div>
