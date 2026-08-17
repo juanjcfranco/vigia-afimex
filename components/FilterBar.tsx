@@ -12,29 +12,34 @@ interface FilterBarProps {
   filtroClientes?: string[];
   filtroOficina: string;
   filtroEntidad: string;
-  filtroPeriodo: string;
+  filtroPeriodos: string[];
   filtroDia?: string;
   onClientes?: (v: string[]) => void;
   onOficina: (v: string) => void;
   onEntidad: (v: string) => void;
-  onPeriodo: (v: string) => void;
+  onPeriodos: (v: string[]) => void;
   onDia?: (v: string) => void;
   onLimpiar: () => void;
 }
 
-// Selector múltiple de cliente: un botón que abre un panel con checkboxes.
-// Vacío ('' / []) significa "todos los clientes", igual que antes.
-function SelectorClientes({
-  clientes,
+// Selector múltiple genérico: un botón que abre un panel con checkboxes.
+// Vacío ([]) significa "todos" (todas las opciones), sea cliente o periodo.
+function SelectorMultiple({
+  opciones,
   seleccionados,
   onChange,
+  etiquetaTodos,
+  formatearOpcion,
 }: {
-  clientes: string[];
+  opciones: string[];
   seleccionados: string[];
   onChange: (v: string[]) => void;
+  etiquetaTodos: string;
+  formatearOpcion?: (v: string) => string;
 }) {
   const [abierto, setAbierto] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const fmt = formatearOpcion || ((v: string) => v);
 
   useEffect(() => {
     function onClickFuera(e: MouseEvent) {
@@ -44,17 +49,17 @@ function SelectorClientes({
     return () => document.removeEventListener('mousedown', onClickFuera);
   }, []);
 
-  function toggle(cliente: string) {
-    if (seleccionados.includes(cliente)) onChange(seleccionados.filter((c) => c !== cliente));
-    else onChange([...seleccionados, cliente]);
+  function toggle(opcion: string) {
+    if (seleccionados.includes(opcion)) onChange(seleccionados.filter((c) => c !== opcion));
+    else onChange([...seleccionados, opcion]);
   }
 
   const etiqueta =
     seleccionados.length === 0
-      ? 'Todos los clientes'
+      ? etiquetaTodos
       : seleccionados.length === 1
-        ? seleccionados[0]
-        : `${seleccionados.length} clientes seleccionados`;
+        ? fmt(seleccionados[0])
+        : `${seleccionados.length} seleccionados`;
 
   return (
     <div className="relative" ref={ref}>
@@ -71,15 +76,15 @@ function SelectorClientes({
             onClick={() => onChange([])}
             className="w-full text-left px-3 py-1.5 text-[12px] font-semibold hover:bg-[var(--vg-bg)] border-b border-[var(--vg-border)]"
           >
-            {seleccionados.length === 0 ? '✓ ' : ''}Todos los clientes
+            {seleccionados.length === 0 ? '✓ ' : ''}{etiquetaTodos}
           </button>
-          {clientes.map((c) => (
+          {opciones.map((o) => (
             <label
-              key={c}
+              key={o}
               className="flex items-center gap-2 px-3 py-1.5 text-[12px] hover:bg-[var(--vg-bg)] cursor-pointer"
             >
-              <input type="checkbox" checked={seleccionados.includes(c)} onChange={() => toggle(c)} />
-              <span className="truncate">{c}</span>
+              <input type="checkbox" checked={seleccionados.includes(o)} onChange={() => toggle(o)} />
+              <span className="truncate">{fmt(o)}</span>
             </label>
           ))}
         </div>
@@ -97,12 +102,12 @@ export default function FilterBar({
   filtroClientes = [],
   filtroOficina,
   filtroEntidad,
-  filtroPeriodo,
+  filtroPeriodos,
   filtroDia = '',
   onClientes,
   onOficina,
   onEntidad,
-  onPeriodo,
+  onPeriodos,
   onDia,
   onLimpiar,
 }: FilterBarProps) {
@@ -110,20 +115,15 @@ export default function FilterBar({
     <div className="bg-white px-4 py-3 flex items-center gap-2.5 flex-wrap border-b border-[var(--vg-border)]">
       <span className="text-[12px] font-semibold text-[var(--vg-text2)]">🔍 Filtrar:</span>
       {periodos.length > 1 && (
-        <select
-          value={filtroPeriodo}
-          onChange={(e) => onPeriodo(e.target.value)}
-          className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
-        >
-          <option value="">Todos los periodos</option>
-          {periodos.map((p) => (
-            <option key={p} value={p}>
-              {formatearPeriodo(p)}
-            </option>
-          ))}
-        </select>
+        <SelectorMultiple
+          opciones={periodos}
+          seleccionados={filtroPeriodos}
+          onChange={onPeriodos}
+          etiquetaTodos="Todos los periodos"
+          formatearOpcion={formatearPeriodo}
+        />
       )}
-      {dias.length > 1 && onDia && (
+      {dias.length > 1 && onDia && filtroPeriodos.length === 1 && (
         <select
           value={filtroDia}
           onChange={(e) => onDia(e.target.value)}
@@ -138,7 +138,7 @@ export default function FilterBar({
         </select>
       )}
       {clientes.length > 1 && onClientes && (
-        <SelectorClientes clientes={clientes} seleccionados={filtroClientes} onChange={onClientes} />
+        <SelectorMultiple opciones={clientes} seleccionados={filtroClientes} onChange={onClientes} etiquetaTodos="Todos los clientes" />
       )}
       <select
         value={filtroOficina}
@@ -164,7 +164,7 @@ export default function FilterBar({
           </option>
         ))}
       </select>
-      {(filtroClientes.length > 0 || filtroOficina || filtroEntidad || filtroPeriodo || filtroDia) && (
+      {(filtroClientes.length > 0 || filtroOficina || filtroEntidad || filtroPeriodos.length > 0 || filtroDia) && (
         <button
           onClick={onLimpiar}
           className="text-[12px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 hover:bg-[var(--vg-bg)]"

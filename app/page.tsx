@@ -39,8 +39,8 @@ export default function Home() {
     setFiltroOficina,
     filtroEntidad,
     setFiltroEntidad,
-    filtroPeriodo,
-    setFiltroPeriodo,
+    filtroPeriodos,
+    setFiltroPeriodos,
     filtroDia,
     setFiltroDia,
     clientes,
@@ -82,18 +82,18 @@ export default function Home() {
           filtroClientes={filtroClientes}
           filtroOficina={filtroOficina}
           filtroEntidad={filtroEntidad}
-          filtroPeriodo={filtroPeriodo}
+          filtroPeriodos={filtroPeriodos}
           filtroDia={filtroDia}
           onClientes={setFiltroClientes}
           onOficina={setFiltroOficina}
           onEntidad={setFiltroEntidad}
-          onPeriodo={setFiltroPeriodo}
+          onPeriodos={setFiltroPeriodos}
           onDia={setFiltroDia}
           onLimpiar={() => {
             setFiltroClientes([]);
             setFiltroOficina('');
             setFiltroEntidad('');
-            setFiltroPeriodo('');
+            setFiltroPeriodos([]);
             setFiltroDia('');
           }}
         />

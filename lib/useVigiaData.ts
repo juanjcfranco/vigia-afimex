@@ -15,13 +15,13 @@ export function useVigiaData() {
   const [filtroClientes, setFiltroClientes] = useState<string[]>([]);
   const [filtroOficina, setFiltroOficina] = useState<string>('');
   const [filtroEntidad, setFiltroEntidad] = useState<string>('');
-  const [filtroPeriodo, setFiltroPeriodoState] = useState<string>('');
+  const [filtroPeriodos, setFiltroPeriodosState] = useState<string[]>([]);
   const [filtroDia, setFiltroDia] = useState<string>('');
 
-  // Al cambiar de periodo, se limpia el día seleccionado si ya no aplica
-  // (evita quedar con un día de un mes que dejó de estar filtrado).
-  const setFiltroPeriodo = useCallback((v: string) => {
-    setFiltroPeriodoState(v);
+  // Al cambiar de periodo(s), se limpia el día seleccionado si ya no
+  // aplica (evita quedar con un día de un mes que dejó de estar filtrado).
+  const setFiltroPeriodos = useCallback((v: string[]) => {
+    setFiltroPeriodosState(v);
     setFiltroDia('');
   }, []);
 
@@ -73,9 +73,9 @@ export function useVigiaData() {
       if (filtroClientes.length > 0 && !filtroClientes.includes(g.cliente || '')) return false;
       if (filtroOficina && g.oficina_destino !== filtroOficina) return false;
       if (filtroEntidad && g.entidad_destinatario !== filtroEntidad) return false;
-      if (filtroPeriodo) {
+      if (filtroPeriodos.length > 0) {
         const mes = (g.f_documentacion || '').slice(0, 7);
-        if (mes !== filtroPeriodo) return false;
+        if (!filtroPeriodos.includes(mes)) return false;
       }
       // "Hasta" el día seleccionado (corte acumulado dentro del periodo elegido),
       // no un match exacto de un solo día. Comparación lexicográfica válida
@@ -83,7 +83,7 @@ export function useVigiaData() {
       if (filtroDia && (!g.f_documentacion || g.f_documentacion > filtroDia)) return false;
       return true;
     });
-  }, [guias, filtroClientes, filtroOficina, filtroEntidad, filtroPeriodo, filtroDia]);
+  }, [guias, filtroClientes, filtroOficina, filtroEntidad, filtroPeriodos, filtroDia]);
 
   const clientes = useMemo(
     () => [...new Set(guias.map((g) => g.cliente).filter(Boolean))].sort() as string[],
@@ -105,14 +105,17 @@ export function useVigiaData() {
     [guias]
   );
   // Días (F_Documentacion completa) disponibles para el selector de día.
-  // Si hay un periodo (mes) seleccionado, se acota a ese mes; si no, se
-  // muestran todos los días detectados en la carga activa.
+  // Si hay periodo(s) seleccionados, se acota a esos meses; si no, se
+  // muestran todos los días detectados en la carga activa. El filtro de
+  // día solo tiene sentido claro ("hasta este día") cuando hay exactamente
+  // UN periodo seleccionado — con 0 o 2+ no se muestra el selector (ver
+  // FilterBar.tsx), pero igual se calculan los días del/los mes(es) activos.
   const dias = useMemo(() => {
-    const base = filtroPeriodo
-      ? guias.filter((g) => (g.f_documentacion || '').slice(0, 7) === filtroPeriodo)
+    const base = filtroPeriodos.length
+      ? guias.filter((g) => filtroPeriodos.includes((g.f_documentacion || '').slice(0, 7)))
       : guias;
     return [...new Set(base.map((g) => g.f_documentacion).filter(Boolean))].sort() as string[];
-  }, [guias, filtroPeriodo]);
+  }, [guias, filtroPeriodos]);
 
   const kpis = useMemo(() => {
     const total = guiasFiltradas.length;
@@ -183,8 +186,8 @@ export function useVigiaData() {
     setFiltroOficina,
     filtroEntidad,
     setFiltroEntidad,
-    filtroPeriodo,
-    setFiltroPeriodo,
+    filtroPeriodos,
+    setFiltroPeriodos,
     filtroDia,
     setFiltroDia,
     clientes,
