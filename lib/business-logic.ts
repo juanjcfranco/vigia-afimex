@@ -278,7 +278,54 @@ export interface FilaTemporalidad {
   total: number;
 }
 
-export function temporalidadDe(lista: Guia[]): Omit<FilaTemporalidad, 'key'> {
+// Índice guía→fila propia del retorno (es_retorno=true), construido del
+// set MÁS COMPLETO de guías disponible (antes de excluir retornos) — un
+// retorno casi siempre vive en una oficina distinta a la de la devolución
+// original, así que este mapa debe construirse UNA VEZ arriba y pasarse
+// hacia abajo, nunca reconstruirse desde un subconjunto ya filtrado por
+// oficina/región (se perdería la fila del retorno).
+export function construirRetornoPorGuia(guias: Guia[]): Map<string, Guia> {
+  const map = new Map<string, Guia>();
+  guias.forEach((g) => {
+    if (g.es_retorno && g.guia) map.set(g.guia, g);
+  });
+  return map;
+}
+
+// Fecha en la que se considera "resuelta" una devolución para efectos de
+// temporalidad: el ciclo real es Plataforma (guía original) → Entrega o
+// Devolución → Retorno. Si hay devolución, el reloj de los 15 días NO se
+// detiene ahí — sigue corriendo hasta que el RETORNO se entrega. Prioridad:
+// 1) Fila propia del retorno en este corte (es_retorno=true, vía
+//    retorno_guia) — si está entregada, su F_Confirmación/F_Entrega/
+//    Último Movimiento; si sigue abierta, HOY (mismo trato que cualquier
+//    guía abierta — el reloj sigue corriendo).
+// 2) Sin fila propia: usa el estado/fecha embebidos (retorno_estado /
+//    retorno_f_entrega — misma fuente que retornoEstaEntregado()).
+// 3) Sin ninguna confirmación de entrega del retorno: HOY (aún en
+//    proceso, no se excluye del cálculo).
+function fechaFinDevolucion(
+  g: Pick<Guia, 'retorno_guia' | 'retorno_estado' | 'retorno_f_entrega' | 'f_entrega' | 'f_historia'>,
+  retornoPorGuia: Map<string, Guia>,
+  hoyIso: string
+): string | null {
+  const filaRetornoPropia = g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined;
+  if (filaRetornoPropia) {
+    if (isEntregada(filaRetornoPropia.estado_guia)) {
+      return filaRetornoPropia.f_confirmacion || filaRetornoPropia.f_entrega || filaRetornoPropia.f_historia || hoyIso;
+    }
+    return hoyIso;
+  }
+  if ((g.retorno_estado || '').toUpperCase() === 'ENTREGADA') {
+    return g.retorno_f_entrega || g.f_entrega || g.f_historia || hoyIso;
+  }
+  return hoyIso;
+}
+
+export function temporalidadDe(
+  lista: Guia[],
+  retornoPorGuia: Map<string, Guia> = new Map()
+): Omit<FilaTemporalidad, 'key'> {
   const acc = {
     docPlataforma: [] as number[],
     plataformaRuta: [] as number[],
@@ -302,12 +349,14 @@ export function temporalidadDe(lista: Guia[]): Omit<FilaTemporalidad, 'key'> {
 
     // Fecha de referencia según el desenlace de la guía. Las que SIGUEN
     // ABIERTAS se miden contra HOY — el reloj sigue corriendo, no se
-    // excluyen del cálculo solo porque aún no se resuelven.
+    // excluyen del cálculo solo porque aún no se resuelven. Para
+    // devoluciones, el fin real del ciclo es cuando se entrega el RETORNO
+    // (ver fechaFinDevolucion), no la devolución en sí.
     let fechaFin: string | null;
     if (isEntregada(g.estado_guia)) {
       fechaFin = g.f_confirmacion;
     } else if (g.es_devolucion) {
-      fechaFin = g.f_entrega || g.f_historia;
+      fechaFin = fechaFinDevolucion(g, retornoPorGuia, hoyIso);
     } else {
       fechaFin = hoyIso;
     }
@@ -342,8 +391,10 @@ export function temporalidadDe(lista: Guia[]): Omit<FilaTemporalidad, 'key'> {
 // para que ambas tablas describan el mismo universo de guías.
 export function temporalidadPorCampo(
   guiasIn: Guia[],
-  campo: keyof Guia | ((g: Guia) => string | null)
+  campo: keyof Guia | ((g: Guia) => string | null),
+  retornoPorGuia?: Map<string, Guia>
 ): FilaTemporalidad[] {
+  const mapa = retornoPorGuia ?? construirRetornoPorGuia(guiasIn);
   const guias = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
   const grupos: Record<string, Guia[]> = {};
   guias.forEach((g) => {
@@ -352,7 +403,7 @@ export function temporalidadPorCampo(
     grupos[key].push(g);
   });
   return Object.entries(grupos)
-    .map(([key, lista]) => ({ key, ...temporalidadDe(lista) }))
+    .map(([key, lista]) => ({ key, ...temporalidadDe(lista, mapa) }))
     .sort((a, b) => b.total - a.total);
 }
 
@@ -370,18 +421,23 @@ export interface FilaEfectividadTemporalidad extends FilaTemporalidad {
   efectividad: number | null;
 }
 
-function efectividadYTemporalidadDe(lista: Guia[]): Omit<FilaEfectividadTemporalidad, 'key'> {
+function efectividadYTemporalidadDe(
+  lista: Guia[],
+  retornoPorGuia: Map<string, Guia> = new Map()
+): Omit<FilaEfectividadTemporalidad, 'key'> {
   const entregadas = lista.filter((g) => isEntregada(g.estado_guia)).length;
   const devoluciones = lista.filter((g) => g.es_devolucion).length;
   const abiertas = lista.filter((g) => isAbiertaPorEstado(g)).length;
   const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
-  return { entregadas, devoluciones, abiertas, efectividad, ...temporalidadDe(lista) };
+  return { entregadas, devoluciones, abiertas, efectividad, ...temporalidadDe(lista, retornoPorGuia) };
 }
 
 export function efectividadYTemporalidadPorCampo(
   guiasIn: Guia[],
-  campo: keyof Guia | ((g: Guia) => string | null)
+  campo: keyof Guia | ((g: Guia) => string | null),
+  retornoPorGuia?: Map<string, Guia>
 ): FilaEfectividadTemporalidad[] {
+  const mapa = retornoPorGuia ?? construirRetornoPorGuia(guiasIn);
   const guias = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
   const grupos: Record<string, Guia[]> = {};
   guias.forEach((g) => {
@@ -390,7 +446,7 @@ export function efectividadYTemporalidadPorCampo(
     grupos[key].push(g);
   });
   return Object.entries(grupos)
-    .map(([key, lista]) => ({ key, ...efectividadYTemporalidadDe(lista) }))
+    .map(([key, lista]) => ({ key, ...efectividadYTemporalidadDe(lista, mapa) }))
     .sort((a, b) => b.total - a.total);
 }
 
@@ -401,12 +457,18 @@ export interface FilaRegionOficina extends FilaEfectividadTemporalidad {
 }
 
 export function efectividadTemporalidadPorRegionOficina(guias: Guia[]): FilaRegionOficina[] {
-  const porRegion = efectividadYTemporalidadPorCampo(guias, (g) => obtenerRegion(g.oficina_destino));
+  // Se construye UNA vez, desde el set completo recibido, y se reutiliza
+  // en el desglose por oficina — de lo contrario, al filtrar por región
+  // antes de volver a llamar efectividadYTemporalidadPorCampo, se perdería
+  // la fila del retorno si vive en una región distinta.
+  const mapa = construirRetornoPorGuia(guias);
+  const porRegion = efectividadYTemporalidadPorCampo(guias, (g) => obtenerRegion(g.oficina_destino), mapa);
   return porRegion.map((r) => ({
     ...r,
     oficinas: efectividadYTemporalidadPorCampo(
       guias.filter((g) => obtenerRegion(g.oficina_destino) === r.key),
-      'oficina_destino'
+      'oficina_destino',
+      mapa
     ),
   }));
 }
@@ -423,14 +485,18 @@ export interface PuntoTendencia {
   [serie: string]: string | number | null;
 }
 
-function valorMetricaTendencia(lista: Guia[], metrica: 'efectividad' | 'temporalidad'): number | null {
+function valorMetricaTendencia(
+  lista: Guia[],
+  metrica: 'efectividad' | 'temporalidad',
+  retornoPorGuia: Map<string, Guia>
+): number | null {
   if (metrica === 'efectividad') {
     const entregadas = lista.filter((g) => isEntregada(g.estado_guia)).length;
     const devoluciones = lista.filter((g) => g.es_devolucion).length;
     const abiertas = lista.filter((g) => isAbiertaPorEstado(g)).length;
     return calcularEfectividad(entregadas, devoluciones, abiertas);
   }
-  return temporalidadDe(lista).pctVerde;
+  return temporalidadDe(lista, retornoPorGuia).pctVerde;
 }
 
 export function tendenciaMensualPorCampo(
@@ -439,6 +505,10 @@ export function tendenciaMensualPorCampo(
   metrica: 'efectividad' | 'temporalidad',
   topN = 6
 ): { datos: PuntoTendencia[]; series: string[] } {
+  // Se construye del set COMPLETO recibido (antes de excluir retornos),
+  // para que la fila propia del retorno se pueda encontrar aunque caiga
+  // en un mes u oficina distinta a la de su devolución original.
+  const retornoPorGuia = construirRetornoPorGuia(guiasIn);
   const guias = guiasIn.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
 
   const porMes: Record<string, Guia[]> = {};
@@ -451,7 +521,7 @@ export function tendenciaMensualPorCampo(
   const meses = Object.keys(porMes).sort();
 
   if (!campo) {
-    const datos: PuntoTendencia[] = meses.map((mes) => ({ mes, TOTAL: valorMetricaTendencia(porMes[mes], metrica) }));
+    const datos: PuntoTendencia[] = meses.map((mes) => ({ mes, TOTAL: valorMetricaTendencia(porMes[mes], metrica, retornoPorGuia) }));
     return { datos, series: ['TOTAL'] };
   }
 
@@ -474,7 +544,7 @@ export function tendenciaMensualPorCampo(
     const listaMes = porMes[mes];
     topGrupos.forEach((grupo) => {
       const sub = listaMes.filter((g) => valorCampo(g) === grupo);
-      punto[grupo] = sub.length ? valorMetricaTendencia(sub, metrica) : null;
+      punto[grupo] = sub.length ? valorMetricaTendencia(sub, metrica, retornoPorGuia) : null;
     });
     return punto;
   });
