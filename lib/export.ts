@@ -1769,6 +1769,7 @@ export interface EfectividadExportData {
   cliente: string;
   periodoTexto: string;
   totalGuias: number;
+  totalProcesadas: number;
   entregadas: number;
   devoluciones: number;
   abiertas: number;
@@ -1995,6 +1996,10 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
       </div>
 
       <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">Guías Procesadas</div>
+          <div class="kpi-value" style="color:#1E3A8A;">${data.totalProcesadas.toLocaleString('es-MX')}</div>
+        </div>
         <div class="kpi-card">
           <div class="kpi-label">Entregadas</div>
           <div class="kpi-value" style="color:#0B9B67;">${data.entregadas.toLocaleString('es-MX')}</div>

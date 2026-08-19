@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas, obtenerRegion, obtenerCiclo, ORDEN_CICLOS, FilaTemporalidad, temporalidadPorCampo, efectividadTemporalidadPorRegionOficina, tendenciaMensualPorCampo } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, esGuiaOriginal, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas, obtenerRegion, obtenerCiclo, ORDEN_CICLOS, FilaTemporalidad, temporalidadPorCampo, efectividadTemporalidadPorRegionOficina, tendenciaMensualPorCampo } from '@/lib/business-logic';
 import { BarChart, Bar, LineChart, Line, Legend, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { exportToExcel, exportToPDF, exportEfectividadPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
@@ -118,6 +118,12 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   // misma función (temporalidadPorCampo) que usan las tablas por Cliente/
   // Oficina/Entidad/Región más abajo, agrupando todo en un solo total.
   const temporalidadResumenGeneral = useMemo(() => temporalidadPorCampo(guias, () => 'TOTAL')[0] ?? null, [guias]);
+
+  // "Guías Procesadas" = entregadas + devoluciones + abiertas (excluye
+  // predoc, documentadas, canceladas y retornos) — misma definición y
+  // misma función (esGuiaOriginal) que usa el KPI principal de Resumen,
+  // para que ambos números cuadren entre módulos.
+  const totalProcesadas = useMemo(() => guias.filter(esGuiaOriginal).length, [guias]);
   const [vistaTemporalidad, setVistaTemporalidad] = useState<'cliente' | 'oficina' | 'entidad' | 'region'>('oficina');
 
   const campoTemporalidad: Record<'cliente' | 'oficina' | 'entidad' | 'region', keyof Guia | ((g: Guia) => string | null)> = {
@@ -479,6 +485,7 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
       cliente: clienteTexto,
       periodoTexto,
       totalGuias: guias.length,
+      totalProcesadas,
       entregadas: general.entregadas,
       devoluciones: general.devoluciones,
       abiertas: general.abiertas,
@@ -528,7 +535,13 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <KpiCard
+          title="Guías Procesadas"
+          value={totalProcesadas.toLocaleString('es-MX')}
+          subtitle="Entregadas + devoluciones + abiertas (no incluye predoc, documentadas, canceladas ni retornos)"
+          accentColor="#1E3A8A"
+        />
         <KpiCard
           title="% Dentro de 15 Días"
           value={temporalidadResumenGeneral?.pctVerde != null ? `${temporalidadResumenGeneral.pctVerde}%` : '—'}
