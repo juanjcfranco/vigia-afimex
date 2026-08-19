@@ -1310,6 +1310,11 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
             value: data.temporalidadGeneral.pctVerde !== null ? `${data.temporalidadGeneral.pctVerde}%` : '—',
             color: colorEfectividadInforme(data.temporalidadGeneral.pctVerde),
           },
+          {
+            label: 'Promedio Vida (Plataf.→Entrega/Retorno)',
+            value: data.temporalidadGeneral.promedioVidaDias !== null ? `${data.temporalidadGeneral.promedioVidaDias}d` : '—',
+            color: '#0891B2',
+          },
         ]
       : []),
   ]
@@ -1767,6 +1772,9 @@ export interface EfectividadExportData {
   entregadas: number;
   devoluciones: number;
   abiertas: number;
+  predocumentadas: number;
+  documentadas: number;
+  canceladas: number;
   efectividadGeneral: number | null;
   topExcepciones: Array<{ key: string; count: number }>;
   totalConExcepcion: number;
@@ -2000,6 +2008,18 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
           <div class="kpi-value" style="color:#EA7C1A;">${data.abiertas.toLocaleString('es-MX')}</div>
         </div>
         <div class="kpi-card">
+          <div class="kpi-label">Pre-Documentadas</div>
+          <div class="kpi-value" style="color:#0891B2;">${data.predocumentadas.toLocaleString('es-MX')}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Documentadas</div>
+          <div class="kpi-value" style="color:#0891B2;">${data.documentadas.toLocaleString('es-MX')}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Canceladas</div>
+          <div class="kpi-value" style="color:#64748B;">${data.canceladas.toLocaleString('es-MX')}</div>
+        </div>
+        <div class="kpi-card">
           <div class="kpi-label">Efectividad General</div>
           <div class="kpi-value" style="color:${
             data.efectividadGeneral === null
@@ -2041,6 +2061,10 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
                   ? '#EA7C1A'
                   : '#DC2626'
           };">${data.temporalidadGeneral.pctVerde !== null ? `${data.temporalidadGeneral.pctVerde}%` : '—'}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Promedio Vida (Plataf.→Entrega/Retorno)</div>
+          <div class="kpi-value" style="color:#0891B2;">${data.temporalidadGeneral.promedioVidaDias !== null ? `${data.temporalidadGeneral.promedioVidaDias}d` : '—'}</div>
         </div>`
             : ''
         }

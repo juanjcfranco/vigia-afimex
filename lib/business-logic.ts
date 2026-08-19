@@ -275,6 +275,11 @@ export interface FilaTemporalidad {
   rojo: number;
   sinDato: number;
   pctVerde: number | null;
+  // Promedio (en días) de la "vida" real de la guía: Plataforma → entrega
+  // (Confirmación) o, si fue devolución, entrega del RETORNO — o HOY si
+  // sigue abierta. Es el compañero numérico de pctVerde (mismo dato de
+  // base, expresado como promedio en vez de % dentro del límite de 15d).
+  promedioVidaDias: number | null;
   total: number;
 }
 
@@ -335,6 +340,7 @@ export function temporalidadDe(
   let verde = 0;
   let rojo = 0;
   let sinDato = 0;
+  const vidaDias: number[] = [];
   const hoyIso = new Date().toISOString().slice(0, 10);
 
   lista.forEach((g) => {
@@ -361,9 +367,13 @@ export function temporalidadDe(
       fechaFin = hoyIso;
     }
     const vida = diasEntreFechas(g.fecha_plataforma, fechaFin);
-    if (vida === null) sinDato++;
-    else if (vida <= 15) verde++;
-    else rojo++;
+    if (vida === null) {
+      sinDato++;
+    } else {
+      vidaDias.push(vida);
+      if (vida <= 15) verde++;
+      else rojo++;
+    }
   });
 
   const promedio = (arr: number[]): number | null =>
@@ -383,6 +393,7 @@ export function temporalidadDe(
     rojo,
     sinDato,
     pctVerde: totalClasificadas ? Number(((verde / totalClasificadas) * 100).toFixed(1)) : null,
+    promedioVidaDias: promedio(vidaDias),
     total: lista.length,
   };
 }
@@ -1146,7 +1157,7 @@ export interface TiempoPromedioEntrega {
 }
 
 // Calcula el tiempo promedio (y mediana) de entrega, en días, desde
-// F_Documentacion. Incluye DOS grupos de guías (ninguna de las dos es
+// Fecha Plataforma. Incluye DOS grupos de guías (ninguna de las dos es
 // retorno ni predoc, en ningún caso):
 //
 // 1. Entregadas: días hasta F_Confirmacion (tiempo real ya conocido).
@@ -1170,7 +1181,7 @@ export function calcularTiempoPromedioEntrega(
     | 'es_retorno'
     | 'es_posible_retorno_otro_periodo'
     | 'es_devolucion'
-    | 'f_documentacion'
+    | 'fecha_plataforma'
     | 'f_confirmacion'
     | 'oficina_destino'
   >[]
@@ -1186,7 +1197,7 @@ export function calcularTiempoPromedioEntrega(
     if (g.es_predoc || g.es_documentada || esRetornoAmplio(g)) return;
 
     if (isEntregada(g.estado_guia)) {
-      const dias = diasEntreFechas(g.f_documentacion, g.f_confirmacion);
+      const dias = diasEntreFechas(g.fecha_plataforma, g.f_confirmacion);
       if (dias !== null) diasEntregadas.push(dias);
       return;
     }
@@ -1196,7 +1207,7 @@ export function calcularTiempoPromedioEntrega(
     if (g.es_devolucion || isCancelada(g.estado_guia)) return;
 
     // El resto son guías abiertas: se mide contra hoy.
-    const dias = diasEntreFechas(g.f_documentacion, hoyIso);
+    const dias = diasEntreFechas(g.fecha_plataforma, hoyIso);
     if (dias !== null) diasAbiertas.push(dias);
   });
 

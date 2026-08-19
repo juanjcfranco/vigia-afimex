@@ -8,6 +8,7 @@ import { exportToExcel, exportToPDF, exportEfectividadPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
+import KpiCard from '@/components/KpiCard';
 
 interface FilaEfectividad {
   key: string;
@@ -112,6 +113,11 @@ function TablaTendenciaMini({ datos, series }: { datos: { mes: string; [k: strin
 
 export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   const [vista, setVista] = useState<VistaEfectividad>('oficina');
+
+  // Resumen general de temporalidad para el KPI del inicio del módulo —
+  // misma función (temporalidadPorCampo) que usan las tablas por Cliente/
+  // Oficina/Entidad/Región más abajo, agrupando todo en un solo total.
+  const temporalidadResumenGeneral = useMemo(() => temporalidadPorCampo(guias, () => 'TOTAL')[0] ?? null, [guias]);
   const [vistaTemporalidad, setVistaTemporalidad] = useState<'cliente' | 'oficina' | 'entidad' | 'region'>('oficina');
 
   const campoTemporalidad: Record<'cliente' | 'oficina' | 'entidad' | 'region', keyof Guia | ((g: Guia) => string | null)> = {
@@ -460,6 +466,15 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
     const excGeneral = calcularResumenExcepciones(guias, 10);
     const devGeneral = calcularResumenDevoluciones(guias, 10);
 
+    // Predoc/Documentadas/Canceladas se cuentan directo de TODAS las
+    // guías (no de `base`, que ya las excluye) — mismo criterio que usa
+    // el módulo Resumen para su KPI de "Canceladas".
+    const predocumentadas = guias.filter((g) => g.es_predoc).length;
+    const documentadas = guias.filter((g) => g.es_documentada).length;
+    const canceladas = guias.filter(
+      (g) => isCancelada(g.estado_guia) && !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada
+    ).length;
+
     exportEfectividadPDF({
       cliente: clienteTexto,
       periodoTexto,
@@ -467,6 +482,9 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
       entregadas: general.entregadas,
       devoluciones: general.devoluciones,
       abiertas: general.abiertas,
+      predocumentadas,
+      documentadas,
+      canceladas,
       efectividadGeneral: general.efectividad,
       topExcepciones: excGeneral.porTipo,
       totalConExcepcion: excGeneral.total,
@@ -485,7 +503,7 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
       // Temporalidad por Cliente — tabla independiente.
       temporalidadPorCliente: temporalidadPorCampo(guias, 'cliente'),
       // Resumen general de temporalidad para los KPIs del inicio.
-      temporalidadGeneral: temporalidadPorCampo(guias, () => 'TOTAL')[0] ?? null,
+      temporalidadGeneral: temporalidadResumenGeneral,
       tendencias: {
         efectividadTotal: tendenciaMensualPorCampo(guiasParaTendencia, null, 'efectividad'),
         efectividadCliente: esMultiCliente ? tendenciaMensualPorCampo(guiasParaTendencia, 'cliente', 'efectividad') : null,
@@ -508,6 +526,37 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
         >
           📄 Exportar Reporte de Efectividad (PDF)
         </button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard
+          title="% Dentro de 15 Días"
+          value={temporalidadResumenGeneral?.pctVerde != null ? `${temporalidadResumenGeneral.pctVerde}%` : '—'}
+          subtitle="Plataforma → entrega o retorno"
+          accentColor={
+            temporalidadResumenGeneral?.pctVerde == null
+              ? '#94A3B8'
+              : colorEfectividad(temporalidadResumenGeneral.pctVerde)
+          }
+        />
+        <KpiCard
+          title="Promedio Vida (Plataf. → Entrega/Retorno)"
+          value={temporalidadResumenGeneral?.promedioVidaDias != null ? `${temporalidadResumenGeneral.promedioVidaDias}d` : '—'}
+          subtitle="Entregadas: F_Confirmación · Devoluciones: entrega del retorno · Abiertas: hoy"
+          accentColor="#0891B2"
+        />
+        <KpiCard
+          title="Plataforma → 1ra Ruta"
+          value={temporalidadResumenGeneral?.plataformaRuta != null ? `${temporalidadResumenGeneral.plataformaRuta}d` : '—'}
+          subtitle="Promedio"
+          accentColor="#0B9B67"
+        />
+        <KpiCard
+          title="Doc. → Plataforma"
+          value={temporalidadResumenGeneral?.docPlataforma != null ? `${temporalidadResumenGeneral.docPlataforma}d` : '—'}
+          subtitle="Promedio"
+          accentColor="#1E3A8A"
+        />
       </div>
 
       {hayVariosMeses && (
