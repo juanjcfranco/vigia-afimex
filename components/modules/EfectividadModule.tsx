@@ -528,7 +528,7 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <KpiCard
           title="% Dentro de 15 Días"
           value={temporalidadResumenGeneral?.pctVerde != null ? `${temporalidadResumenGeneral.pctVerde}%` : '—'}
@@ -544,6 +544,12 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
           value={temporalidadResumenGeneral?.promedioVidaDias != null ? `${temporalidadResumenGeneral.promedioVidaDias}d` : '—'}
           subtitle="Entregadas: F_Confirmación · Devoluciones: entrega del retorno · Abiertas: hoy"
           accentColor="#0891B2"
+        />
+        <KpiCard
+          title="Plataforma → Confirmación"
+          value={temporalidadResumenGeneral?.plataformaConfirmacion != null ? `${temporalidadResumenGeneral.plataformaConfirmacion}d` : '—'}
+          subtitle="Entregadas: F_Confirmación · Abiertas: hoy"
+          accentColor="#7C3AED"
         />
         <KpiCard
           title="Plataforma → 1ra Ruta"

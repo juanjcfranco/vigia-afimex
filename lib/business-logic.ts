@@ -350,7 +350,19 @@ export function temporalidadDe(
     if (b !== null) acc.plataformaRuta.push(b);
     const c = diasEntreFechas(g.recibido_oficina, g.primera_ruta);
     if (c !== null) acc.recibofRuta.push(c);
-    const d = diasEntreFechas(g.fecha_plataforma, g.f_confirmacion);
+    // "Plataforma → Confirmación": entregadas usan su F_Confirmación;
+    // abiertas (sin contar devoluciones, que tienen su propia métrica vía
+    // el retorno) se miden contra HOY — el reloj sigue corriendo mientras
+    // no se resuelven, igual que el resto de las métricas de este archivo.
+    let fechaConfirmacionOAbierta: string | null;
+    if (isEntregada(g.estado_guia)) {
+      fechaConfirmacionOAbierta = g.f_confirmacion;
+    } else if (g.es_devolucion) {
+      fechaConfirmacionOAbierta = null;
+    } else {
+      fechaConfirmacionOAbierta = hoyIso;
+    }
+    const d = diasEntreFechas(g.fecha_plataforma, fechaConfirmacionOAbierta);
     if (d !== null) acc.plataformaConfirmacion.push(d);
 
     // Fecha de referencia según el desenlace de la guía. Las que SIGUEN

@@ -149,91 +149,17 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     };
   }, [guias, retornoPorGuia, guiasOriginales]);
 
-  // Promedio de días en cada etapa de temporalidad, sobre Guías Procesadas
-  // (guiasOriginales) para cuadrar con la métrica principal de volumen.
-  const promedioEtapas = useMemo(() => {
-    const acc = {
-      docPlataforma: [] as number[],
-      plataformaRuta: [] as number[],
-      recibofRuta: [] as number[],
-      plataformaConfirmacion: [] as number[],
-    };
-    guiasOriginales.forEach((g) => {
-      const a = diasEntreFechas(g.f_documentacion, g.fecha_plataforma);
-      if (a !== null) acc.docPlataforma.push(a);
-      const b = diasEntreFechas(g.fecha_plataforma, g.primera_ruta);
-      if (b !== null) acc.plataformaRuta.push(b);
-      const c = diasEntreFechas(g.recibido_oficina, g.primera_ruta);
-      if (c !== null) acc.recibofRuta.push(c);
-      const d = diasEntreFechas(g.fecha_plataforma, g.f_confirmacion);
-      if (d !== null) acc.plataformaConfirmacion.push(d);
-    });
-    const promedio = (arr: number[]): number | null =>
-      arr.length ? Number((arr.reduce((s, v) => s + v, 0) / arr.length).toFixed(1)) : null;
-    return {
-      docPlataforma: promedio(acc.docPlataforma),
-      nDocPlataforma: acc.docPlataforma.length,
-      plataformaRuta: promedio(acc.plataformaRuta),
-      nPlataformaRuta: acc.plataformaRuta.length,
-      recibofRuta: promedio(acc.recibofRuta),
-      nRecibofRuta: acc.recibofRuta.length,
-      plataformaConfirmacion: promedio(acc.plataformaConfirmacion),
-      nPlataformaConfirmacion: acc.plataformaConfirmacion.length,
-    };
-  }, [guiasOriginales]);
-
-  // Semáforo de "vida de la guía": días desde Fecha Plataforma hasta que
-  // se RESOLVIÓ (entregada → F_Confirmacion; devolución → F_Entrega o,
-  // si falta, F_Historia). Máximo aceptable: 15 días.
-  //
-  // - Verde: resuelta (entregada o devuelta) en 15 días o menos.
-  // - Rojo: resuelta, pero tardó más de 15 días.
-  // - Ámbar: TODAVÍA ABIERTA y ya lleva más de 15 días desde Plataforma
-  //   sin resolverse — no es parte de la definición original (esa solo
-  //   mide resueltas), pero se muestra aparte como alerta temprana de
-  //   guías en riesgo de incumplir este mismo límite.
-  // - Sin dato: resuelta pero falta Fecha Plataforma o la fecha de
-  //   resolución correspondiente — no se puede clasificar.
-  const semaforoVida = useMemo(() => {
-    let verde = 0;
-    let rojo = 0;
-    let sinDato = 0;
-    const hoyIso = new Date().toISOString().slice(0, 10);
-
-    guiasOriginales.forEach((g) => {
-      // Fecha de referencia según el desenlace de la guía. Para las que
-      // SIGUEN ABIERTAS, la referencia es HOY — el reloj sigue corriendo,
-      // no se excluyen del cálculo solo porque aún no se resuelven. Esto
-      // es clave: una guía abierta con 20 días desde Plataforma ya está
-      // fuera de tiempo HOY, aunque termine bien entregada después.
-      let fechaFin: string | null;
-      if (isEntregada(g.estado_guia)) {
-        fechaFin = g.f_confirmacion;
-      } else if (g.es_devolucion) {
-        fechaFin = g.f_entrega || g.f_historia;
-      } else {
-        fechaFin = hoyIso;
-      }
-
-      const vida = diasEntreFechas(g.fecha_plataforma, fechaFin);
-      if (vida === null) {
-        sinDato++;
-      } else if (vida <= 15) {
-        verde++;
-      } else {
-        rojo++;
-      }
-    });
-
-    const totalClasificadas = verde + rojo;
-    return {
-      verde,
-      rojo,
-      sinDato,
-      totalClasificadas,
-      pctVerde: totalClasificadas ? Number(((verde / totalClasificadas) * 100).toFixed(1)) : null,
-    };
-  }, [guiasOriginales]);
+  // Temporalidad general del corte, sobre Guías Procesadas (guiasOriginales)
+  // para cuadrar con la métrica principal de volumen. Usa temporalidadPorCampo
+  // (business-logic.ts) — la misma función que Efectividad — pasándole
+  // explícitamente retornoPorGuia (construido arriba desde el set COMPLETO),
+  // porque guiasOriginales ya excluye las filas de retorno y, sin este mapa,
+  // temporalidadPorCampo no podría encontrarlas para vincular la devolución
+  // con la entrega de su retorno.
+  const resumenTemporalidad = useMemo(
+    () => temporalidadPorCampo(guiasOriginales, () => 'TOTAL', retornoPorGuia)[0] ?? null,
+    [guiasOriginales, retornoPorGuia]
+  );
 
   const estados = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -520,7 +446,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       totalExcepcionesOperacion,
       temporalidadPorRegion,
       temporalidadPorCliente: temporalidadPorCampo(guias, 'cliente'),
-      temporalidadGeneral: temporalidadPorCampo(guias, () => 'TOTAL')[0] ?? null,
+      temporalidadGeneral: resumenTemporalidad,
     });
   }
 
@@ -585,16 +511,6 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
           accentColor={colorEfectividad(kpis.efectividad)}
         />
         <KpiCard
-          title="Tiempo Prom. de Entrega"
-          value={kpis.tiempoEntrega.promedioDias !== null ? `${kpis.tiempoEntrega.promedioDias} días` : '—'}
-          subtitle={
-            kpis.tiempoEntrega.muestras
-              ? `Mediana: ${kpis.tiempoEntrega.medianaDias} días · Entregadas: ${kpis.tiempoEntrega.muestrasEntregadas.toLocaleString('es-MX')} · Abiertas (a hoy): ${kpis.tiempoEntrega.muestrasAbiertas.toLocaleString('es-MX')}`
-              : 'Sin datos suficientes'
-          }
-          accentColor="#0891B2"
-        />
-        <KpiCard
           title="Pre-Documentadas"
           value={kpis.predoc.toLocaleString('es-MX')}
           subtitle="Fuera de indicadores"
@@ -616,49 +532,55 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
 
       <div>
         <div className="font-bold text-[13px] mb-2">Temporalidad (sobre Guías Procesadas)</div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <KpiCard
             title="Documentación → Plataforma"
-            value={promedioEtapas.docPlataforma !== null ? `${promedioEtapas.docPlataforma}d` : '—'}
-            subtitle={`Promedio · ${promedioEtapas.nDocPlataforma.toLocaleString('es-MX')} guía(s) con dato`}
+            value={resumenTemporalidad?.docPlataforma != null ? `${resumenTemporalidad.docPlataforma}d` : '—'}
+            subtitle={`Promedio · ${(resumenTemporalidad?.nDocPlataforma ?? 0).toLocaleString('es-MX')} guía(s) con dato`}
             accentColor="#1E3A8A"
           />
           <KpiCard
             title="Plataforma → Primera Ruta"
-            value={promedioEtapas.plataformaRuta !== null ? `${promedioEtapas.plataformaRuta}d` : '—'}
-            subtitle={`Promedio · ${promedioEtapas.nPlataformaRuta.toLocaleString('es-MX')} guía(s) con dato`}
+            value={resumenTemporalidad?.plataformaRuta != null ? `${resumenTemporalidad.plataformaRuta}d` : '—'}
+            subtitle={`Promedio · ${(resumenTemporalidad?.nPlataformaRuta ?? 0).toLocaleString('es-MX')} guía(s) con dato`}
             accentColor="#0B9B67"
           />
           <KpiCard
             title="Recibido Oficina → Primera Ruta"
-            value={promedioEtapas.recibofRuta !== null ? `${promedioEtapas.recibofRuta}d` : '—'}
-            subtitle={`Promedio · ${promedioEtapas.nRecibofRuta.toLocaleString('es-MX')} guía(s) con dato`}
+            value={resumenTemporalidad?.recibofRuta != null ? `${resumenTemporalidad.recibofRuta}d` : '—'}
+            subtitle={`Promedio · ${(resumenTemporalidad?.nRecibofRuta ?? 0).toLocaleString('es-MX')} guía(s) con dato`}
             accentColor="#B45309"
           />
           <KpiCard
-            title="Plataforma → Entrega (Confirmación)"
-            value={promedioEtapas.plataformaConfirmacion !== null ? `${promedioEtapas.plataformaConfirmacion}d` : '—'}
-            subtitle={`Promedio · ${promedioEtapas.nPlataformaConfirmacion.toLocaleString('es-MX')} guía(s) con dato`}
+            title="Plataforma → Confirmación"
+            value={resumenTemporalidad?.plataformaConfirmacion != null ? `${resumenTemporalidad.plataformaConfirmacion}d` : '—'}
+            subtitle={`Promedio · Entregadas: F_Confirmación · Abiertas: hoy · ${(resumenTemporalidad?.nPlataformaConfirmacion ?? 0).toLocaleString('es-MX')} guía(s) con dato`}
             accentColor="#7C3AED"
+          />
+          <KpiCard
+            title="Promedio Vida (Plataf. → Entrega/Retorno)"
+            value={resumenTemporalidad?.promedioVidaDias != null ? `${resumenTemporalidad.promedioVidaDias}d` : '—'}
+            subtitle={`Entregadas: F_Confirmación · Devoluciones: entrega del retorno · Abiertas: hoy`}
+            accentColor="#0891B2"
           />
         </div>
       </div>
 
       <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
         <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
-          <div className="font-bold text-[13px]">Semáforo: Vida de la Guía (Plataforma → Entrega o Devolución)</div>
-          <div className="text-[18px] font-extrabold" style={{ color: semaforoVida.pctVerde !== null ? colorEfectividad(semaforoVida.pctVerde) : '#9CA3AF' }}>
-            {semaforoVida.pctVerde !== null ? `${semaforoVida.pctVerde}%` : '—'} <span className="text-[11px] font-semibold text-[var(--vg-text2)]">dentro de 15 días</span>
+          <div className="font-bold text-[13px]">Semáforo: Vida de la Guía (Plataforma → Entrega o Retorno)</div>
+          <div className="text-[18px] font-extrabold" style={{ color: resumenTemporalidad?.pctVerde != null ? colorEfectividad(resumenTemporalidad.pctVerde) : '#9CA3AF' }}>
+            {resumenTemporalidad?.pctVerde != null ? `${resumenTemporalidad.pctVerde}%` : '—'} <span className="text-[11px] font-semibold text-[var(--vg-text2)]">dentro de 15 días</span>
           </div>
         </div>
         <div className="text-[11px] text-[var(--vg-text2)] mb-3">
-          Máximo aceptado: 15 días · Entregadas: Plataforma vs F_Confirmación · Devoluciones: Plataforma vs F_Entrega/Últ. Mov. · Abiertas: Plataforma vs HOY (sigue corriendo el reloj hasta que se resuelvan)
+          Máximo aceptado: 15 días · Entregadas: Plataforma vs F_Confirmación · Devoluciones: Plataforma vs entrega del RETORNO · Abiertas (incl. retornos abiertos): Plataforma vs HOY
         </div>
 
-        {semaforoVida.totalClasificadas > 0 && (
+        {resumenTemporalidad && resumenTemporalidad.verde + resumenTemporalidad.rojo > 0 && (
           <div className="w-full h-3 rounded-full overflow-hidden flex mb-3">
-            <div className="h-full bg-[#0B9B67]" style={{ width: `${(semaforoVida.verde / semaforoVida.totalClasificadas) * 100}%` }} />
-            <div className="h-full bg-[#DC2626]" style={{ width: `${(semaforoVida.rojo / semaforoVida.totalClasificadas) * 100}%` }} />
+            <div className="h-full bg-[#0B9B67]" style={{ width: `${(resumenTemporalidad.verde / (resumenTemporalidad.verde + resumenTemporalidad.rojo)) * 100}%` }} />
+            <div className="h-full bg-[#DC2626]" style={{ width: `${(resumenTemporalidad.rojo / (resumenTemporalidad.verde + resumenTemporalidad.rojo)) * 100}%` }} />
           </div>
         )}
 
@@ -668,21 +590,21 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
               <span className="w-2.5 h-2.5 rounded-full bg-[#0B9B67]" />
               <span className="text-[10.5px] font-bold text-[var(--vg-text2)]">Dentro de tiempo (≤15d)</span>
             </div>
-            <div className="text-[18px] font-extrabold text-[#0B9B67]">{semaforoVida.verde.toLocaleString('es-MX')}</div>
+            <div className="text-[18px] font-extrabold text-[#0B9B67]">{(resumenTemporalidad?.verde ?? 0).toLocaleString('es-MX')}</div>
           </div>
           <div className="border border-[var(--vg-border)] rounded-md px-3 py-2">
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-[#DC2626]" />
               <span className="text-[10.5px] font-bold text-[var(--vg-text2)]">Fuera de tiempo (&gt;15d)</span>
             </div>
-            <div className="text-[18px] font-extrabold text-[#DC2626]">{semaforoVida.rojo.toLocaleString('es-MX')}</div>
+            <div className="text-[18px] font-extrabold text-[#DC2626]">{(resumenTemporalidad?.rojo ?? 0).toLocaleString('es-MX')}</div>
           </div>
           <div className="border border-[var(--vg-border)] rounded-md px-3 py-2">
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-[#9CA3AF]" />
               <span className="text-[10.5px] font-bold text-[var(--vg-text2)]">Sin dato para clasificar</span>
             </div>
-            <div className="text-[18px] font-extrabold text-[#6B7280]">{semaforoVida.sinDato.toLocaleString('es-MX')}</div>
+            <div className="text-[18px] font-extrabold text-[#6B7280]">{(resumenTemporalidad?.sinDato ?? 0).toLocaleString('es-MX')}</div>
           </div>
         </div>
       </div>
