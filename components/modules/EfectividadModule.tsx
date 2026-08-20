@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, esGuiaOriginal, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas, obtenerRegion, obtenerCiclo, ORDEN_CICLOS, FilaTemporalidad, temporalidadPorCampo, efectividadTemporalidadPorRegionOficina, tendenciaMensualPorCampo } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, isEnRuta, colorEfectividad, calcularEfectividad, esRetornoAmplio, esGuiaOriginal, getExcepciones, topPorCampo, calcularResumenDevoluciones, calcularResumenExcepciones, formatearPeriodo, diasEntreFechas, obtenerRegion, obtenerCiclo, ORDEN_CICLOS, FilaTemporalidad, temporalidadPorCampo, temporalidadDe, construirRetornoPorGuia, efectividadTemporalidadPorRegionOficina, tendenciaMensualPorCampo } from '@/lib/business-logic';
 import { BarChart, Bar, LineChart, Line, Legend, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { exportToExcel, exportToPDF, exportEfectividadPDF } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
@@ -184,12 +184,26 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   }
   const oficinasPorRegion = useMemo(() => {
     if (vistaTemporalidad !== 'region') return {};
+    // Un solo recorrido del arreglo completo, agrupando por [región,
+    // oficina] a la vez — en vez de filtrar TODO el arreglo una vez por
+    // cada región (ese patrón repetido es lo que puede congelar la UI
+    // con datasets grandes al cambiar a la vista "Región").
+    const retornoPorGuia = construirRetornoPorGuia(guias);
+    const base = guias.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
+    const porRegionOficina: Record<string, Record<string, Guia[]>> = {};
+    base.forEach((g) => {
+      const region = obtenerRegion(g.oficina_destino);
+      const oficina = g.oficina_destino || 'SIN DATO';
+      if (!porRegionOficina[region]) porRegionOficina[region] = {};
+      if (!porRegionOficina[region][oficina]) porRegionOficina[region][oficina] = [];
+      porRegionOficina[region][oficina].push(g);
+    });
     const map: Record<string, FilaTemporalidad[]> = {};
     filasTemporalidad.forEach((f) => {
-      map[f.key] = temporalidadPorCampo(
-        guias.filter((g) => obtenerRegion(g.oficina_destino) === f.key),
-        'oficina_destino'
-      );
+      const grupos = porRegionOficina[f.key] || {};
+      map[f.key] = Object.entries(grupos)
+        .map(([key, lista]) => ({ key, ...temporalidadDe(lista, retornoPorGuia) }))
+        .sort((a, b) => b.total - a.total);
     });
     return map;
   }, [guias, vistaTemporalidad, filasTemporalidad]);
@@ -445,6 +459,24 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   }, [guias, esMultiCliente, clientesDistintos]);
 
   function generarReporteEfectividad() {
+    // Abre la ventana INMEDIATAMENTE (debe ser síncrono con el clic para
+    // que el navegador no lo bloquee como pop-up) con un mensaje de
+    // carga, y difiere todo el cálculo pesado (tabla Región→Oficina,
+    // 6 tendencias mensuales, etc.) a la siguiente tarea — así el clic en
+    // sí responde al instante en vez de congelar la pantalla mientras se
+    // hacen todos los cálculos.
+    const ventana = window.open('', '_blank');
+    if (!ventana) {
+      alert('Tu navegador bloqueó la ventana de impresión. Habilita pop-ups para este sitio.');
+      return;
+    }
+    ventana.document.write(
+      '<html><body style="font-family:Arial,sans-serif;padding:60px;color:#1E3A8A;text-align:center;"><h2>Generando Reporte de Efectividad…</h2><p style="color:#64748B;">Esto puede tardar unos segundos si el corte tiene muchas guías.</p></body></html>'
+    );
+    setTimeout(() => generarYEscribirReporteEfectividad(ventana), 0);
+  }
+
+  function generarYEscribirReporteEfectividad(ventana: Window) {
     const base = guias.filter((g) => !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada);
     const general = statsDe(base);
 
@@ -521,7 +553,7 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
         temporalidadOficina: tendenciaMensualPorCampo(guiasParaTendencia, 'oficina_destino', 'temporalidad'),
         temporalidadEntidad: tendenciaMensualPorCampo(guiasParaTendencia, 'entidad_destinatario', 'temporalidad'),
       },
-    });
+    }, ventana);
   }
 
   return (

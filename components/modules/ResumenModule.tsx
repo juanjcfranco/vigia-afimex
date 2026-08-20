@@ -293,6 +293,22 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
   });
 
   function generarInformeLogistico() {
+    // Igual que en Efectividad: abre la ventana INMEDIATAMENTE (debe ser
+    // síncrono con el clic para que el navegador no la bloquee como
+    // pop-up) con un mensaje de carga, y difiere el cálculo pesado del
+    // informe a la siguiente tarea — así el clic responde al instante.
+    const ventana = window.open('', '_blank');
+    if (!ventana) {
+      alert('Tu navegador bloqueó la ventana de impresión. Habilita pop-ups para este sitio.');
+      return;
+    }
+    ventana.document.write(
+      '<html><body style="font-family:Arial,sans-serif;padding:60px;color:#1E3A8A;text-align:center;"><h2>Generando Informe Logístico…</h2><p style="color:#64748B;">Esto puede tardar unos segundos si el corte tiene muchas guías.</p></body></html>'
+    );
+    setTimeout(() => generarYEscribirInformeLogistico(ventana), 0);
+  }
+
+  function generarYEscribirInformeLogistico(ventana: Window) {
     // Para el informe usamos un top 10 (más completo que el resumen de
     // 5 que se ve en pantalla), calculado fresco aquí mismo con las
     // mismas funciones compartidas del resto del sistema.
@@ -447,7 +463,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       temporalidadPorRegion,
       temporalidadPorCliente: temporalidadPorCampo(guias, 'cliente'),
       temporalidadGeneral: resumenTemporalidad,
-    });
+    }, ventana);
   }
 
   return (

@@ -1272,9 +1272,13 @@ function tablaTendenciaHtml(datos: PuntoTendencia[], series: string[], sufijo = 
     </table>`;
 }
 
-export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
+// `ventanaExistente`: si ya se abrió una ventana antes de calcular los
+// datos (para que el clic responda de inmediato con un "Generando…" en
+// vez de congelar la pantalla mientras se hace todo el cálculo pesado),
+// se reutiliza esa ventana en vez de abrir una nueva.
+export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExistente?: Window | null) {
   const fecha = new Date().toLocaleString('es-MX');
-  const win = window.open('', '_blank');
+  const win = ventanaExistente ?? window.open('', '_blank');
   if (!win) {
     alert('Tu navegador bloqueó la ventana de impresión. Habilita pop-ups para este sitio.');
     return;
@@ -1327,6 +1331,11 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData) {
     )
     .join('');
 
+  // Si la ventana ya tenía un placeholder de "Generando…" escrito (ver
+  // ResumenModule.tsx), hay que reabrir el documento explícitamente antes
+  // de escribir — de lo contrario, document.write() se ANEXA al contenido
+  // existente en vez de remplazarlo.
+  win.document.open();
   win.document.write(`
     <!DOCTYPE html>
     <html lang="es">
@@ -1816,8 +1825,10 @@ export interface EfectividadExportData {
   };
 }
 
-export function exportEfectividadPDF(data: EfectividadExportData) {
-  const win = window.open('', '_blank');
+// `ventanaExistente`: mismo propósito que en exportInformeLogisticoPDF —
+// reutiliza una ventana ya abierta para que el clic responda de inmediato.
+export function exportEfectividadPDF(data: EfectividadExportData, ventanaExistente?: Window | null) {
+  const win = ventanaExistente ?? window.open('', '_blank');
   if (!win) {
     alert('Tu navegador bloqueó la ventana de impresión. Habilita pop-ups para este sitio.');
     return;
@@ -1924,6 +1935,10 @@ export function exportEfectividadPDF(data: EfectividadExportData) {
     </div>`
       : '';
 
+  // Mismo motivo que en exportInformeLogisticoPDF: si la ventana ya
+  // tenía un placeholder de "Generando…", hay que reabrir el documento
+  // antes de escribir para remplazarlo en vez de anexarse después.
+  win.document.open();
   win.document.write(`
     <!DOCTYPE html>
     <html lang="es">
