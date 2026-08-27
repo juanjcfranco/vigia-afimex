@@ -138,7 +138,7 @@ export default function Home() {
           {tab === 'predoc' && <PredocModule guias={guiasFiltradas} />}
           {tab === 'alertas' && <AlertasModule guias={guiasFiltradas} />}
           {tab === 'guias' && <GuiasModule guias={guiasFiltradas} />}
-          {tab === 'reporteConsolidado' && <ReporteConsolidadoModule guias={guiasFiltradas} />}
+          {tab === 'reporteConsolidado' && <ReporteConsolidadoModule guias={guiasFiltradas} guiasTendencias={guiasFiltradasSinPeriodo} />}
           {tab === 'historial' && (
             <HistorialModule cargas={cargas} cargaActivaId={cargaActivaId} onSeleccionar={setCargaActivaId} />
           )}

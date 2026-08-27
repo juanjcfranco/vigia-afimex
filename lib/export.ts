@@ -2267,26 +2267,16 @@ export function exportEfectividadPDF(data: EfectividadExportData, ventanaExisten
 // Informe Logístico y el Reporte de Efectividad.
 // ============================================================
 
-// Fila plana para las tablas de detalle completo (Guías Abiertas /
-// Retornos Abiertos) — se calcula en el componente que llama a esta
-// función (ReporteConsolidadoModule.tsx), no aquí, para no tener que
-// importar toda la lógica de negocio (obtenerRegion, obtenerCiclo, etc.)
-// dentro de este archivo de solo-renderizado.
-export interface FilaDetalleGuiaAbierta {
-  guia: string;
-  cliente: string;
-  estado: string;
-  oficina: string;
-  entidad: string;
+// Fila de resumen agrupado (Región → Oficina → Estado), para las tablas
+// de Guías Abiertas y Retornos Abiertos — reemplaza el listado completo
+// guía por guía (demasiado extenso), agrupando por combinación única de
+// estos 3 campos y contando cuántas guías caen en cada una. El detalle
+// guía por guía (con Tipo/Acción) se exporta aparte a Excel, no aquí.
+export interface FilaResumenAbiertas {
   region: string;
-  ciclo: string;
-  diasSinMovimiento: number | null;
-  ultimoMovimiento: string | null;
-  fechaCreacion: string | null;
-  docPlataforma: number | null;
-  plataformaRuta: number | null;
-  recibofRuta: number | null;
-  plataformaConfirmacion: number | null;
+  oficina: string;
+  estado: string;
+  cantidad: number;
 }
 
 export interface ReporteConsolidadoData {
@@ -2323,18 +2313,13 @@ export interface ReporteConsolidadoData {
   // 5) Efectividad + Temporalidad por Cliente
   porCliente: FilaEfectividadTemporalidad[];
 
-  // 6) KPIs de Abiertas por Oficina / Ciclo
-  abiertasPorOficina: Array<{ key: string; count: number }>;
-  abiertasPorCiclo: Array<{ key: string; count: number }>;
-  totalAbiertas: number;
+  // 6) Resumen de Guías Abiertas (Región → Oficina → Estado)
+  resumenGuiasAbiertas: FilaResumenAbiertas[];
 
-  // 7) Tabla completa de Guías Abiertas
-  guiasAbiertas: FilaDetalleGuiaAbierta[];
+  // 7) Resumen de Retornos Abiertos (Región → Oficina → Estado)
+  resumenRetornosAbiertos: FilaResumenAbiertas[];
 
-  // 8) Tabla completa de Retornos Abiertos
-  retornosAbiertos: FilaDetalleGuiaAbierta[];
-
-  // 9) KPIs de Excepciones (Top)
+  // 8) KPIs de Excepciones (Top)
   topExcepciones: Array<{ key: string; count: number }>;
   totalConExcepcion: number;
 }
@@ -2399,13 +2384,10 @@ function bloqueEfectividadTemporalidadPlanoHtml(
     </div>`;
 }
 
-// Tabla de detalle completo (una fila por guía) — usada tanto para Guías
-// Abiertas como para Retornos Abiertos. Puede ser larga (miles de filas)
-// si el corte tiene muchas guías abiertas — se deja así intencionalmente
-// ("con todos sus datos"), sin acotar a un Top N como el resto de tablas
-// de este archivo.
-function tablaDetalleGuiasHtml(titulo: string, lista: FilaDetalleGuiaAbierta[]): string {
-  const fmtDias = (n: number | null) => (n !== null ? `${n}d` : '—');
+// Tabla de resumen agrupado (Región → Oficina → Estado) — reemplaza el
+// listado guía por guía (demasiado extenso; ese detalle se exporta
+// aparte a Excel, con sus etiquetas de Tipo/Acción incluidas ahí).
+function tablaResumenAbiertasHtml(titulo: string, lista: FilaResumenAbiertas[]): string {
   if (!lista.length) {
     return `
     <div class="seccion">
@@ -2413,47 +2395,28 @@ function tablaDetalleGuiasHtml(titulo: string, lista: FilaDetalleGuiaAbierta[]):
       <div class="sin-datos">Sin guías para este corte</div>
     </div>`;
   }
+  const totalGuias = lista.reduce((s, f) => s + f.cantidad, 0);
   const filas = lista
     .map(
-      (g) => `
+      (f) => `
     <tr>
-      <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
-      <td>${escapeHtml(g.cliente)}</td>
-      <td>${escapeHtml(g.estado)}</td>
-      <td>${escapeHtml(g.oficina)}</td>
-      <td>${escapeHtml(g.entidad)}</td>
-      <td>${escapeHtml(g.region)}</td>
-      <td>${escapeHtml(g.ciclo)}</td>
-      <td>${g.diasSinMovimiento ?? '—'}</td>
-      <td>${escapeHtml(g.ultimoMovimiento || '—')}</td>
-      <td>${escapeHtml(g.fechaCreacion || '—')}</td>
-      <td>${fmtDias(g.docPlataforma)}</td>
-      <td>${fmtDias(g.plataformaRuta)}</td>
-      <td>${fmtDias(g.recibofRuta)}</td>
-      <td>${fmtDias(g.plataformaConfirmacion)}</td>
+      <td class="celda-fuerte">${escapeHtml(f.region)}</td>
+      <td>${escapeHtml(f.oficina)}</td>
+      <td>${escapeHtml(f.estado)}</td>
+      <td>${f.cantidad.toLocaleString('es-MX')}</td>
     </tr>`
     )
     .join('');
   return `
     <div class="seccion">
-      <div class="seccion-titulo">${escapeHtml(titulo)} <span class="conteo">(${lista.length.toLocaleString('es-MX')})</span></div>
+      <div class="seccion-titulo">${escapeHtml(titulo)} <span class="conteo">(${totalGuias.toLocaleString('es-MX')} guías)</span></div>
       <table>
         <thead>
           <tr>
-            <th>Guía</th>
-            <th>Cliente</th>
-            <th>Estado</th>
-            <th>Oficina</th>
-            <th>Entidad</th>
             <th>Región</th>
-            <th>Ciclo</th>
-            <th>Días s/Mov.</th>
-            <th>Últ. Mov.</th>
-            <th>Fecha Creación</th>
-            <th>Doc→Plataf.</th>
-            <th>Plataf.→1ra Ruta</th>
-            <th>RecibOf→1ra Ruta</th>
-            <th>Plataf.→Confirm.</th>
+            <th>Oficina</th>
+            <th>Estado de Guía</th>
+            <th>Cantidad</th>
           </tr>
         </thead>
         <tbody>${filas}</tbody>
@@ -2627,25 +2590,13 @@ export function exportReporteConsolidadoPDF(data: ReporteConsolidadoData, ventan
       <div class="seccion-titulo">5. Efectividad y Temporalidad — Por Cliente</div>
       ${bloqueEfectividadTemporalidadPlanoHtml('Por Cliente', data.porCliente, 'Cliente')}
 
-      <div class="seccion-titulo">6. Guías Abiertas — Por Oficina y por Ciclo</div>
-      <div class="dos-columnas">
-        <div class="seccion">
-          <div class="seccion-titulo" style="margin:0;border:none;padding:0;font-size:12px;">Por Ciclo</div>
-          ${barraHtml(data.abiertasPorCiclo, data.totalAbiertas, '#1E3A8A')}
-        </div>
-        <div class="seccion">
-          <div class="seccion-titulo" style="margin:0;border:none;padding:0;font-size:12px;">Por Oficina (Top 10)</div>
-          ${barraHtml(data.abiertasPorOficina, data.totalAbiertas, '#EA7C1A')}
-        </div>
-      </div>
+      <div class="seccion-titulo">6. Resumen de Guías Abiertas</div>
+      ${tablaResumenAbiertasHtml('Guías Abiertas — Región / Oficina / Estado', data.resumenGuiasAbiertas)}
 
-      <div class="seccion-titulo">7. Guías Abiertas — Detalle Completo</div>
-      ${tablaDetalleGuiasHtml('Guías Abiertas', data.guiasAbiertas)}
+      <div class="seccion-titulo">7. Resumen de Retornos Abiertos</div>
+      ${tablaResumenAbiertasHtml('Retornos Abiertos — Región / Oficina / Estado', data.resumenRetornosAbiertos)}
 
-      <div class="seccion-titulo">8. Retornos Abiertos — Detalle Completo</div>
-      ${tablaDetalleGuiasHtml('Retornos Abiertos', data.retornosAbiertos)}
-
-      <div class="seccion-titulo">9. Excepciones — Top</div>
+      <div class="seccion-titulo">8. Excepciones — Top</div>
       <div class="seccion">
         ${barraHtml(data.topExcepciones, data.totalConExcepcion, '#7C3AED')}
       </div>
