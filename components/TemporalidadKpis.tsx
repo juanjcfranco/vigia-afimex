@@ -8,7 +8,16 @@ import KpiCard from '@/components/KpiCard';
 // Fila de 4 KpiCards con el promedio de días de cada etapa de
 // temporalidad, reutilizada en Abiertas / Guías / Devoluciones /
 // Excepciones / Acciones para no duplicar el cálculo en cada módulo.
-export default function TemporalidadKpis({ guias }: { guias: Guia[] }) {
+//
+// `variante="abiertas"`: usar SOLO cuando `guias` es una lista compuesta
+// 100% por guías abiertas (ej. AbiertasModule) — en ese caso, "Recib.
+// Oficina → Confirmación" es estructuralmente imposible de calcular
+// (ninguna guía abierta tiene F_Confirmación todavía, por definición), así
+// que la 4ta tarjeta se reemplaza por "Recib. Oficina → Hoy" (días desde
+// que la oficina la recibió, medido contra hoy), que sí aporta algo para
+// ese contexto. Para el resto de módulos (poblaciones mixtas) se deja el
+// comportamiento original.
+export default function TemporalidadKpis({ guias, variante = 'default' }: { guias: Guia[]; variante?: 'default' | 'abiertas' }) {
   const prom = useMemo(() => calcularPromedioTemporalidad(guias), [guias]);
 
   return (
@@ -31,12 +40,21 @@ export default function TemporalidadKpis({ guias }: { guias: Guia[] }) {
         subtitle={`Promedio · ${prom.muestras.recibidoOfVsPrimeraRuta} guía(s) con dato`}
         accentColor="#B45309"
       />
-      <KpiCard
-        title="Recib. Oficina → Confirmación"
-        value={prom.recibidoOfVsConfirmacion !== null ? `${prom.recibidoOfVsConfirmacion}d` : '—'}
-        subtitle={`Promedio · ${prom.muestras.recibidoOfVsConfirmacion} guía(s) con dato`}
-        accentColor="#7C3AED"
-      />
+      {variante === 'abiertas' ? (
+        <KpiCard
+          title="Recib. Oficina → Hoy"
+          value={prom.recibidoOfVsHoy !== null ? `${prom.recibidoOfVsHoy}d` : '—'}
+          subtitle={`Promedio · ${prom.muestras.recibidoOfVsHoy} guía(s) con dato · guías abiertas, aún sin confirmar`}
+          accentColor="#7C3AED"
+        />
+      ) : (
+        <KpiCard
+          title="Recib. Oficina → Confirmación"
+          value={prom.recibidoOfVsConfirmacion !== null ? `${prom.recibidoOfVsConfirmacion}d` : '—'}
+          subtitle={`Promedio · ${prom.muestras.recibidoOfVsConfirmacion} guía(s) con dato`}
+          accentColor="#7C3AED"
+        />
+      )}
     </div>
   );
 }

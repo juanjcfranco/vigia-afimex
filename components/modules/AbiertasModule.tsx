@@ -57,7 +57,39 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
 
   // Mismo criterio de elegibilidad que Acciones: no devoluciones, no entregadas,
   // no canceladas, no pre-documentadas (basado en estado puro, no Calificación)
-  const base = useMemo(() => guias.filter((g) => isAbiertaPorEstado(g)), [guias]);
+  // + filtros locales de Región/Oficina (independientes del filtro global,
+  // para poder enfocar esta vista sin afectar el resto de módulos).
+  const [filtroRegionLocal, setFiltroRegionLocal] = useState('');
+  const [filtroOficinaLocal, setFiltroOficinaLocal] = useState('');
+
+  const regionesDisponibles = useMemo(
+    () => [...new Set(guias.map((g) => obtenerRegion(g.oficina_destino)))].sort(),
+    [guias]
+  );
+  const oficinasDisponibles = useMemo(() => {
+    const universo = filtroRegionLocal
+      ? guias.filter((g) => obtenerRegion(g.oficina_destino) === filtroRegionLocal)
+      : guias;
+    return [...new Set(universo.map((g) => g.oficina_destino).filter(Boolean))].sort() as string[];
+  }, [guias, filtroRegionLocal]);
+
+  // Si cambia la región y la oficina elegida ya no pertenece a ella, se
+  // limpia — evita quedar con una combinación imposible (0 resultados sin
+  // que sea obvio por qué).
+  useEffect(() => {
+    if (filtroOficinaLocal && !oficinasDisponibles.includes(filtroOficinaLocal)) setFiltroOficinaLocal('');
+  }, [oficinasDisponibles, filtroOficinaLocal]);
+
+  const base = useMemo(
+    () =>
+      guias.filter((g) => {
+        if (!isAbiertaPorEstado(g)) return false;
+        if (filtroRegionLocal && obtenerRegion(g.oficina_destino) !== filtroRegionLocal) return false;
+        if (filtroOficinaLocal && g.oficina_destino !== filtroOficinaLocal) return false;
+        return true;
+      }),
+    [guias, filtroRegionLocal, filtroOficinaLocal]
+  );
 
   const estados = useMemo(
     () => [...new Set(base.map((g) => g.estado_guia).filter(Boolean))] as string[],
@@ -219,7 +251,46 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
 
   return (
     <div className="p-5 space-y-4">
-      <TemporalidadKpis guias={listaOriginales} />
+      <div className="flex items-center gap-2.5 flex-wrap bg-white border border-[var(--vg-border)] rounded-lg p-3">
+        <span className="text-[12px] font-semibold text-[var(--vg-text2)]">🔍 Filtrar esta vista:</span>
+        <select
+          value={filtroRegionLocal}
+          onChange={(e) => setFiltroRegionLocal(e.target.value)}
+          className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
+        >
+          <option value="">Todas las regiones</option>
+          {regionesDisponibles.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filtroOficinaLocal}
+          onChange={(e) => setFiltroOficinaLocal(e.target.value)}
+          className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
+        >
+          <option value="">Todas las oficinas</option>
+          {oficinasDisponibles.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+        {(filtroRegionLocal || filtroOficinaLocal) && (
+          <button
+            onClick={() => {
+              setFiltroRegionLocal('');
+              setFiltroOficinaLocal('');
+            }}
+            className="text-[12px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 hover:bg-[var(--vg-bg)]"
+          >
+            ✕ Limpiar
+          </button>
+        )}
+      </div>
+
+      <TemporalidadKpis guias={listaOriginales} variante="abiertas" />
 
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg border border-[var(--vg-border)] p-3">

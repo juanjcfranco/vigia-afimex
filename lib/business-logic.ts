@@ -1100,16 +1100,22 @@ export interface TemporalidadDias {
   plataformaVsPrimeraRuta: number | null;
   recibidoOfVsPrimeraRuta: number | null;
   recibidoOfVsConfirmacion: number | null;
+  recibidoOfVsHoy: number | null;
 }
 
 export function calcularTemporalidad(
   g: Pick<Guia, 'f_documentacion' | 'fecha_plataforma' | 'primera_ruta' | 'recibido_oficina' | 'f_confirmacion'>
 ): TemporalidadDias {
+  const hoyIso = new Date().toISOString().slice(0, 10);
   return {
     docVsPlataforma: diasEntreFechas(g.f_documentacion, g.fecha_plataforma),
     plataformaVsPrimeraRuta: diasEntreFechas(g.fecha_plataforma, g.primera_ruta),
     recibidoOfVsPrimeraRuta: diasEntreFechas(g.recibido_oficina, g.primera_ruta),
     recibidoOfVsConfirmacion: diasEntreFechas(g.recibido_oficina, g.f_confirmacion),
+    // Solo tiene sentido para guías que SIGUEN ABIERTAS (sin F_Confirmación
+    // todavía) — mide cuánto lleva la guía desde que la oficina la recibió,
+    // contra HOY. Ver TemporalidadKpis.tsx (prop `variante="abiertas"`).
+    recibidoOfVsHoy: diasEntreFechas(g.recibido_oficina, hoyIso),
   };
 }
 
@@ -1118,11 +1124,13 @@ export interface PromedioTemporalidad {
   plataformaVsPrimeraRuta: number | null;
   recibidoOfVsPrimeraRuta: number | null;
   recibidoOfVsConfirmacion: number | null;
+  recibidoOfVsHoy: number | null;
   muestras: {
     docVsPlataforma: number;
     plataformaVsPrimeraRuta: number;
     recibidoOfVsPrimeraRuta: number;
     recibidoOfVsConfirmacion: number;
+    recibidoOfVsHoy: number;
   };
 }
 // Promedio de cada métrica de temporalidad sobre una lista de guías (para
@@ -1137,6 +1145,7 @@ export function calcularPromedioTemporalidad(
     plataformaVsPrimeraRuta: [] as number[],
     recibidoOfVsPrimeraRuta: [] as number[],
     recibidoOfVsConfirmacion: [] as number[],
+    recibidoOfVsHoy: [] as number[],
   };
   guias.forEach((g) => {
     const t = calcularTemporalidad(g);
@@ -1144,6 +1153,7 @@ export function calcularPromedioTemporalidad(
     if (t.plataformaVsPrimeraRuta !== null) acc.plataformaVsPrimeraRuta.push(t.plataformaVsPrimeraRuta);
     if (t.recibidoOfVsPrimeraRuta !== null) acc.recibidoOfVsPrimeraRuta.push(t.recibidoOfVsPrimeraRuta);
     if (t.recibidoOfVsConfirmacion !== null) acc.recibidoOfVsConfirmacion.push(t.recibidoOfVsConfirmacion);
+    if (t.recibidoOfVsHoy !== null) acc.recibidoOfVsHoy.push(t.recibidoOfVsHoy);
   });
   const promedio = (arr: number[]): number | null =>
     arr.length ? Number((arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1)) : null;
@@ -1152,11 +1162,13 @@ export function calcularPromedioTemporalidad(
     plataformaVsPrimeraRuta: promedio(acc.plataformaVsPrimeraRuta),
     recibidoOfVsPrimeraRuta: promedio(acc.recibidoOfVsPrimeraRuta),
     recibidoOfVsConfirmacion: promedio(acc.recibidoOfVsConfirmacion),
+    recibidoOfVsHoy: promedio(acc.recibidoOfVsHoy),
     muestras: {
       docVsPlataforma: acc.docVsPlataforma.length,
       plataformaVsPrimeraRuta: acc.plataformaVsPrimeraRuta.length,
       recibidoOfVsPrimeraRuta: acc.recibidoOfVsPrimeraRuta.length,
       recibidoOfVsConfirmacion: acc.recibidoOfVsConfirmacion.length,
+      recibidoOfVsHoy: acc.recibidoOfVsHoy.length,
     },
   };
 }
