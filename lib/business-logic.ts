@@ -1282,6 +1282,10 @@ export interface FilaExcelCruda {
   Descripcion?: string;
   Oficina_Origen?: string;
   Estado_Guia?: string;
+  // Puede traer una nota explícita "DEVOLUCION GUIA: <numero>-<motivo>"
+  // que marca esta fila como el retorno real de otra guía — ver
+  // tieneNotaDevolucionObservaciones en normalizarFila().
+  Observaciones?: string;
   Oficina_Destino?: string;
   Estado_Destinatario?: string;
   Ciudad_Destinatario?: string;
@@ -1543,10 +1547,22 @@ export function normalizarFila(
   // excluye si el cliente tiene este patrón como práctica dominante (ver
   // construirSetDeClientesConPatronDominante) — para esos clientes, el
   // nombre repetido es su forma normal de operar, no evidencia de retorno.
+  //
+  // EXCEPCIÓN a la excepción: si Observaciones trae una nota explícita
+  // tipo "DEVOLUCION GUIA: 43474975-COD RECHAZADO", esta guía SÍ es un
+  // retorno real, sin importar si el cliente está marcado como patrón
+  // dominante — es una señal por fila mucho más precisa que el conteo de
+  // ciudades. Detectado en corte OPS de agosto 2026: UPS (red propia,
+  // reparte en 270+ ciudades a su propio nombre — por eso cae en patrón
+  // dominante) SÍ tenía retornos reales marcados así en Observaciones que
+  // el patrón dominante estaba bloqueando incorrectamente.
   const mismoNombreClienteDestinatario =
     !!clientePaga && !!nombreDestinatario && clientePaga.toUpperCase() === nombreDestinatario.toUpperCase();
+  const tieneNotaDevolucionObservaciones = /DEVOLUCION\s+GUIA\s*:/i.test(String(r.Observaciones ?? ''));
   const esPosibleRetornoOtroPeriodo =
-    mismoNombreClienteDestinatario && !esRetorno && !clientesConPatronDominante.has(clientePaga);
+    !esRetorno &&
+    ((mismoNombreClienteDestinatario && !clientesConPatronDominante.has(clientePaga)) ||
+      tieneNotaDevolucionObservaciones);
 
   const excepciones = {
     excepcion_1: String(r.Excepcion_1 ?? '').trim() || null,
