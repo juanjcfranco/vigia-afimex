@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina } from '@/lib/types';
-import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio } from '@/lib/business-logic';
+import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio, ultimaExcepcion } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import BulkSearch from '@/components/BulkSearch';
 import AlertaDiasBadge from '@/components/AlertaDiasBadge';
@@ -231,6 +231,10 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
         return obtenerCiclo(g.estado_guia);
       case 'region':
         return obtenerRegion(g.oficina_destino);
+      case 'ultimaexcepcion':
+        return ultimaExcepcion(g).nombre;
+      case 'fechaultimaexcepcion':
+        return ultimaExcepcion(g).fecha;
       default:
         return temporalidadSortValue(g, key);
     }
@@ -248,6 +252,8 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
     { header: 'Ciclo', value: (g: Guia) => obtenerCiclo(g.estado_guia) },
     { header: 'Días sin Mov.', value: (g: Guia) => g.dias_sin_movimiento ?? '' },
     { header: 'Últ. Mov.', value: (g: Guia) => g.f_historia || '' },
+    { header: 'Última Excepción', value: (g: Guia) => ultimaExcepcion(g).nombre || '' },
+    { header: 'Fecha Última Excepción', value: (g: Guia) => ultimaExcepcion(g).fecha || '' },
     { header: 'Fecha Creación', value: (g: Guia) => g.f_documentacion || '' },
     ...temporalidadColumnasExport(),
   ];
@@ -564,6 +570,8 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Ciclo" sortKey="ciclo" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Días sin Mov." sortKey="dias" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Últ. Mov." sortKey="ultmov" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Última Excepción" sortKey="ultimaexcepcion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Fecha Últ. Excepción" sortKey="fechaultimaexcepcion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Fecha Creación" sortKey="fechacreacion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <TemporalidadHeaders sortKey={sortKey} sortDir={sortDir} onSort={requestSort} />
               </tr>
@@ -571,6 +579,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
             <tbody>
               {sorted.map((g) => {
                 const esRetorno = esRetornoAmplio(g);
+                const ultExc = ultimaExcepcion(g);
                 return (
                 <tr key={g.id}>
                   <td>
@@ -613,6 +622,8 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                     </div>
                   </td>
                   <td>{g.f_historia || '—'}</td>
+                  <td>{ultExc.nombre || '—'}</td>
+                  <td>{ultExc.fecha || '—'}</td>
                   <td>{g.f_documentacion || '—'}</td>
                   <TemporalidadCells guia={g} />
                 </tr>
@@ -620,7 +631,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
               })}
               {!filas.length && (
                 <tr>
-                  <td colSpan={20} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={22} className="text-center text-[var(--vg-text3)] py-6">
                     No hay guías abiertas con este filtro
                   </td>
                 </tr>

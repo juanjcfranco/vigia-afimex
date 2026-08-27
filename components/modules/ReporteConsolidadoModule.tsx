@@ -10,6 +10,7 @@ import {
   calcularEfectividad,
   obtenerRegion,
   obtenerCiclo,
+  ORDEN_CICLOS,
   temporalidadPorCampo,
   tendenciaMensualPorCampo,
   efectividadTemporalidadPorRegionOficina,
@@ -18,27 +19,53 @@ import {
   formatearPeriodo,
   accionEfectiva,
 } from '@/lib/business-logic';
-import { exportReporteConsolidadoPDF, exportToExcel, FilaResumenAbiertas } from '@/lib/export';
+import { exportReporteConsolidadoPDF, exportToExcel, ResumenAbiertasPorEstado } from '@/lib/export';
 
-// Agrupa una lista de guías por Región → Oficina → Estado, contando
-// cuántas caen en cada combinación — usado para las 2 tablas resumen del
-// PDF (Guías Abiertas y Retornos Abiertos). El detalle guía por guía
-// (con Tipo/Acción) se exporta aparte a Excel, no en el PDF.
-function agruparPorRegionOficinaEstado(lista: Guia[]): FilaResumenAbiertas[] {
-  const grupos: Record<string, FilaResumenAbiertas> = {};
+// Agrupa una lista de guías en la estructura pivotada Región → Oficina
+// (filas) × Estado (columnas) — usado para las 2 tablas resumen del PDF
+// (Guías Abiertas y Retornos Abiertos). Con Estado como columna en vez de
+// fila, el reporte queda mucho más compacto (regiones + oficinas, no
+// regiones × oficinas × estados). El detalle guía por guía (con Tipo/
+// Acción) se exporta aparte a Excel, no en el PDF.
+function agruparPorRegionOficinaEstado(lista: Guia[]): ResumenAbiertasPorEstado {
+  const porRegion: Record<string, Record<string, Record<string, number>>> = {};
+  const estadosSet = new Set<string>();
+
   lista.forEach((g) => {
     const region = obtenerRegion(g.oficina_destino);
     const oficina = g.oficina_destino || 'SIN OFICINA';
     const estado = g.estado_guia || 'SIN ESTADO';
-    const key = `${region}|${oficina}|${estado}`;
-    if (!grupos[key]) grupos[key] = { region, oficina, estado, cantidad: 0 };
-    grupos[key].cantidad++;
+    estadosSet.add(estado);
+    if (!porRegion[region]) porRegion[region] = {};
+    if (!porRegion[region][oficina]) porRegion[region][oficina] = {};
+    porRegion[region][oficina][estado] = (porRegion[region][oficina][estado] || 0) + 1;
   });
-  return Object.values(grupos).sort((a, b) => {
-    if (a.region !== b.region) return a.region.localeCompare(b.region);
-    if (a.oficina !== b.oficina) return b.cantidad - a.cantidad || a.oficina.localeCompare(b.oficina);
-    return b.cantidad - a.cantidad;
+
+  // Columnas ordenadas por su Ciclo (Entrada→Distribución→Recepción→
+  // Ruta→Resguardo) y luego alfabético — mismo criterio de orden que ya
+  // se usa en el panel "Guías Abiertas por Ciclo" de Efectividad.
+  const estados = [...estadosSet].sort((a, b) => {
+    const ca = ORDEN_CICLOS.indexOf(obtenerCiclo(a));
+    const cb = ORDEN_CICLOS.indexOf(obtenerCiclo(b));
+    if (ca !== cb) return ca - cb;
+    return a.localeCompare(b);
   });
+
+  const regiones = Object.entries(porRegion)
+    .map(([region, oficinasObj]) => {
+      const oficinas = Object.entries(oficinasObj)
+        .map(([oficina, porEstado]) => ({
+          oficina,
+          total: Object.values(porEstado).reduce((s, v) => s + v, 0),
+          porEstado,
+        }))
+        .sort((a, b) => b.total - a.total);
+      const total = oficinas.reduce((s, o) => s + o.total, 0);
+      return { region, total, oficinas };
+    })
+    .sort((a, b) => b.total - a.total);
+
+  return { regiones, estados };
 }
 
 export default function ReporteConsolidadoModule({

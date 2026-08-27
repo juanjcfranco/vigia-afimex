@@ -2267,16 +2267,25 @@ export function exportEfectividadPDF(data: EfectividadExportData, ventanaExisten
 // Informe Logístico y el Reporte de Efectividad.
 // ============================================================
 
-// Fila de resumen agrupado (Región → Oficina → Estado), para las tablas
-// de Guías Abiertas y Retornos Abiertos — reemplaza el listado completo
-// guía por guía (demasiado extenso), agrupando por combinación única de
-// estos 3 campos y contando cuántas guías caen en cada una. El detalle
-// guía por guía (con Tipo/Acción) se exporta aparte a Excel, no aquí.
-export interface FilaResumenAbiertas {
-  region: string;
+// Resumen de Guías Abiertas / Retornos Abiertos pivotado: filas = Región
+// → Oficina (jerárquico, igual que bloqueRegionOficinaHtml), columnas =
+// Estado de Guía. Reemplaza la versión plana (una fila por combinación
+// única de región+oficina+estado, que con muchas oficinas/estados podía
+// ser larguísima) — al usar Estado como columna en vez de fila, el
+// número de FILAS baja a (regiones + oficinas), sin perder ningún dato.
+export interface FilaOficinaPorEstado {
   oficina: string;
-  estado: string;
-  cantidad: number;
+  total: number;
+  porEstado: Record<string, number>;
+}
+export interface FilaRegionPorEstado {
+  region: string;
+  total: number;
+  oficinas: FilaOficinaPorEstado[];
+}
+export interface ResumenAbiertasPorEstado {
+  regiones: FilaRegionPorEstado[];
+  estados: string[]; // columnas, en el orden en que deben mostrarse
 }
 
 export interface ReporteConsolidadoData {
@@ -2313,11 +2322,11 @@ export interface ReporteConsolidadoData {
   // 5) Efectividad + Temporalidad por Cliente
   porCliente: FilaEfectividadTemporalidad[];
 
-  // 6) Resumen de Guías Abiertas (Región → Oficina → Estado)
-  resumenGuiasAbiertas: FilaResumenAbiertas[];
+  // 6) Resumen de Guías Abiertas (Región → Oficina, columnas = Estado)
+  resumenGuiasAbiertas: ResumenAbiertasPorEstado;
 
-  // 7) Resumen de Retornos Abiertos (Región → Oficina → Estado)
-  resumenRetornosAbiertos: FilaResumenAbiertas[];
+  // 7) Resumen de Retornos Abiertos (Región → Oficina, columnas = Estado)
+  resumenRetornosAbiertos: ResumenAbiertasPorEstado;
 
   // 8) KPIs de Excepciones (Top)
   topExcepciones: Array<{ key: string; count: number }>;
@@ -2384,42 +2393,52 @@ function bloqueEfectividadTemporalidadPlanoHtml(
     </div>`;
 }
 
-// Tabla de resumen agrupado (Región → Oficina → Estado) — reemplaza el
-// listado guía por guía (demasiado extenso; ese detalle se exporta
-// aparte a Excel, con sus etiquetas de Tipo/Acción incluidas ahí).
-function tablaResumenAbiertasHtml(titulo: string, lista: FilaResumenAbiertas[]): string {
-  if (!lista.length) {
+// Tabla pivotada Región → Oficina (filas, jerárquico) × Estado (columnas)
+// — mismo estilo visual que bloqueRegionOficinaHtml, para que se vea
+// consistente con el resto del reporte.
+function tablaResumenAbiertasHtml(titulo: string, data: ResumenAbiertasPorEstado): string {
+  if (!data.regiones.length) {
     return `
     <div class="seccion">
       <div class="seccion-titulo">${escapeHtml(titulo)} <span class="conteo">(0)</span></div>
       <div class="sin-datos">Sin guías para este corte</div>
     </div>`;
   }
-  const totalGuias = lista.reduce((s, f) => s + f.cantidad, 0);
-  const filas = lista
-    .map(
-      (f) => `
-    <tr>
-      <td class="celda-fuerte">${escapeHtml(f.region)}</td>
-      <td>${escapeHtml(f.oficina)}</td>
-      <td>${escapeHtml(f.estado)}</td>
-      <td>${f.cantidad.toLocaleString('es-MX')}</td>
-    </tr>`
-    )
+  const totalGuias = data.regiones.reduce((s, r) => s + r.total, 0);
+  const filasHtml = data.regiones
+    .map((r) => {
+      const filaRegion = `
+        <tr class="fila-region">
+          <td class="celda-fuerte">${escapeHtml(r.region)}</td>
+          ${data.estados.map(() => '<td></td>').join('')}
+          <td class="celda-fuerte">${r.total.toLocaleString('es-MX')}</td>
+        </tr>`;
+      const filasOficina = r.oficinas
+        .map(
+          (o) => `
+        <tr class="fila-oficina">
+          <td>↳ ${escapeHtml(o.oficina)}</td>
+          ${data.estados.map((e) => `<td>${(o.porEstado[e] || 0).toLocaleString('es-MX')}</td>`).join('')}
+          <td style="font-weight:700;">${o.total.toLocaleString('es-MX')}</td>
+        </tr>`
+        )
+        .join('');
+      return filaRegion + filasOficina;
+    })
     .join('');
+
   return `
     <div class="seccion">
       <div class="seccion-titulo">${escapeHtml(titulo)} <span class="conteo">(${totalGuias.toLocaleString('es-MX')} guías)</span></div>
-      <table>
+      <table class="tabla-region-oficina">
         <thead>
           <tr>
-            <th>Región</th>
-            <th>Oficina</th>
-            <th>Estado de Guía</th>
-            <th>Cantidad</th>
+            <th>Región / Oficina</th>
+            ${data.estados.map((e) => `<th>${escapeHtml(e)}</th>`).join('')}
+            <th>Total</th>
           </tr>
         </thead>
-        <tbody>${filas}</tbody>
+        <tbody>${filasHtml}</tbody>
       </table>
     </div>`;
 }
