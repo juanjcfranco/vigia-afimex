@@ -44,14 +44,54 @@ export function useVigiaData() {
     }
   }, [cargaActivaId]);
 
+  // Pide las guías de una carga en páginas de 1000, varias EN PARALELO
+  // (oleadas de CONCURRENCIA_PAGINAS) desde el navegador, en vez de
+  // esperar que el servidor arme una sola respuesta con todo el corte.
+  // Esto es necesario porque en el plan Hobby de Vercel el límite de 60s
+  // por función es fijo (no se puede subir) — con cortes grandes (varios
+  // clientes/meses mezclados, 80,000+ filas) una sola llamada al servidor
+  // fácilmente superaba ese límite. Pidiendo páginas chicas desde aquí,
+  // cada llamada individual queda muy por debajo de 60s sin importar el
+  // tamaño total del corte — el navegador sí puede esperar el tiempo que
+  // haga falta (no tiene ese límite), mostrando el loading mientras tanto.
+  const PAGE_SIZE = 1000;
+  const CONCURRENCIA_PAGINAS = 6;
+
   const cargarGuias = useCallback(async (cargaId: string) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/guias?carga_id=${cargaId}`);
-      const json = await res.json();
-      if (json.guias) setGuias(json.guias);
-      else setError(json.error || 'Error desconocido');
+      let todas: Guia[] = [];
+      let siguienteOffset = 0;
+      let seAcabaron = false;
+
+      while (!seAcabaron) {
+        const oleada = await Promise.all(
+          Array.from({ length: CONCURRENCIA_PAGINAS }, (_, k) => {
+            const offset = siguienteOffset + k * PAGE_SIZE;
+            return fetch(`/api/guias?carga_id=${cargaId}&offset=${offset}&limit=${PAGE_SIZE}`).then((r) =>
+              r.json()
+            );
+          })
+        );
+        siguienteOffset += CONCURRENCIA_PAGINAS * PAGE_SIZE;
+
+        for (const resultado of oleada) {
+          if (resultado.error) {
+            setError(resultado.error);
+            setLoading(false);
+            return;
+          }
+          const lote: Guia[] = resultado.guias || [];
+          todas = todas.concat(lote);
+          if (lote.length < PAGE_SIZE) {
+            seAcabaron = true;
+            break;
+          }
+        }
+      }
+
+      setGuias(todas);
     } catch {
       setError('No se pudieron cargar las guías');
     } finally {

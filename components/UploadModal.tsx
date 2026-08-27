@@ -22,6 +22,12 @@ interface UploadModalProps {
 // imponen los Serverless Functions de Vercel) para dejar margen incluso
 // con filas de texto largo (descripciones, nombres, ciudades).
 const TAMANO_BLOQUE = 2000;
+// Cuántos bloques se mandan en paralelo a la vez. Con cortes grandes
+// (varios clientes/meses mezclados, 80,000+ filas) mandarlos uno por uno
+// en serie puede tardar varios minutos en total (40+ bloques × algunos
+// segundos cada uno). 3 en paralelo reduce ese tiempo total sin saturar
+// demasiado la conexión a Supabase.
+const CONCURRENCIA_BLOQUES = 3;
 
 export default function UploadModal({ open, onClose, onUploaded }: UploadModalProps) {
   const [file, setFile] = useState<File | null>(null);
@@ -122,13 +128,19 @@ export default function UploadModal({ open, onClose, onUploaded }: UploadModalPr
       }
       cargaId = cargaJson.carga_id;
 
-      // 5. Subir las guías normalizadas en bloques pequeños.
-      let insertadas = 0;
+      // 5. Subir las guías normalizadas en bloques pequeños, varios en
+      // paralelo (CONCURRENCIA_BLOQUES a la vez) para que cortes grandes
+      // no tarden minutos por mandarlos uno por uno en serie.
+      const bloques: (typeof guiasNormalizadas)[] = [];
       for (let i = 0; i < guiasNormalizadas.length; i += TAMANO_BLOQUE) {
-        const bloque = guiasNormalizadas.slice(i, i + TAMANO_BLOQUE);
-        setEtapa('Subiendo guías...');
-        setProgreso({ enviadas: i, total: guiasNormalizadas.length });
+        bloques.push(guiasNormalizadas.slice(i, i + TAMANO_BLOQUE));
+      }
 
+      let insertadas = 0;
+      let siguienteBloque = 0;
+      setEtapa('Subiendo guías...');
+
+      async function subirBloque(bloque: (typeof guiasNormalizadas)) {
         const res = await fetch('/api/cargas/guias', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -137,7 +149,18 @@ export default function UploadModal({ open, onClose, onUploaded }: UploadModalPr
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || 'Error al subir un bloque de guías');
         insertadas += json.insertadas;
+        setProgreso({ enviadas: insertadas, total: guiasNormalizadas.length });
       }
+
+      async function trabajador() {
+        while (siguienteBloque < bloques.length) {
+          const idx = siguienteBloque++;
+          await subirBloque(bloques[idx]);
+        }
+      }
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCIA_BLOQUES, bloques.length) }, () => trabajador())
+      );
 
       setProgreso({ enviadas: insertadas, total: guiasNormalizadas.length });
       setResultado(`✅ ${insertadas.toLocaleString('es-MX')} guías importadas (${clienteDetectado})`);
