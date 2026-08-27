@@ -31,6 +31,7 @@ export default function Home() {
     cargaActivaId,
     setCargaActivaId,
     guiasFiltradas,
+    guiasFiltradasSinPeriodo,
     loading,
     error,
     filtroClientes,
@@ -124,7 +125,7 @@ export default function Home() {
       {!loading && !sinDatos && (
         <>
           {tab === 'resumen' && <ResumenModule guias={guiasFiltradas} />}
-          {tab === 'efectividad' && <EfectividadModule guias={guiasFiltradas} />}
+          {tab === 'efectividad' && <EfectividadModule guias={guiasFiltradas} guiasTendencias={guiasFiltradasSinPeriodo} />}
           {tab === 'excepciones' && <ExcepcionesModule guias={guiasFiltradas} />}
           {tab === 'acciones' && <AccionesModule guias={guiasFiltradas} />}
           {tab === 'devoluciones' && <DevolucionesModule guias={guiasFiltradas} />}

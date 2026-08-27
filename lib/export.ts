@@ -1167,14 +1167,24 @@ const COLORES_TENDENCIA_PDF = ['#1E3A8A', '#0B9B67', '#DC2626', '#B45309', '#7C3
 // las tendencias mensuales de Efectividad y Temporalidad por Cliente/
 // Oficina en el Reporte de Efectividad.
 // ============================================================
-function multiLineChartHtml(datos: PuntoTendencia[], series: string[]): string {
+function multiLineChartHtml(datos: PuntoTendencia[], series: string[], opciones: { autoEscala?: boolean } = {}): string {
   if (datos.length < 2) return `<div class="sin-datos">Se necesita más de un mes para mostrar tendencia</div>`;
   const w = 600;
   const h = 190;
   const padX = 32;
   const padY = 18;
-  const max = 100;
+  let max = 100;
   const min = 0;
+  if (opciones.autoEscala) {
+    const valores: number[] = [];
+    datos.forEach((d) => series.forEach((s) => {
+      const v = d[s];
+      if (v !== null && v !== undefined) valores.push(Number(v));
+    }));
+    // 15% de margen arriba del valor más alto, para que la línea no
+    // quede pegada al borde superior del gráfico.
+    max = valores.length ? Math.max(...valores) * 1.15 : 1;
+  }
   const stepX = (w - padX * 2) / (datos.length - 1);
   const xFor = (i: number) => padX + i * stepX;
   const yFor = (v: number) => padY + (1 - (v - min) / (max - min || 1)) * (h - padY * 2 - 14);
@@ -1814,6 +1824,10 @@ export interface EfectividadExportData {
   // un cliente en el corte) / por Oficina / por Entidad. Solo se muestran
   // si el corte cubre más de un mes.
   tendencias: {
+    volumenTotal: { datos: PuntoTendencia[]; series: string[] };
+    volumenCliente: { datos: PuntoTendencia[]; series: string[] } | null;
+    volumenOficina: { datos: PuntoTendencia[]; series: string[] };
+    volumenEntidad: { datos: PuntoTendencia[]; series: string[] };
     efectividadTotal: { datos: PuntoTendencia[]; series: string[] };
     efectividadCliente: { datos: PuntoTendencia[]; series: string[] } | null;
     efectividadOficina: { datos: PuntoTendencia[]; series: string[] };
@@ -2103,6 +2117,39 @@ export function exportEfectividadPDF(data: EfectividadExportData, ventanaExisten
             subtitulo: 'Efectividad',
           }
         )}
+      </div>
+
+      <div class="seccion">
+        <div class="seccion-titulo">Tendencia Mensual — Volumen (Guías Procesadas)</div>
+        <div class="dos-columnas" style="margin-top:8px;">
+          <div>
+            <div class="aclaracion">Total</div>
+            ${multiLineChartHtml(data.tendencias.volumenTotal.datos, data.tendencias.volumenTotal.series, { autoEscala: true })}
+            ${tablaTendenciaHtml(data.tendencias.volumenTotal.datos, data.tendencias.volumenTotal.series, '')}
+          </div>
+          <div>
+            <div class="aclaracion">Por Oficina (Top ${data.tendencias.volumenOficina.series.length})</div>
+            ${multiLineChartHtml(data.tendencias.volumenOficina.datos, data.tendencias.volumenOficina.series, { autoEscala: true })}
+            ${tablaTendenciaHtml(data.tendencias.volumenOficina.datos, data.tendencias.volumenOficina.series, '')}
+          </div>
+        </div>
+        <div class="dos-columnas" style="margin-top:10px;">
+          <div>
+            <div class="aclaracion">Por Entidad (Top ${data.tendencias.volumenEntidad.series.length})</div>
+            ${multiLineChartHtml(data.tendencias.volumenEntidad.datos, data.tendencias.volumenEntidad.series, { autoEscala: true })}
+            ${tablaTendenciaHtml(data.tendencias.volumenEntidad.datos, data.tendencias.volumenEntidad.series, '')}
+          </div>
+          ${
+            data.tendencias.volumenCliente
+              ? `
+          <div>
+            <div class="aclaracion">Por Cliente (Top ${data.tendencias.volumenCliente.series.length})</div>
+            ${multiLineChartHtml(data.tendencias.volumenCliente.datos, data.tendencias.volumenCliente.series, { autoEscala: true })}
+            ${tablaTendenciaHtml(data.tendencias.volumenCliente.datos, data.tendencias.volumenCliente.series, '')}
+          </div>`
+              : ''
+          }
+        </div>
       </div>
 
       <div class="seccion">

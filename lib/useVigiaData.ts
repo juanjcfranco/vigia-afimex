@@ -85,6 +85,20 @@ export function useVigiaData() {
     });
   }, [guias, filtroClientes, filtroOficina, filtroEntidad, filtroPeriodos, filtroDia]);
 
+  // Igual que guiasFiltradas, pero SIN aplicar Periodo ni Día — para las
+  // tendencias mensuales (Efectividad), que necesitan ver todos los meses
+  // disponibles del corte para poder comparar entre ellos, aunque el
+  // usuario tenga un mes específico seleccionado en el filtro global (de
+  // lo contrario, filtrar a un solo mes deja sin sentido "comparar meses").
+  const guiasFiltradasSinPeriodo = useMemo(() => {
+    return guias.filter((g) => {
+      if (filtroClientes.length > 0 && !filtroClientes.includes(g.cliente || '')) return false;
+      if (filtroOficina && g.oficina_destino !== filtroOficina) return false;
+      if (filtroEntidad && g.entidad_destinatario !== filtroEntidad) return false;
+      return true;
+    });
+  }, [guias, filtroClientes, filtroOficina, filtroEntidad]);
+
   const clientes = useMemo(
     () => [...new Set(guias.map((g) => g.cliente).filter(Boolean))].sort() as string[],
     [guias]
@@ -178,6 +192,7 @@ export function useVigiaData() {
     eliminarCarga,
     guias,
     guiasFiltradas,
+    guiasFiltradasSinPeriodo,
     loading,
     error,
     filtroClientes,

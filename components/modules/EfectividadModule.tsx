@@ -81,7 +81,15 @@ const COLORES_TENDENCIA_TABLA = ['#1E3A8A', '#0B9B67', '#DC2626', '#B45309', '#7
 // Tabla compacta debajo de cada gráfico de tendencia: cuando hay varias
 // líneas muy juntas (ej. varias oficinas todas entre 90-96%), el gráfico
 // solo no deja leer el valor exacto de cada mes — esta tabla sí.
-function TablaTendenciaMini({ datos, series }: { datos: { mes: string; [k: string]: string | number | null }[]; series: string[] }) {
+function TablaTendenciaMini({
+  datos,
+  series,
+  sufijo = '%',
+}: {
+  datos: { mes: string; [k: string]: string | number | null }[];
+  series: string[];
+  sufijo?: string;
+}) {
   if (datos.length < 2) return null;
   return (
     <div className="overflow-x-auto mt-2">
@@ -101,7 +109,7 @@ function TablaTendenciaMini({ datos, series }: { datos: { mes: string; [k: strin
                 {s === 'TOTAL' ? 'Total' : s}
               </td>
               {datos.map((d) => (
-                <td key={d.mes}>{d[s] !== null && d[s] !== undefined ? `${d[s]}%` : '—'}</td>
+                <td key={d.mes}>{d[s] !== null && d[s] !== undefined ? `${Number(d[s]).toLocaleString('es-MX')}${sufijo}` : '—'}</td>
               ))}
             </tr>
           ))}
@@ -111,7 +119,13 @@ function TablaTendenciaMini({ datos, series }: { datos: { mes: string; [k: strin
   );
 }
 
-export default function EfectividadModule({ guias }: { guias: Guia[] }) {
+export default function EfectividadModule({ guias, guiasTendencias }: { guias: Guia[]; guiasTendencias?: Guia[] }) {
+  // Para las Tendencias Mensuales se usa `guiasTendencias` (respeta
+  // Cliente/Oficina/Entidad pero NO Periodo/Día) si viene provisto, para
+  // que la sección siga mostrando la comparación entre meses aunque el
+  // filtro global esté acotado a un mes específico. Si no viene (uso
+  // fuera de page.tsx, o versión anterior), cae a `guias` como antes.
+  const guiasBaseTendencias = guiasTendencias ?? guias;
   const [vista, setVista] = useState<VistaEfectividad>('oficina');
 
   // Resumen general de temporalidad para el KPI del inicio del módulo —
@@ -229,13 +243,13 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
 
   const mesesDisponibles = useMemo(() => {
     const meses = new Set<string>();
-    guias.forEach((g) => {
+    guiasBaseTendencias.forEach((g) => {
       if (esRetornoAmplio(g) || g.es_predoc || g.es_documentada) return;
       const mes = (g.f_documentacion || '').slice(0, 7);
       if (mes) meses.add(mes);
     });
     return [...meses].sort();
-  }, [guias]);
+  }, [guiasBaseTendencias]);
 
   const [mesesSeleccionados, setMesesSeleccionados] = useState<string[]>([]);
   useEffect(() => {
@@ -249,8 +263,8 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
   }
 
   const guiasParaTendencia = useMemo(
-    () => guias.filter((g) => mesesSeleccionados.includes((g.f_documentacion || '').slice(0, 7))),
-    [guias, mesesSeleccionados]
+    () => guiasBaseTendencias.filter((g) => mesesSeleccionados.includes((g.f_documentacion || '').slice(0, 7))),
+    [guiasBaseTendencias, mesesSeleccionados]
   );
 
   const tendenciaEfectividad = useMemo(
@@ -261,8 +275,14 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
     () => tendenciaMensualPorCampo(guiasParaTendencia, campoTendencia[vistaTendencia], 'temporalidad'),
     [guiasParaTendencia, vistaTendencia]
   );
+  const tendenciaVolumen = useMemo(
+    () => tendenciaMensualPorCampo(guiasParaTendencia, campoTendencia[vistaTendencia], 'volumen'),
+    [guiasParaTendencia, vistaTendencia]
+  );
   // La sección se muestra si HAY más de un mes disponible para elegir,
-  // independientemente de cuántos estén seleccionados en este momento.
+  // independientemente de cuántos estén seleccionados en este momento
+  // (y ahora, independientemente del filtro global de Periodo — ver
+  // guiasBaseTendencias arriba).
   const hayVariosMeses = mesesDisponibles.length > 1;
   const COLORES_TENDENCIA = ['#1E3A8A', '#0B9B67', '#DC2626', '#B45309', '#7C3AED', '#0891B2'];
   // Guías abiertas (en tránsito) agrupadas por Ciclo — ordenadas según el
@@ -544,6 +564,10 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
       // Resumen general de temporalidad para los KPIs del inicio.
       temporalidadGeneral: temporalidadResumenGeneral,
       tendencias: {
+        volumenTotal: tendenciaMensualPorCampo(guiasParaTendencia, null, 'volumen'),
+        volumenCliente: esMultiCliente ? tendenciaMensualPorCampo(guiasParaTendencia, 'cliente', 'volumen') : null,
+        volumenOficina: tendenciaMensualPorCampo(guiasParaTendencia, 'oficina_destino', 'volumen'),
+        volumenEntidad: tendenciaMensualPorCampo(guiasParaTendencia, 'entidad_destinatario', 'volumen'),
         efectividadTotal: tendenciaMensualPorCampo(guiasParaTendencia, null, 'efectividad'),
         efectividadCliente: esMultiCliente ? tendenciaMensualPorCampo(guiasParaTendencia, 'cliente', 'efectividad') : null,
         efectividadOficina: tendenciaMensualPorCampo(guiasParaTendencia, 'oficina_destino', 'efectividad'),
@@ -671,7 +695,33 @@ export default function EfectividadModule({ guias }: { guias: Guia[] }) {
               </button>
             )}
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div>
+              <div className="text-[11.5px] font-semibold text-[var(--vg-text2)] mb-2">Volumen (Guías Procesadas)</div>
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={tendenciaVolumen.datos} margin={{ bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="mes" tickFormatter={(v) => formatearPeriodo(String(v))} fontSize={10} />
+                  <YAxis fontSize={11} allowDecimals={false} />
+                  <Tooltip labelFormatter={(v) => formatearPeriodo(String(v))} formatter={(v) => Number(v).toLocaleString('es-MX')} />
+                  {tendenciaVolumen.series.length > 1 && <Legend wrapperStyle={{ fontSize: 11 }} />}
+                  {tendenciaVolumen.series.map((s, i) => (
+                    <Line
+                      key={s}
+                      type="monotone"
+                      dataKey={s}
+                      name={s}
+                      stroke={COLORES_TENDENCIA[i % COLORES_TENDENCIA.length]}
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                      activeDot={{ r: 5 }}
+                      connectNulls
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+              <TablaTendenciaMini datos={tendenciaVolumen.datos} series={tendenciaVolumen.series} sufijo="" />
+            </div>
             <div>
               <div className="text-[11.5px] font-semibold text-[var(--vg-text2)] mb-2">Efectividad %</div>
               <ResponsiveContainer width="100%" height={260}>

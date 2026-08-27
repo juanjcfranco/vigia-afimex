@@ -510,7 +510,7 @@ export interface PuntoTendencia {
 
 function valorMetricaTendencia(
   lista: Guia[],
-  metrica: 'efectividad' | 'temporalidad',
+  metrica: 'efectividad' | 'temporalidad' | 'volumen',
   retornoPorGuia: Map<string, Guia>
 ): number | null {
   if (metrica === 'efectividad') {
@@ -519,13 +519,14 @@ function valorMetricaTendencia(
     const abiertas = lista.filter((g) => isAbiertaPorEstado(g)).length;
     return calcularEfectividad(entregadas, devoluciones, abiertas);
   }
+  if (metrica === 'volumen') return lista.length;
   return temporalidadDe(lista, retornoPorGuia).pctVerde;
 }
 
 export function tendenciaMensualPorCampo(
   guiasIn: Guia[],
   campo: keyof Guia | ((g: Guia) => string | null) | null,
-  metrica: 'efectividad' | 'temporalidad',
+  metrica: 'efectividad' | 'temporalidad' | 'volumen',
   topN = 6
 ): { datos: PuntoTendencia[]; series: string[] } {
   // Se construye del set COMPLETO recibido (antes de excluir retornos),
