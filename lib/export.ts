@@ -2322,8 +2322,11 @@ export interface ReporteConsolidadoData {
   // 5) Efectividad + Temporalidad por Cliente
   porCliente: FilaEfectividadTemporalidad[];
 
-  // 6) Resumen de Guías Abiertas (Región → Oficina, columnas = Estado)
+  // 6) Resumen de Guías Abiertas (Región → Oficina, columnas = Estado) +
+  // subtabla por Ciclo (etapa del pipeline)
   resumenGuiasAbiertas: ResumenAbiertasPorEstado;
+  abiertasPorCiclo: Array<{ key: string; count: number }>;
+  totalAbiertas: number;
 
   // 7) Resumen de Retornos Abiertos (Región → Oficina, columnas = Estado)
   resumenRetornosAbiertos: ResumenAbiertasPorEstado;
@@ -2611,6 +2614,10 @@ export function exportReporteConsolidadoPDF(data: ReporteConsolidadoData, ventan
 
       <div class="seccion-titulo">6. Resumen de Guías Abiertas</div>
       ${tablaResumenAbiertasHtml('Guías Abiertas — Región / Oficina / Estado', data.resumenGuiasAbiertas)}
+      <div class="seccion">
+        <div class="seccion-titulo" style="margin:0;border:none;padding:0;font-size:12px;">Guías Abiertas por Ciclo (etapa del proceso)</div>
+        ${barraHtml(data.abiertasPorCiclo, data.totalAbiertas, '#1E3A8A')}
+      </div>
 
       <div class="seccion-titulo">7. Resumen de Retornos Abiertos</div>
       ${tablaResumenAbiertasHtml('Retornos Abiertos — Región / Oficina / Estado', data.resumenRetornosAbiertos)}

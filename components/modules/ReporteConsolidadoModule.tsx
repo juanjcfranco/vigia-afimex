@@ -158,6 +158,16 @@ export default function ReporteConsolidadoModule({
     const resumenGuiasAbiertas = agruparPorRegionOficinaEstado(abiertasLista);
     const resumenRetornosAbiertos = agruparPorRegionOficinaEstado(retornosAbiertosLista);
 
+    // Subtabla de Guías Abiertas por Ciclo (etapa del pipeline), dentro
+    // de la sección de Guías Abiertas — mismo orden Entrada→Distribución→
+    // Recepción→Ruta→Resguardo que usan los demás módulos.
+    const gruposCiclo: Record<string, number> = {};
+    abiertasLista.forEach((g) => {
+      const ciclo = obtenerCiclo(g.estado_guia);
+      gruposCiclo[ciclo] = (gruposCiclo[ciclo] || 0) + 1;
+    });
+    const abiertasPorCiclo = ORDEN_CICLOS.filter((c) => gruposCiclo[c]).map((c) => ({ key: c, count: gruposCiclo[c] }));
+
     // 8) Top Excepciones
     const resumenExc = calcularResumenExcepciones(guias, 10);
 
@@ -186,6 +196,8 @@ export default function ReporteConsolidadoModule({
         regionOficina,
         porCliente,
         resumenGuiasAbiertas,
+        abiertasPorCiclo,
+        totalAbiertas: abiertas,
         resumenRetornosAbiertos,
         topExcepciones: resumenExc.porTipo,
         totalConExcepcion: resumenExc.total,
