@@ -18,6 +18,7 @@ import {
   calcularResumenExcepciones,
   formatearPeriodo,
   accionEfectiva,
+  diasEntreFechas,
 } from '@/lib/business-logic';
 import { exportReporteConsolidadoPDF, exportToExcel, ResumenAbiertasPorEstado } from '@/lib/export';
 
@@ -212,6 +213,10 @@ export default function ReporteConsolidadoModule({
         { header: 'Días sin Mov.', value: (g: Guia) => g.dias_sin_movimiento ?? '' },
         { header: 'Últ. Mov.', value: (g: Guia) => g.f_historia || '' },
         { header: 'Fecha Creación', value: (g: Guia) => g.f_documentacion || '' },
+        { header: 'Doc→Plataforma (d)', value: (g: Guia) => diasEntreFechas(g.f_documentacion, g.fecha_plataforma) ?? '' },
+        { header: 'Plataforma→1ra Ruta (d)', value: (g: Guia) => diasEntreFechas(g.fecha_plataforma, g.primera_ruta) ?? '' },
+        { header: 'RecibOf→1ra Ruta (d)', value: (g: Guia) => diasEntreFechas(g.recibido_oficina, g.primera_ruta) ?? '' },
+        { header: 'Plataforma→Confirmación (d)', value: (g: Guia) => diasEntreFechas(g.fecha_plataforma, g.f_confirmacion) ?? '' },
       ],
       'Guías Abiertas'
     );
@@ -234,6 +239,10 @@ export default function ReporteConsolidadoModule({
         { header: 'Días sin Mov.', value: (g: Guia) => g.dias_sin_movimiento ?? '' },
         { header: 'Últ. Mov.', value: (g: Guia) => g.f_historia || '' },
         { header: 'Fecha Creación', value: (g: Guia) => g.f_documentacion || '' },
+        { header: 'Doc→Plataforma (d)', value: (g: Guia) => diasEntreFechas(g.f_documentacion, g.fecha_plataforma) ?? '' },
+        { header: 'Plataforma→1ra Ruta (d)', value: (g: Guia) => diasEntreFechas(g.fecha_plataforma, g.primera_ruta) ?? '' },
+        { header: 'RecibOf→1ra Ruta (d)', value: (g: Guia) => diasEntreFechas(g.recibido_oficina, g.primera_ruta) ?? '' },
+        { header: 'Plataforma→Confirmación (d)', value: (g: Guia) => diasEntreFechas(g.fecha_plataforma, g.f_confirmacion) ?? '' },
       ],
       'Retornos Abiertos'
     );
