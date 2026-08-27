@@ -33,9 +33,8 @@ export async function GET(req: NextRequest) {
   const limitParam = searchParams.get('limit');
   const limit = limitParam ? Number(limitParam) : Infinity;
 
-  // Aplica los mismos filtros a cualquier query base (se usa tanto para el
-  // conteo como para cada página de datos, para que ambos vean exactamente
-  // el mismo universo de filas).
+  // Aplica los mismos filtros a cualquier query base (se usa para cada
+  // página de datos, así todas ven exactamente el mismo universo de filas).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function aplicarFiltros(query: any) {
     if (cargaId) query = query.eq('carga_id', cargaId);
@@ -53,18 +52,6 @@ export async function GET(req: NextRequest) {
     return query;
   }
 
-  // 1) Conteo total primero (rápido: head:true no trae filas, solo el
-  // número), para saber cuántas páginas hacen falta antes de pedirlas.
-  const { count, error: countError } = await aplicarFiltros(
-    db.from('guias').select('*', { count: 'exact', head: true })
-  );
-  if (countError) return NextResponse.json({ error: countError.message }, { status: 500 });
-
-  const total = Math.min(count ?? 0, limit);
-  if (total <= 0) return NextResponse.json({ guias: [], total: 0 });
-
-  const numPaginas = Math.ceil(total / SUPABASE_PAGE_SIZE);
-
   // IMPORTANTE: sin un orden explícito y estable, Postgres no garantiza
   // qué filas caen en cada página de .range(). Con más de 1000 guías (el
   // límite duro de PostgREST) eso provoca que la misma fila aparezca en
@@ -73,31 +60,42 @@ export async function GET(req: NextRequest) {
   // ahí hace que cada página traiga siempre las mismas filas.
   function pedirPagina(i: number) {
     const from = i * SUPABASE_PAGE_SIZE;
-    const to = Math.min(from + SUPABASE_PAGE_SIZE - 1, total - 1);
+    const to = from + SUPABASE_PAGE_SIZE - 1;
     return aplicarFiltros(db.from('guias').select('*'))
       .order('id', { ascending: true })
       .range(from, to);
   }
 
-  // 2) Pide todas las páginas con concurrencia limitada (CONCURRENCIA_PAGINAS
-  // a la vez), en vez de una por una en serie.
-  const resultados: Array<{ data: Record<string, unknown>[] | null; error: { message: string } | null }> =
-    new Array(numPaginas);
-  let siguiente = 0;
-  async function trabajador() {
-    while (siguiente < numPaginas) {
-      const i = siguiente++;
-      resultados[i] = await pedirPagina(i);
-    }
-  }
-  await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCIA_PAGINAS, numPaginas) }, () => trabajador())
-  );
-
+  // Pide páginas en OLEADAS de tamaño creciente (sin pedir antes un
+  // conteo exacto — ese conteo puede ser lento en tablas grandes, y peor:
+  // justo después de subir una carga nueva, las estadísticas internas de
+  // Postgres para un conteo ESTIMADO todavía pueden estar desactualizadas
+  // y devolver un número erróneo). Se pide una oleada de páginas en
+  // paralelo; si alguna página de esa oleada regresa MENOS de 1000 filas,
+  // ya se encontró el final y no hace falta seguir. Si todas las páginas
+  // de la oleada vienen llenas, se pide la siguiente oleada.
   const allRows: Record<string, unknown>[] = [];
-  for (const r of resultados) {
-    if (r.error) return NextResponse.json({ error: r.error.message }, { status: 500 });
-    if (r.data) allRows.push(...r.data);
+  let siguienteIndice = 0;
+  let seAcabaron = false;
+
+  while (!seAcabaron && allRows.length < limit) {
+    const oleada = await Promise.all(
+      Array.from({ length: CONCURRENCIA_PAGINAS }, (_, k) => pedirPagina(siguienteIndice + k))
+    );
+    siguienteIndice += CONCURRENCIA_PAGINAS;
+
+    for (const { data, error } of oleada) {
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!data || data.length === 0) {
+        seAcabaron = true;
+        break;
+      }
+      allRows.push(...data);
+      if (data.length < SUPABASE_PAGE_SIZE) {
+        seAcabaron = true;
+        break;
+      }
+    }
   }
 
   // Deduplicación defensiva: si por cualquier motivo (reintento de una
