@@ -2,7 +2,7 @@
 
 import * as XLSX from 'xlsx';
 import { LOGO_AFIMEX_BASE64 } from './logo-base64';
-import { Indemnizacion } from './types';
+import { Indemnizacion, Guia } from './types';
 import mexicoMapData from './mexico-map-data.json';
 import { FilaTemporalidad, FilaRegionOficina, FilaEfectividadTemporalidad, PuntoTendencia } from './business-logic';
 
@@ -2245,6 +2245,409 @@ export function exportEfectividadPDF(data: EfectividadExportData, ventanaExisten
       <div class="seccion">
         <div class="seccion-titulo">Devoluciones — Top Oficina Destino</div>
         ${barraHtml(data.devolucionesPorOficina, data.totalDevoluciones, '#DC2626')}
+      </div>
+
+      <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
+
+      <script>
+        window.onload = function() { window.print(); };
+      </script>
+    </body>
+    </html>
+  `);
+  win.document.close();
+}
+
+// ============================================================
+// REPORTE EJECUTIVO CONSOLIDADO (agregado ago-2026): combina en un solo
+// PDF piezas de Resumen, Efectividad, Abiertas y Excepciones que antes
+// solo vivían repartidas en sus módulos/reportes individuales — pensado
+// para una vista integral de un vistazo, sin tener que abrir cada módulo
+// por separado. Reutiliza las mismas funciones/estilos ya usados en el
+// Informe Logístico y el Reporte de Efectividad.
+// ============================================================
+
+// Fila plana para las tablas de detalle completo (Guías Abiertas /
+// Retornos Abiertos) — se calcula en el componente que llama a esta
+// función (ReporteConsolidadoModule.tsx), no aquí, para no tener que
+// importar toda la lógica de negocio (obtenerRegion, obtenerCiclo, etc.)
+// dentro de este archivo de solo-renderizado.
+export interface FilaDetalleGuiaAbierta {
+  guia: string;
+  cliente: string;
+  estado: string;
+  oficina: string;
+  entidad: string;
+  region: string;
+  ciclo: string;
+  diasSinMovimiento: number | null;
+  ultimoMovimiento: string | null;
+  fechaCreacion: string | null;
+  docPlataforma: number | null;
+  plataformaRuta: number | null;
+  recibofRuta: number | null;
+  plataformaConfirmacion: number | null;
+}
+
+export interface ReporteConsolidadoData {
+  cliente: string;
+  periodoTexto: string;
+  totalGuias: number;
+
+  // 1) KPIs del módulo Resumen
+  kpisResumen: {
+    totalProcesadas: number;
+    entregadas: number;
+    devoluciones: number;
+    guiasDeRetorno: number;
+    posibleRetornoOtroPeriodo: number;
+    abiertas: number;
+    retornosAbiertos: number;
+    efectividad: number | null;
+    predoc: number;
+    documentadas: number;
+    canceladas: number;
+  };
+
+  // 2) KPIs de Temporalidad (resumen general del corte)
+  temporalidadGeneral: Omit<FilaTemporalidad, 'key'> | null;
+
+  // 3) Tendencias mensuales (Total) — Volumen, Efectividad, Temporalidad
+  tendenciaVolumen: { datos: PuntoTendencia[]; series: string[] };
+  tendenciaEfectividad: { datos: PuntoTendencia[]; series: string[] };
+  tendenciaTemporalidad: { datos: PuntoTendencia[]; series: string[] };
+
+  // 4) Efectividad + Temporalidad por Región → Oficina
+  regionOficina: FilaRegionOficina[];
+
+  // 5) Efectividad + Temporalidad por Cliente
+  porCliente: FilaEfectividadTemporalidad[];
+
+  // 6) KPIs de Abiertas por Oficina / Ciclo
+  abiertasPorOficina: Array<{ key: string; count: number }>;
+  abiertasPorCiclo: Array<{ key: string; count: number }>;
+  totalAbiertas: number;
+
+  // 7) Tabla completa de Guías Abiertas
+  guiasAbiertas: FilaDetalleGuiaAbierta[];
+
+  // 8) Tabla completa de Retornos Abiertos
+  retornosAbiertos: FilaDetalleGuiaAbierta[];
+
+  // 9) KPIs de Excepciones (Top)
+  topExcepciones: Array<{ key: string; count: number }>;
+  totalConExcepcion: number;
+}
+
+// Tabla plana Efectividad + Temporalidad por Cliente (sin jerarquía,
+// a diferencia de bloqueRegionOficinaHtml que sí tiene Región→Oficina).
+function bloqueEfectividadTemporalidadPlanoHtml(
+  titulo: string,
+  lista: FilaEfectividadTemporalidad[],
+  etiquetaColumna: string
+): string {
+  if (!lista.length) {
+    return `
+    <div class="seccion">
+      <div class="seccion-titulo">${escapeHtml(titulo)}</div>
+      <div class="sin-datos">Sin datos para este corte</div>
+    </div>`;
+  }
+  const fmtDias = (n: number | null) => (n !== null ? `${n}d` : '—');
+  const filaEfectividad = (f: FilaEfectividadTemporalidad) => {
+    const color = colorEfectividadInforme(f.efectividad);
+    return `<span style="font-weight:800;color:${color};">${f.efectividad !== null ? `${f.efectividad}%` : '—'}</span>`;
+  };
+  const filaPct15 = (f: FilaEfectividadTemporalidad) => {
+    const color = f.pctVerde === null ? '#94A3B8' : f.pctVerde >= 70 ? '#0B9B67' : f.pctVerde >= 50 ? '#EA7C1A' : '#DC2626';
+    return `<span style="font-weight:800;color:${color};">${f.pctVerde !== null ? `${f.pctVerde}%` : '—'}</span>`;
+  };
+  const filas = lista
+    .map(
+      (f) => `
+    <tr>
+      <td class="celda-fuerte">${escapeHtml(f.key)}</td>
+      <td>${f.total.toLocaleString('es-MX')}</td>
+      <td>${filaEfectividad(f)}</td>
+      <td>${fmtDias(f.docPlataforma)}</td>
+      <td>${fmtDias(f.plataformaRuta)}</td>
+      <td>${fmtDias(f.recibofRuta)}</td>
+      <td>${fmtDias(f.plataformaConfirmacion)}</td>
+      <td>${filaPct15(f)}</td>
+    </tr>`
+    )
+    .join('');
+  return `
+    <div class="seccion">
+      <div class="seccion-titulo">${escapeHtml(titulo)}</div>
+      <div class="aclaracion">% ≤15d: dentro de 15 días desde Plataforma hasta entrega/devolución (abiertas se miden contra hoy)</div>
+      <table>
+        <thead>
+          <tr>
+            <th>${escapeHtml(etiquetaColumna)}</th>
+            <th>Total</th>
+            <th>Efect.</th>
+            <th>Doc→Plataf.</th>
+            <th>Plataf.→1ra Ruta</th>
+            <th>RecibOf→1ra Ruta</th>
+            <th>Plataf.→Confirm.</th>
+            <th>% ≤15d</th>
+          </tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+}
+
+// Tabla de detalle completo (una fila por guía) — usada tanto para Guías
+// Abiertas como para Retornos Abiertos. Puede ser larga (miles de filas)
+// si el corte tiene muchas guías abiertas — se deja así intencionalmente
+// ("con todos sus datos"), sin acotar a un Top N como el resto de tablas
+// de este archivo.
+function tablaDetalleGuiasHtml(titulo: string, lista: FilaDetalleGuiaAbierta[]): string {
+  const fmtDias = (n: number | null) => (n !== null ? `${n}d` : '—');
+  if (!lista.length) {
+    return `
+    <div class="seccion">
+      <div class="seccion-titulo">${escapeHtml(titulo)} <span class="conteo">(0)</span></div>
+      <div class="sin-datos">Sin guías para este corte</div>
+    </div>`;
+  }
+  const filas = lista
+    .map(
+      (g) => `
+    <tr>
+      <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
+      <td>${escapeHtml(g.cliente)}</td>
+      <td>${escapeHtml(g.estado)}</td>
+      <td>${escapeHtml(g.oficina)}</td>
+      <td>${escapeHtml(g.entidad)}</td>
+      <td>${escapeHtml(g.region)}</td>
+      <td>${escapeHtml(g.ciclo)}</td>
+      <td>${g.diasSinMovimiento ?? '—'}</td>
+      <td>${escapeHtml(g.ultimoMovimiento || '—')}</td>
+      <td>${escapeHtml(g.fechaCreacion || '—')}</td>
+      <td>${fmtDias(g.docPlataforma)}</td>
+      <td>${fmtDias(g.plataformaRuta)}</td>
+      <td>${fmtDias(g.recibofRuta)}</td>
+      <td>${fmtDias(g.plataformaConfirmacion)}</td>
+    </tr>`
+    )
+    .join('');
+  return `
+    <div class="seccion">
+      <div class="seccion-titulo">${escapeHtml(titulo)} <span class="conteo">(${lista.length.toLocaleString('es-MX')})</span></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Guía</th>
+            <th>Cliente</th>
+            <th>Estado</th>
+            <th>Oficina</th>
+            <th>Entidad</th>
+            <th>Región</th>
+            <th>Ciclo</th>
+            <th>Días s/Mov.</th>
+            <th>Últ. Mov.</th>
+            <th>Fecha Creación</th>
+            <th>Doc→Plataf.</th>
+            <th>Plataf.→1ra Ruta</th>
+            <th>RecibOf→1ra Ruta</th>
+            <th>Plataf.→Confirm.</th>
+          </tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+}
+
+export function exportReporteConsolidadoPDF(data: ReporteConsolidadoData, ventanaExistente?: Window | null) {
+  const win = ventanaExistente ?? window.open('', '_blank');
+  if (!win) {
+    alert('Tu navegador bloqueó la ventana de impresión. Habilita pop-ups para este sitio.');
+    return;
+  }
+
+  const fechaGenerado = new Date().toLocaleString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const k = data.kpisResumen;
+  const kpiCardsResumen = [
+    { label: 'Guías Procesadas', value: k.totalProcesadas.toLocaleString('es-MX'), color: '#1E3A8A' },
+    { label: 'Entregadas', value: k.entregadas.toLocaleString('es-MX'), color: '#0B9B67' },
+    { label: 'Devoluciones', value: k.devoluciones.toLocaleString('es-MX'), color: '#DC2626' },
+    { label: 'Guías de Retorno', value: k.guiasDeRetorno.toLocaleString('es-MX'), color: '#7C3AED' },
+    { label: 'Posible Retorno (Otro Periodo)', value: k.posibleRetornoOtroPeriodo.toLocaleString('es-MX'), color: '#B45309' },
+    { label: 'Abiertas', value: k.abiertas.toLocaleString('es-MX'), color: '#EA7C1A' },
+    { label: 'Retornos Abiertos', value: k.retornosAbiertos.toLocaleString('es-MX'), color: '#7C3AED' },
+    {
+      label: 'Efectividad',
+      value: k.efectividad !== null ? `${k.efectividad}%` : '—',
+      color: k.efectividad === null ? '#94A3B8' : k.efectividad >= 70 ? '#0B9B67' : k.efectividad >= 50 ? '#EA7C1A' : '#DC2626',
+    },
+    { label: 'Pre-Documentadas', value: k.predoc.toLocaleString('es-MX'), color: '#0891B2' },
+    { label: 'Documentadas', value: k.documentadas.toLocaleString('es-MX'), color: '#0891B2' },
+    { label: 'Canceladas', value: k.canceladas.toLocaleString('es-MX'), color: '#64748B' },
+  ]
+    .map(
+      (c) => `
+      <div class="kpi-card">
+        <div class="kpi-label">${escapeHtml(c.label)}</div>
+        <div class="kpi-value" style="color:${c.color};">${c.value}</div>
+      </div>`
+    )
+    .join('');
+
+  const t = data.temporalidadGeneral;
+  const kpiCardsTemporalidad = t
+    ? [
+        { label: 'Doc→Plataforma', value: t.docPlataforma !== null ? `${t.docPlataforma}d` : '—', color: '#1E3A8A' },
+        { label: 'Plataforma→1ra Ruta', value: t.plataformaRuta !== null ? `${t.plataformaRuta}d` : '—', color: '#0B9B67' },
+        { label: 'RecibOf→1ra Ruta', value: t.recibofRuta !== null ? `${t.recibofRuta}d` : '—', color: '#B45309' },
+        { label: 'Plataforma→Confirmación', value: t.plataformaConfirmacion !== null ? `${t.plataformaConfirmacion}d` : '—', color: '#7C3AED' },
+        {
+          label: '% Dentro de 15 Días',
+          value: t.pctVerde !== null ? `${t.pctVerde}%` : '—',
+          color: t.pctVerde === null ? '#94A3B8' : t.pctVerde >= 70 ? '#0B9B67' : t.pctVerde >= 50 ? '#EA7C1A' : '#DC2626',
+        },
+        { label: 'Promedio Vida (Plataf.→Entrega/Retorno)', value: t.promedioVidaDias !== null ? `${t.promedioVidaDias}d` : '—', color: '#0891B2' },
+      ]
+        .map(
+          (c) => `
+      <div class="kpi-card">
+        <div class="kpi-label">${escapeHtml(c.label)}</div>
+        <div class="kpi-value" style="color:${c.color};">${c.value}</div>
+      </div>`
+        )
+        .join('')
+    : '<div class="sin-datos">Sin datos de temporalidad para este corte</div>';
+
+  // Mismo motivo que en los otros reportes: si la ventana ya tenía un
+  // placeholder de "Generando…", hay que reabrir el documento antes de
+  // escribir para remplazarlo en vez de anexarse después.
+  win.document.open();
+  win.document.write(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="utf-8"/>
+      <title>VIGIA - Reporte Ejecutivo Consolidado</title>
+      <style>
+        * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
+        body { font-family: Arial, Helvetica, sans-serif; padding: 22px; color: #1E293B; }
+        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1E3A8A; padding-bottom: 12px; margin-bottom: 14px; }
+        .header h1 { font-size: 20px; color: #1E3A8A; margin: 0 0 4px 0; }
+        .header .subtitulo { font-size: 13px; color: #64748B; }
+        .header .meta { font-size: 11px; color: #64748B; text-align: right; }
+        .kpi-grid { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+        .kpi-card { flex: 1; min-width: 110px; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px 12px; background: #F8FAFC; }
+        .kpi-label { font-size: 10px; font-weight: 700; color: #64748B; margin-bottom: 4px; text-transform: uppercase; }
+        .kpi-value { font-size: 20px; font-weight: 800; }
+        .seccion { border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
+        .seccion-titulo { font-size: 15px; font-weight: 800; margin: 18px 0 8px; color: #1E3A8A; border-top: 2px solid #E2E8F0; padding-top: 14px; }
+        .seccion .seccion-titulo:first-child, .seccion > .seccion-titulo:first-of-type { border-top: none; padding-top: 0; margin-top: 0; font-size: 13px; color: #1E293B; }
+        .aclaracion { font-size: 10.5px; color: #94A3B8; font-style: italic; margin: -4px 0 8px; }
+        .conteo { font-weight: 500; color: #94A3B8; font-size: 11px; }
+        .dos-columnas { display: flex; gap: 14px; margin-bottom: 14px; }
+        .dos-columnas > .seccion { flex: 1; min-width: 0; margin-bottom: 0; }
+        .tres-columnas { display: flex; gap: 14px; margin-bottom: 14px; }
+        .tres-columnas > .seccion { flex: 1; min-width: 0; margin-bottom: 0; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        th { text-align: left; padding: 5px 8px; background: #F8FAFC; border-bottom: 2px solid #E2E8F0; color: #64748B; font-size: 10px; text-transform: uppercase; position: sticky; top: 0; }
+        td { padding: 4px 8px; border-bottom: 1px solid #F1F5F9; }
+        .celda-fuerte { font-weight: 700; }
+        .celda-vacia { color: #CBD5E1; }
+        .celda-vol { font-size: 9.5px; color: #94A3B8; }
+        .barra-fila { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .barra-label { font-size: 11px; font-weight: 600; width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .barra-track { flex: 1; background: #F1F5F9; border-radius: 4px; height: 10px; overflow: hidden; }
+        .barra-fill { height: 100%; border-radius: 4px; }
+        .barra-valor { font-size: 10.5px; font-weight: 700; width: 22%; text-align: right; white-space: nowrap; }
+        .barra-pct { font-weight: 500; color: #94A3B8; }
+        .sin-datos { font-size: 11px; color: #94A3B8; padding: 8px 0; }
+        .footer { margin-top: 12px; font-size: 10px; color: #94A3B8; text-align: right; }
+        .donut-wrap { display: flex; align-items: center; gap: 18px; }
+        .donut-leyenda { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+        .donut-leyenda-item { display: flex; align-items: center; gap: 6px; font-size: 11.5px; }
+        .donut-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .donut-leyenda-label { font-weight: 700; flex: 1; }
+        .donut-leyenda-valor { color: #64748B; font-size: 11px; }
+        .tabla-region-oficina th { position: sticky; top: 0; }
+        .fila-region td { background: #F1F5F9; font-weight: 700; border-top: 2px solid #E2E8F0; }
+        .fila-oficina td { font-size: 10.5px; color: #475569; padding-left: 16px; }
+        .seccion table tr, .kpi-card, .donut-wrap, .barra-fila { break-inside: avoid; page-break-inside: avoid; }
+        @media print {
+          body { padding: 10mm; }
+          @page { size: landscape; margin: 10mm; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div>
+          <h1>VIGÍA — Reporte Ejecutivo Consolidado</h1>
+          <div class="subtitulo">${escapeHtml(data.cliente)} · ${escapeHtml(data.periodoTexto)}</div>
+        </div>
+        <div class="meta">Generado: ${escapeHtml(fechaGenerado)}<br/>${data.totalGuias.toLocaleString('es-MX')} guías en este corte</div>
+      </div>
+
+      <div class="seccion-titulo" style="margin-top:0;border-top:none;padding-top:0;">1. KPIs — Resumen</div>
+      <div class="kpi-grid">${kpiCardsResumen}</div>
+
+      <div class="seccion-titulo">2. KPIs — Temporalidad</div>
+      <div class="kpi-grid">${kpiCardsTemporalidad}</div>
+
+      <div class="seccion-titulo">3. Tendencias Mensuales (Total)</div>
+      <div class="tres-columnas">
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin:0;border:none;padding:0;font-size:12px;">Volumen (Guías Procesadas)</div>
+          ${multiLineChartHtml(data.tendenciaVolumen.datos, data.tendenciaVolumen.series, { autoEscala: true })}
+          ${tablaTendenciaHtml(data.tendenciaVolumen.datos, data.tendenciaVolumen.series, '')}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin:0;border:none;padding:0;font-size:12px;">Efectividad %</div>
+          ${multiLineChartHtml(data.tendenciaEfectividad.datos, data.tendenciaEfectividad.series)}
+          ${tablaTendenciaHtml(data.tendenciaEfectividad.datos, data.tendenciaEfectividad.series)}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin:0;border:none;padding:0;font-size:12px;">Temporalidad — % ≤15 Días</div>
+          ${multiLineChartHtml(data.tendenciaTemporalidad.datos, data.tendenciaTemporalidad.series)}
+          ${tablaTendenciaHtml(data.tendenciaTemporalidad.datos, data.tendenciaTemporalidad.series)}
+        </div>
+      </div>
+
+      <div class="seccion-titulo">4. Efectividad y Temporalidad — Región → Oficina</div>
+      ${bloqueRegionOficinaHtml(data.regionOficina)}
+
+      <div class="seccion-titulo">5. Efectividad y Temporalidad — Por Cliente</div>
+      ${bloqueEfectividadTemporalidadPlanoHtml('Por Cliente', data.porCliente, 'Cliente')}
+
+      <div class="seccion-titulo">6. Guías Abiertas — Por Oficina y por Ciclo</div>
+      <div class="dos-columnas">
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin:0;border:none;padding:0;font-size:12px;">Por Ciclo</div>
+          ${barraHtml(data.abiertasPorCiclo, data.totalAbiertas, '#1E3A8A')}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin:0;border:none;padding:0;font-size:12px;">Por Oficina (Top 10)</div>
+          ${barraHtml(data.abiertasPorOficina, data.totalAbiertas, '#EA7C1A')}
+        </div>
+      </div>
+
+      <div class="seccion-titulo">7. Guías Abiertas — Detalle Completo</div>
+      ${tablaDetalleGuiasHtml('Guías Abiertas', data.guiasAbiertas)}
+
+      <div class="seccion-titulo">8. Retornos Abiertos — Detalle Completo</div>
+      ${tablaDetalleGuiasHtml('Retornos Abiertos', data.retornosAbiertos)}
+
+      <div class="seccion-titulo">9. Excepciones — Top</div>
+      <div class="seccion">
+        ${barraHtml(data.topExcepciones, data.totalConExcepcion, '#7C3AED')}
       </div>
 
       <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>

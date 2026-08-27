@@ -14,6 +14,7 @@ export const TABS = [
   { id: 'predoc', label: '🔵 Pre-Documentadas' },
   { id: 'alertas', label: '📧 Alertas' },
   { id: 'guias', label: '🔍 Guías' },
+  { id: 'reporteConsolidado', label: '📋 Reporte Ejecutivo' },
   { id: 'historial', label: '🕘 Historial' },
 ] as const;
 

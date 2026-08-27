@@ -21,6 +21,7 @@ import AbiertasModule from '@/components/modules/AbiertasModule';
 import PredocModule from '@/components/modules/PredocModule';
 import AlertasModule from '@/components/modules/AlertasModule';
 import GuiasModule from '@/components/modules/GuiasModule';
+import ReporteConsolidadoModule from '@/components/modules/ReporteConsolidadoModule';
 import HistorialModule from '@/components/modules/HistorialModule';
 import IndemnizacionesModule from '@/components/modules/IndemnizacionesModule';
 
@@ -137,6 +138,7 @@ export default function Home() {
           {tab === 'predoc' && <PredocModule guias={guiasFiltradas} />}
           {tab === 'alertas' && <AlertasModule guias={guiasFiltradas} />}
           {tab === 'guias' && <GuiasModule guias={guiasFiltradas} />}
+          {tab === 'reporteConsolidado' && <ReporteConsolidadoModule guias={guiasFiltradas} />}
           {tab === 'historial' && (
             <HistorialModule cargas={cargas} cargaActivaId={cargaActivaId} onSeleccionar={setCargaActivaId} />
           )}
