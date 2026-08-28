@@ -67,9 +67,15 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
   const kpis = useMemo(() => {
     const totalFilas = guias.length;
 
-    // "Guías de retorno": guías devueltas que ya tienen su número de retorno
-    // referenciado en la columna Retorno (1 por cada devolución)
-    const devolucionesConRetorno = guias.filter((g) => g.es_devolucion && g.retorno_guia);
+    // "Guías de retorno": guías devueltas (dentro del universo de Guías
+    // Procesadas, esGuiaOriginal) que ya tienen su número de retorno
+    // referenciado en la columna Retorno (1 por cada devolución). Se usa
+    // `guiasOriginales`, NO `guias` sin filtrar — así "Guías de Retorno"
+    // queda estructuralmente acotado a nunca superar "Devoluciones" (es
+    // un subconjunto de esa misma métrica por construcción), en vez de
+    // depender de que ningún caso raro en la clasificación de retorno
+    // se cuele por el lado del conjunto sin filtrar.
+    const devolucionesConRetorno = guiasOriginales.filter((g) => g.es_devolucion && g.retorno_guia);
     // Prioriza el estado real de la fila física del retorno (si existe en
     // este corte) sobre el campo embebido retorno_estado, que puede venir
     // desactualizado — ver retornoEstaEntregado() en business-logic.ts.

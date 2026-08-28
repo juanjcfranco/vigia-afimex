@@ -36,13 +36,15 @@ function resumenDe(lista: Guia[]) {
 
 export default function CierreModal({ open, onClose, guias, cargaActiva }: CierreModalProps) {
   const resumen = useMemo(() => {
-    // KPIs idénticos al módulo Resumen
-    const devolucionesConRetorno = guias.filter((g) => g.es_devolucion && g.retorno_guia);
+    // KPIs idénticos al módulo Resumen — "Guías de Retorno" debe acotarse
+    // a guiasOriginales (mismo universo que Devoluciones), no al conjunto
+    // sin filtrar, para que nunca pueda superar el total de Devoluciones.
+    const guiasOriginales = guias.filter(esGuiaOriginal);
+    const devolucionesConRetorno = guiasOriginales.filter((g) => g.es_devolucion && g.retorno_guia);
     const guiasRetornoEntregadas = devolucionesConRetorno.filter(
       (g) => (g.retorno_estado || '').toUpperCase() === 'ENTREGADA'
     ).length;
     const posibleRetornoOtroPeriodo = guias.filter((g) => g.es_posible_retorno_otro_periodo);
-    const guiasOriginales = guias.filter(esGuiaOriginal);
 
     const entregadas = guiasOriginales.filter((g) => isEntregada(g.estado_guia)).length;
     const devoluciones = guiasOriginales.filter((g) => g.es_devolucion).length;
