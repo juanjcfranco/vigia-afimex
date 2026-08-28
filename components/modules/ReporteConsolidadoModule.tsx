@@ -19,6 +19,7 @@ import {
   formatearPeriodo,
   accionEfectiva,
   diasEntreFechas,
+  retornoEstaEntregado,
 } from '@/lib/business-logic';
 import { exportReporteConsolidadoPDF, exportToExcel, ResumenAbiertasPorEstado } from '@/lib/export';
 
@@ -120,22 +121,39 @@ export default function ReporteConsolidadoModule({
           })()
         : 'Sin fecha';
 
-    // 1) KPIs de Resumen — misma definición que useVigiaData.ts/kpis
+    // 1) KPIs de Resumen — misma definición EXACTA que ResumenModule.tsx
+    // (antes usaba esRetornoAmplio() para "Guías de Retorno", que cuenta
+    // algo distinto — TODAS las guías clasificadas como retorno de
+    // cualquier forma, incluyendo "posible retorno de otro periodo" que
+    // son filas físicas separadas — por eso podía superar Devoluciones,
+    // cosa que no debería pasar nunca: Guías de Retorno es un
+    // SUBCONJUNTO de Devoluciones, las que además tienen su retorno
+    // referenciado).
     const guiasOriginales = guias.filter(esGuiaOriginal);
     const entregadas = guiasOriginales.filter((g) => isEntregada(g.estado_guia)).length;
     const devoluciones = guiasOriginales.filter((g) => g.es_devolucion).length;
     const abiertasLista = guiasOriginales.filter((g) => isAbiertaPorEstado(g));
     const abiertas = abiertasLista.length;
-    const guiasDeRetorno = guias.filter((g) => esRetornoAmplio(g)).length;
     const posibleRetornoOtroPeriodo = guias.filter((g) => g.es_posible_retorno_otro_periodo).length;
     const predoc = guias.filter((g) => g.es_predoc).length;
     const documentadas = guias.filter((g) => g.es_documentada).length;
     const canceladas = guias.filter(
       (g) => isCancelada(g.estado_guia) && !esRetornoAmplio(g) && !g.es_predoc && !g.es_documentada
     ).length;
+
+    // Mapa guía→fila propia del retorno, construido del set COMPLETO (sin
+    // filtro de oficina/entidad aplicado) — un retorno casi siempre vive
+    // en una oficina distinta a la de la devolución original. Mismo
+    // patrón que ResumenModule.tsx/DevolucionesModule.tsx.
+    const retornoPorGuia = new Map<string, Guia>();
+    guias.forEach((g) => {
+      if (g.es_retorno && g.guia) retornoPorGuia.set(g.guia, g);
+    });
+
     const devolucionesConRetorno = guiasOriginales.filter((g) => g.es_devolucion && g.retorno_guia);
+    const guiasDeRetorno = devolucionesConRetorno.length;
     const retornosAbiertosCount = devolucionesConRetorno.filter(
-      (g) => (g.retorno_estado || '').toUpperCase() !== 'ENTREGADA'
+      (g) => !retornoEstaEntregado(g, g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined)
     ).length;
     const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
 
