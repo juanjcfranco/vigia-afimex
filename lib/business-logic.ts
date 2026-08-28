@@ -1556,11 +1556,24 @@ export function normalizarFila(
   // reparte en 270+ ciudades a su propio nombre — por eso cae en patrón
   // dominante) SÍ tenía retornos reales marcados así en Observaciones que
   // el patrón dominante estaba bloqueando incorrectamente.
+  //
+  // IMPORTANTE: nunca se aplica a una fila que YA está en estado
+  // DEVOLUCION. "Posible retorno de otro periodo" identifica guías que
+  // SON, en sí mismas, el viaje físico de regreso (normalmente en
+  // tránsito: EMBARCADA, EN RUTA, etc.) — no la devolución misma. Una
+  // devolución cuyas propias Observaciones mencionan un regreso anterior
+  // ("esta es el retorno de la guía X") sigue siendo una devolución
+  // legítima de ESTE corte; excluirla de "Guías Procesadas"/Devoluciones
+  // (vía esGuiaOriginal) mientras "Guías de Retorno" seguía contándola
+  // (esa fórmula no pasa por esGuiaOriginal) inflaba "Guías de Retorno"
+  // por encima de "Devoluciones" — algo que nunca debería pasar, ya que
+  // Guías de Retorno es un subconjunto de Devoluciones por definición.
   const mismoNombreClienteDestinatario =
     !!clientePaga && !!nombreDestinatario && clientePaga.toUpperCase() === nombreDestinatario.toUpperCase();
   const tieneNotaDevolucionObservaciones = /DEVOLUCION\s+GUIA\s*:/i.test(String(r.Observaciones ?? ''));
   const esPosibleRetornoOtroPeriodo =
     !esRetorno &&
+    !isDevolucion(estado) &&
     ((mismoNombreClienteDestinatario && !clientesConPatronDominante.has(clientePaga)) ||
       tieneNotaDevolucionObservaciones);
 
