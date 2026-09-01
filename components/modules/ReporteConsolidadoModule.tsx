@@ -159,20 +159,26 @@ export default function ReporteConsolidadoModule({
     ).length;
 
     // ============================================================
-    // Oficinas que requieren atención: efectividad baja (<60%) +
-    // volumen relevante (>=20 guías, para no meter ruido de oficinas con
-    // 2-3 guías donde 1 devolución ya se ve como "50% efectividad").
-    // Ordenadas por volumen — las que más pesan primero, no solo las que
-    // tienen peor %.
-    // ============================================================
-    const UMBRAL_EFECTIVIDAD = 60;
-    const VOLUMEN_MINIMO = 20;
+    // Oficinas que requieren atención: ranking por score = volumen ×
+    // (100-efectividad) — prioriza las que más pesan Y tienen peor
+    // efectividad a la vez, sin depender de un umbral fijo que podía
+    // dejar la tabla con menos de 5 filas si ninguna oficina calificaba
+    // exactamente. Mínimo garantizado: hasta 8, o todas las que haya.
     const porOficina = efectividadYTemporalidadPorCampo(guias, 'oficina_destino');
-    const oficinasAtencion = porOficina
-      .filter((o) => o.total >= VOLUMEN_MINIMO && o.efectividad !== null && o.efectividad < UMBRAL_EFECTIVIDAD)
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 8)
-      .map((o) => ({ oficina: o.key, total: o.total, efectividad: o.efectividad }));
+    const VOLUMEN_MINIMO_SCORE = 10; // filtra solo oficinas con muestra mínima razonable
+    function tomarPorScore(lista: typeof porOficina, minimo = 5, maximo = 8) {
+      return lista
+        .filter((o) => o.total >= VOLUMEN_MINIMO_SCORE && o.efectividad !== null)
+        .map((o) => ({ ...o, score: o.total * (100 - (o.efectividad ?? 100)) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, Math.max(minimo, maximo))
+        .map((o) => ({ oficina: o.key, total: o.total, efectividad: o.efectividad }));
+    }
+    const oficinasAtencion = tomarPorScore(porOficina, 5, 8);
+
+    // Igual, pero acotado a la Región CONCESIONARIOS específicamente.
+    const porOficinaConcesionarios = porOficina.filter((o) => obtenerRegion(o.key) === 'CONCESIONARIOS');
+    const concesionariosAtencion = tomarPorScore(porOficinaConcesionarios, 5, 8);
 
     // ============================================================
     // Oficinas críticas por guías abiertas: cuántas de sus abiertas
@@ -198,6 +204,34 @@ export default function ReporteConsolidadoModule({
       .slice(0, 8);
 
     // ============================================================
+    // Top oficinas/concesionarios por VOLUMEN de guías abiertas (no
+    // solo las críticas), con el Ciclo (etapa del pipeline) donde se
+    // concentran — para ver dónde está atorado el mayor volumen, no
+    // solo dónde está lo más urgente.
+    // ============================================================
+    const acumAbiertasPorOficina: Record<string, { total: number; porCiclo: Record<string, number> }> = {};
+    abiertasLista.forEach((g) => {
+      const of = g.oficina_destino || 'SIN OFICINA';
+      if (!acumAbiertasPorOficina[of]) acumAbiertasPorOficina[of] = { total: 0, porCiclo: {} };
+      acumAbiertasPorOficina[of].total += 1;
+      const ciclo = obtenerCiclo(g.estado_guia);
+      acumAbiertasPorOficina[of].porCiclo[ciclo] = (acumAbiertasPorOficina[of].porCiclo[ciclo] || 0) + 1;
+    });
+    const topAbiertasPorOficina = Object.entries(acumAbiertasPorOficina)
+      .map(([oficina, d]) => {
+        const cicloTop = Object.entries(d.porCiclo).sort((a, b) => b[1] - a[1])[0];
+        return {
+          oficina,
+          region: obtenerRegion(oficina),
+          total: d.total,
+          cicloDominante: cicloTop ? cicloTop[0] : '—',
+          cantidadEnCiclo: cicloTop ? cicloTop[1] : 0,
+        };
+      })
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10);
+
+    // ============================================================
     // Comparativo de efectividad mes a mes — usa guiasBaseTendencias
     // (independiente del filtro de Periodo) para que siga mostrando la
     // comparación aunque haya un mes específico seleccionado.
@@ -207,6 +241,24 @@ export default function ReporteConsolidadoModule({
       mes: d.mes,
       efectividad: d.TOTAL as number | null,
     }));
+
+    // Comparativo de temporalidad mes a mes (% dentro de 15 días).
+    const tendenciaTemp = tendenciaMensualPorCampo(guiasBaseTendencias, null, 'temporalidad');
+    const comparativoTemporalidad = tendenciaTemp.datos.map((d) => ({
+      mes: d.mes,
+      valor: d.TOTAL as number | null,
+    }));
+
+    // Comparativo general por Región — efectividad y temporalidad juntas.
+    const porRegion = efectividadYTemporalidadPorCampo(guias, (g) => obtenerRegion(g.oficina_destino));
+    const comparativoRegion = porRegion
+      .sort((a, b) => b.total - a.total)
+      .map((r) => ({
+        region: r.key,
+        total: r.total,
+        efectividad: r.efectividad,
+        pctDentroDe15Dias: r.pctVerde,
+      }));
 
     // ============================================================
     // Top excepción POR cliente (no el top general) — para ver si
@@ -281,8 +333,12 @@ export default function ReporteConsolidadoModule({
           pctDentroDe15Dias: temporalidadGeneral?.pctVerde ?? null,
         },
         oficinasAtencion,
+        concesionariosAtencion,
         oficinasCriticas,
+        topAbiertasPorOficina,
         comparativoEfectividad,
+        comparativoTemporalidad,
+        comparativoRegion,
         topExcepcionesPorCliente,
         hallazgos,
         retornosAbiertos,

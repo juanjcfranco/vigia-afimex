@@ -2672,6 +2672,26 @@ export interface FilaExcepcionPorCliente {
   totalConExcepcion: number;
 }
 
+export interface FilaComparativoRegion {
+  region: string;
+  total: number;
+  efectividad: number | null;
+  pctDentroDe15Dias: number | null;
+}
+
+export interface FilaComparativoMetrica {
+  mes: string;
+  valor: number | null;
+}
+
+export interface FilaAbiertasPorOficina {
+  oficina: string;
+  region: string;
+  total: number;
+  cicloDominante: string;
+  cantidadEnCiclo: number;
+}
+
 export interface ReporteSimplificadoData {
   cliente: string;
   periodoTexto: string;
@@ -2686,17 +2706,27 @@ export interface ReporteSimplificadoData {
     pctDentroDe15Dias: number | null;
   };
 
-  // Oficinas que requieren atención: efectividad baja + volumen
-  // significativo (las que más pesan, no solo las que tienen peor %).
+  // Oficinas que requieren atención: ranking por volumen × (100-efectividad),
+  // para priorizar las que más pesan, no solo las de peor %. Mínimo 5.
   oficinasAtencion: FilaOficinaAtencion[];
+  // Igual, pero acotado a la Región CONCESIONARIOS específicamente.
+  concesionariosAtencion: FilaOficinaAtencion[];
 
   // Oficinas críticas por guías abiertas: más guías en seguimiento
   // crítico (Rojo, 5+ días sin movimiento).
   oficinasCriticas: FilaOficinaCritica[];
 
-  // Comparativo de efectividad mes a mes (Total, período completo del
-  // corte, sin importar el filtro de Periodo activo).
+  // Top oficinas/concesionarios por VOLUMEN de guías abiertas (no solo
+  // las críticas), con el Ciclo (etapa del pipeline) donde se concentran.
+  topAbiertasPorOficina: FilaAbiertasPorOficina[];
+
+  // Comparativo mes a mes (Total, período completo del corte, sin
+  // importar el filtro de Periodo activo).
   comparativoEfectividad: FilaComparativoMes[];
+  comparativoTemporalidad: FilaComparativoMetrica[];
+
+  // Comparativo general por Región — efectividad y temporalidad juntas.
+  comparativoRegion: FilaComparativoRegion[];
 
   // Top excepción de cada cliente (no el top general — el principal
   // problema DE CADA cliente, para ver si distintos clientes tienen
@@ -2760,12 +2790,13 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
     return anio && m ? `${m}/${anio.slice(2)}` : mes;
   };
 
-  const tablaOficinasAtencion = data.oficinasAtencion.length
-    ? `
+  const tablaAtencionHtml = (lista: FilaOficinaAtencion[], vacioTexto: string) =>
+    lista.length
+      ? `
     <table>
       <thead><tr><th>Oficina</th><th>Volumen</th><th>Efectividad</th></tr></thead>
       <tbody>
-        ${data.oficinasAtencion
+        ${lista
           .map(
             (o) => `
           <tr>
@@ -2779,7 +2810,10 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
           .join('')}
       </tbody>
     </table>`
-    : '<div class="sin-datos">Ninguna oficina con volumen relevante está por debajo del umbral de efectividad</div>';
+      : `<div class="sin-datos">${escapeHtml(vacioTexto)}</div>`;
+
+  const tablaOficinasAtencion = tablaAtencionHtml(data.oficinasAtencion, 'Sin datos suficientes para este corte');
+  const tablaConcesionariosAtencion = tablaAtencionHtml(data.concesionariosAtencion, 'Sin oficinas de Concesionarios en este corte');
 
   const tablaOficinasCriticas = data.oficinasCriticas.length
     ? `
@@ -2800,6 +2834,26 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
       </tbody>
     </table>`
     : '<div class="sin-datos">Sin guías en seguimiento crítico</div>';
+
+  const tablaTopAbiertasPorOficina = data.topAbiertasPorOficina.length
+    ? `
+    <table>
+      <thead><tr><th>Oficina</th><th>Región</th><th>Abiertas</th><th>Ciclo Dominante</th></tr></thead>
+      <tbody>
+        ${data.topAbiertasPorOficina
+          .map(
+            (o) => `
+          <tr>
+            <td class="celda-fuerte">${escapeHtml(o.oficina)}</td>
+            <td>${escapeHtml(o.region)}</td>
+            <td>${o.total.toLocaleString('es-MX')}</td>
+            <td>${escapeHtml(o.cicloDominante)} <span style="color:#94A3B8;">(${o.cantidadEnCiclo.toLocaleString('es-MX')})</span></td>
+          </tr>`
+          )
+          .join('')}
+      </tbody>
+    </table>`
+    : '<div class="sin-datos">Sin guías abiertas en este corte</div>';
 
   const tablaComparativo = data.comparativoEfectividad.length
     ? `
@@ -2826,6 +2880,56 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
       </tbody>
     </table>`
     : '<div class="sin-datos">Se necesita más de un mes para comparar</div>';
+
+  const tablaComparativoTemporalidad = data.comparativoTemporalidad.length
+    ? `
+    <table>
+      <thead><tr><th>Mes</th><th>% Dentro de 15 Días</th><th>vs. Mes Anterior</th></tr></thead>
+      <tbody>
+        ${data.comparativoTemporalidad
+          .map((f, i) => {
+            const anterior = i > 0 ? data.comparativoTemporalidad[i - 1].valor : null;
+            const delta = f.valor !== null && anterior !== null ? Number((f.valor - anterior).toFixed(1)) : null;
+            const deltaTxt =
+              delta === null ? '—' : delta === 0 ? 'Sin cambio' : `${delta > 0 ? '▲' : '▼'} ${Math.abs(delta)} pts`;
+            const deltaColor = delta === null ? '#94A3B8' : delta > 0 ? '#0B9B67' : delta < 0 ? '#DC2626' : '#94A3B8';
+            return `
+          <tr>
+            <td class="celda-fuerte">${escapeHtml(etiquetaMes(f.mes))}</td>
+            <td><span style="font-weight:800;color:${colorEfectividadSimplificado(f.valor)};">${
+              f.valor !== null ? `${f.valor}%` : '—'
+            }</span></td>
+            <td style="color:${deltaColor};font-weight:700;">${deltaTxt}</td>
+          </tr>`;
+          })
+          .join('')}
+      </tbody>
+    </table>`
+    : '<div class="sin-datos">Se necesita más de un mes para comparar</div>';
+
+  const tablaComparativoRegion = data.comparativoRegion.length
+    ? `
+    <table>
+      <thead><tr><th>Región</th><th>Volumen</th><th>Efectividad</th><th>% ≤15 Días</th></tr></thead>
+      <tbody>
+        ${data.comparativoRegion
+          .map(
+            (r) => `
+          <tr>
+            <td class="celda-fuerte">${escapeHtml(r.region)}</td>
+            <td>${r.total.toLocaleString('es-MX')}</td>
+            <td><span style="font-weight:800;color:${colorEfectividadSimplificado(r.efectividad)};">${
+              r.efectividad !== null ? `${r.efectividad}%` : '—'
+            }</span></td>
+            <td><span style="font-weight:800;color:${colorEfectividadSimplificado(r.pctDentroDe15Dias)};">${
+              r.pctDentroDe15Dias !== null ? `${r.pctDentroDe15Dias}%` : '—'
+            }</span></td>
+          </tr>`
+          )
+          .join('')}
+      </tbody>
+    </table>`
+    : '<div class="sin-datos">Sin datos por región para este corte</div>';
 
   const tablaExcPorCliente = data.topExcepcionesPorCliente.length
     ? `
@@ -2905,14 +3009,34 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
       <div class="dos-columnas">
         <div class="seccion">
           <div class="seccion-titulo" style="margin-top:0;">Oficinas que Requieren Atención</div>
-          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Efectividad baja + volumen relevante</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Volumen × (100-Efectividad) — priorizadas por impacto</div>
           ${tablaOficinasAtencion}
         </div>
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Concesionarios que Requieren Atención</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Región CONCESIONARIOS — mismo criterio</div>
+          ${tablaConcesionariosAtencion}
+        </div>
+      </div>
+
+      <div class="dos-columnas">
         <div class="seccion">
           <div class="seccion-titulo" style="margin-top:0;">Oficinas Críticas — Guías Abiertas</div>
           <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Más guías en seguimiento crítico (5+ días)</div>
           ${tablaOficinasCriticas}
         </div>
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Top Oficinas/Concesionarios — Guías Abiertas por Ciclo</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Por volumen total, con la etapa del proceso donde se concentran</div>
+          ${tablaTopAbiertasPorOficina}
+        </div>
+      </div>
+
+      <div style="page-break-before: always;"></div>
+
+      <div class="seccion-titulo" style="margin-top:0;">Comparativo General por Región</div>
+      <div class="seccion" style="margin-bottom:14px;">
+        ${tablaComparativoRegion}
       </div>
 
       <div class="dos-columnas">
@@ -2921,9 +3045,14 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
           ${tablaComparativo}
         </div>
         <div class="seccion">
-          <div class="seccion-titulo" style="margin-top:0;">Top Excepciones por Cliente</div>
-          ${tablaExcPorCliente}
+          <div class="seccion-titulo" style="margin-top:0;">Comparativo de Temporalidad (% ≤15 Días)</div>
+          ${tablaComparativoTemporalidad}
         </div>
+      </div>
+
+      <div class="seccion-titulo">Top Excepciones por Cliente</div>
+      <div class="seccion">
+        ${tablaExcPorCliente}
       </div>
 
       <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
