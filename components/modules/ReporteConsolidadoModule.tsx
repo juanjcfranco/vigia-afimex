@@ -1,6 +1,6 @@
 'use client';
 
-import { Guia } from '@/lib/types';
+import { Guia, AlertaGuiaEvento } from '@/lib/types';
 import {
   isEntregada,
   isCancelada,
@@ -20,6 +20,7 @@ import {
   accionEfectiva,
   diasEntreFechas,
   retornoEstaEntregado,
+  calcularEtiquetaSeguimiento,
 } from '@/lib/business-logic';
 import { exportReporteConsolidadoPDF, exportToExcel, ResumenAbiertasPorEstado } from '@/lib/export';
 
@@ -224,10 +225,31 @@ export default function ReporteConsolidadoModule({
     );
   }
 
-  // Exportes de detalle completo (Excel) — con Tipo (Original/Retorno) y
-  // Acción, tal como se piden; el PDF solo trae el resumen agrupado.
-  function exportarExcelGuiasAbiertas() {
+  // Exportes de detalle completo (Excel) — con Tipo (Original/Retorno),
+  // Acción, y Seguimiento (mismo criterio que en Abiertas: si hay alertas
+  // registradas se muestra el conteo, si no, la descripción neutral del
+  // nivel calculado); el PDF solo trae el resumen agrupado.
+  async function construirSeguimientoPorGuia(): Promise<Map<string, { alertas: number; cerrado: boolean }>> {
+    const res = await fetch('/api/alertas-guia');
+    const json = await res.json();
+    const eventos: AlertaGuiaEvento[] = json.eventos || [];
+    const map = new Map<string, { alertas: number; cerrado: boolean }>();
+    eventos.forEach((ev) => {
+      const actual = map.get(ev.guia) || { alertas: 0, cerrado: false };
+      if (ev.nivel === 'CERRADO') {
+        actual.cerrado = true;
+      } else {
+        actual.alertas += 1;
+        actual.cerrado = false;
+      }
+      map.set(ev.guia, actual);
+    });
+    return map;
+  }
+
+  async function exportarExcelGuiasAbiertas() {
     const abiertasLista = guias.filter((g) => esGuiaOriginal(g) && isAbiertaPorEstado(g));
+    const seguimientoPorGuia = await construirSeguimientoPorGuia();
     exportToExcel(
       abiertasLista,
       [
@@ -241,6 +263,13 @@ export default function ReporteConsolidadoModule({
         { header: 'Ciclo', value: (g: Guia) => obtenerCiclo(g.estado_guia) },
         { header: 'Acción', value: (g: Guia) => accionEfectiva(g) || '' },
         { header: 'Días sin Mov.', value: (g: Guia) => g.dias_sin_movimiento ?? '' },
+        {
+          header: 'Seguimiento',
+          value: (g: Guia) => {
+            const seg = seguimientoPorGuia.get(g.guia) || { alertas: 0, cerrado: false };
+            return calcularEtiquetaSeguimiento(g.dias_sin_movimiento, seg.alertas, seg.cerrado).texto;
+          },
+        },
         { header: 'Últ. Mov.', value: (g: Guia) => g.f_historia || '' },
         { header: 'Fecha Creación', value: (g: Guia) => g.f_documentacion || '' },
         { header: 'Doc→Plataforma (d)', value: (g: Guia) => diasEntreFechas(g.f_documentacion, g.fecha_plataforma) ?? '' },
@@ -252,8 +281,9 @@ export default function ReporteConsolidadoModule({
     );
   }
 
-  function exportarExcelRetornosAbiertos() {
+  async function exportarExcelRetornosAbiertos() {
     const retornosLista = guias.filter((g) => isAbiertaPorEstado(g) && esRetornoAmplio(g));
+    const seguimientoPorGuia = await construirSeguimientoPorGuia();
     exportToExcel(
       retornosLista,
       [
@@ -267,6 +297,13 @@ export default function ReporteConsolidadoModule({
         { header: 'Ciclo', value: (g: Guia) => obtenerCiclo(g.estado_guia) },
         { header: 'Acción', value: (g: Guia) => accionEfectiva(g) || '' },
         { header: 'Días sin Mov.', value: (g: Guia) => g.dias_sin_movimiento ?? '' },
+        {
+          header: 'Seguimiento',
+          value: (g: Guia) => {
+            const seg = seguimientoPorGuia.get(g.guia) || { alertas: 0, cerrado: false };
+            return calcularEtiquetaSeguimiento(g.dias_sin_movimiento, seg.alertas, seg.cerrado).texto;
+          },
+        },
         { header: 'Últ. Mov.', value: (g: Guia) => g.f_historia || '' },
         { header: 'Fecha Creación', value: (g: Guia) => g.f_documentacion || '' },
         { header: 'Doc→Plataforma (d)', value: (g: Guia) => diasEntreFechas(g.f_documentacion, g.fecha_plataforma) ?? '' },

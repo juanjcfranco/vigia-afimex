@@ -776,6 +776,51 @@ export function calcularSemaforoGuia(dias: number | null): NivelSemaforo {
 }
 
 // ============================================================
+// Etiqueta única de "Seguimiento" para una guía — combina el semáforo
+// calculado (días sin movimiento) con el historial REAL registrado:
+//
+// - Si NO hay ninguna alerta registrada todavía: muestra una descripción
+//   neutral del nivel ("Seguimiento normal/puntual/urgente/crítico") —
+//   NUNCA dice "1ª/2ª/3ª alerta", para no insinuar que ya se envió algo
+//   que en realidad nadie ha registrado.
+// - Si YA hay a al menos una alerta registrada (en alertas_guia_historial):
+//   se reemplaza por el conteo real ("1 alerta", "2 alertas", etc.),
+//   porque en ese punto sí hay algo concreto que reportar.
+// - Si el caso está cerrado (último evento = CERRADO): muestra "Cerrado".
+//
+// Se centraliza aquí (en vez de duplicarlo en cada módulo) para que
+// AbiertasModule y el Reporte Ejecutivo/Excel usen exactamente el mismo
+// criterio.
+// ============================================================
+export interface EtiquetaSeguimiento {
+  texto: string;
+  color: string;
+}
+
+const TEXTO_SEGUIMIENTO_POR_NIVEL: Record<NivelSemaforo['nivel'], string> = {
+  VERDE: 'Seguimiento normal',
+  AMARILLO: 'Seguimiento puntual',
+  NARANJA: 'Seguimiento urgente',
+  ROJO: 'Seguimiento crítico',
+};
+
+export function calcularEtiquetaSeguimiento(
+  dias: number | null,
+  alertasRegistradas: number,
+  cerrado: boolean
+): EtiquetaSeguimiento {
+  if (cerrado) return { texto: 'Cerrado', color: '#64748B' };
+  const semaforo = calcularSemaforoGuia(dias);
+  if (alertasRegistradas > 0) {
+    return {
+      texto: `${alertasRegistradas} alerta${alertasRegistradas === 1 ? '' : 's'}`,
+      color: semaforo.color,
+    };
+  }
+  return { texto: TEXTO_SEGUIMIENTO_POR_NIVEL[semaforo.nivel], color: semaforo.color };
+}
+
+// ============================================================
 // Acción efectiva de una guía: la del catálogo si existe (calculada al
 // momento de la carga, a partir de sus excepciones), y si no hay ninguna
 // —el caso de una guía LISTO PARA ENTREGAR / EN ALMACEN sin ninguna

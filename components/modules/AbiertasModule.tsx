@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina, AlertaGuiaEvento } from '@/lib/types';
-import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio, ultimaExcepcion, accionEfectiva, calcularSemaforoGuia } from '@/lib/business-logic';
+import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio, ultimaExcepcion, accionEfectiva, calcularSemaforoGuia, calcularEtiquetaSeguimiento } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import BulkSearch from '@/components/BulkSearch';
 import AlertaDiasBadge from '@/components/AlertaDiasBadge';
@@ -69,9 +69,23 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   // gana — queda el evento más reciente de cada guía). Así, si una guía
   // reaparece en un corte nuevo, ya se sabe en qué nivel de alerta se
   // quedó, sin importar de qué carga venga ahora.
-  const ultimoEventoPorGuia = useMemo(() => {
-    const map = new Map<string, AlertaGuiaEvento>();
-    historialAlertas.forEach((ev) => map.set(ev.guia, ev));
+  // Por guía: cuántas alertas (no-cierre) tiene registradas, y si el
+  // último evento fue un cierre de caso — el arreglo viene ordenado
+  // ascendente por creado_en, así que recorrerlo en orden refleja la
+  // secuencia real (si se reabre un caso con una alerta nueva DESPUÉS de
+  // un cierre, vuelve a contar como abierto).
+  const seguimientoPorGuia = useMemo(() => {
+    const map = new Map<string, { alertas: number; cerrado: boolean }>();
+    historialAlertas.forEach((ev) => {
+      const actual = map.get(ev.guia) || { alertas: 0, cerrado: false };
+      if (ev.nivel === 'CERRADO') {
+        actual.cerrado = true;
+      } else {
+        actual.alertas += 1;
+        actual.cerrado = false;
+      }
+      map.set(ev.guia, actual);
+    });
     return map;
   }, [historialAlertas]);
 
@@ -284,6 +298,13 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
     { header: 'Región', value: (g: Guia) => obtenerRegion(g.oficina_destino) },
     { header: 'Ciclo', value: (g: Guia) => obtenerCiclo(g.estado_guia) },
     { header: 'Días sin Mov.', value: (g: Guia) => g.dias_sin_movimiento ?? '' },
+    {
+      header: 'Seguimiento',
+      value: (g: Guia) => {
+        const seg = seguimientoPorGuia.get(g.guia) || { alertas: 0, cerrado: false };
+        return calcularEtiquetaSeguimiento(g.dias_sin_movimiento, seg.alertas, seg.cerrado).texto;
+      },
+    },
     { header: 'Últ. Mov.', value: (g: Guia) => g.f_historia || '' },
     { header: 'Última Excepción', value: (g: Guia) => ultimaExcepcion(g).nombre || '' },
     { header: 'Fecha Última Excepción', value: (g: Guia) => ultimaExcepcion(g).fecha || '' },
@@ -610,7 +631,6 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Ciclo" sortKey="ciclo" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Días sin Mov." sortKey="dias" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <th>Seguimiento</th>
-                <th>Alerta Registrada</th>
                 <SortableTh label="Últ. Mov." sortKey="ultmov" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Última Excepción" sortKey="ultimaexcepcion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Fecha Últ. Excepción" sortKey="fechaultimaexcepcion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
@@ -666,42 +686,31 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                   </td>
                   <td>
                     {(() => {
+                      const seg = seguimientoPorGuia.get(g.guia) || { alertas: 0, cerrado: false };
+                      const etiqueta = calcularEtiquetaSeguimiento(g.dias_sin_movimiento, seg.alertas, seg.cerrado);
                       const semaforo = calcularSemaforoGuia(g.dias_sin_movimiento);
-                      if (semaforo.nivel === 'VERDE') return <span className="text-[var(--vg-text3)]">—</span>;
-                      return (
-                        <span
-                          title={`Sugerido según días sin movimiento (no cuenta como enviado): ${semaforo.accion} · Responsable: ${semaforo.responsable}`}
-                          className="inline-block text-[9.5px] font-bold text-white px-1.5 py-[2px] rounded whitespace-nowrap"
-                          style={{ backgroundColor: semaforo.color }}
-                        >
-                          {semaforo.etiquetaAlerta}
-                        </span>
-                      );
-                    })()}
-                  </td>
-                  <td>
-                    {(() => {
-                      const ultimo = ultimoEventoPorGuia.get(g.guia);
-                      if (!ultimo) return <span className="text-[var(--vg-text3)]">Sin registrar</span>;
-                      if (ultimo.nivel === 'CERRADO') {
-                        return <span className="text-[10px] font-bold text-white bg-[#64748B] rounded-full px-1.5 py-0.5">Cerrado</span>;
-                      }
-                      const colorPorNivel: Record<string, string> = { AMARILLO: '#EAB308', NARANJA: '#EA7C1A', ROJO: '#DC2626' };
                       return (
                         <div className="flex items-center gap-1">
                           <span
-                            className="text-[10px] font-bold text-white rounded-full px-1.5 py-0.5"
-                            style={{ backgroundColor: colorPorNivel[ultimo.nivel] || '#6B7280' }}
+                            title={
+                              seg.alertas > 0 || seg.cerrado
+                                ? 'Basado en alertas realmente registradas'
+                                : `Sugerido según días sin movimiento (no cuenta como enviado): ${semaforo.accion} · Responsable: ${semaforo.responsable}`
+                            }
+                            className="inline-block text-[9.5px] font-bold text-white px-1.5 py-[2px] rounded whitespace-nowrap"
+                            style={{ backgroundColor: etiqueta.color }}
                           >
-                            {ultimo.nivel}
+                            {etiqueta.texto}
                           </span>
-                          <button
-                            onClick={() => cerrarCaso(g.guia)}
-                            className="text-[9.5px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded px-1 py-0.5 hover:bg-[var(--vg-bg)]"
-                            title="Cerrar caso"
-                          >
-                            ✕ Cerrar
-                          </button>
+                          {seg.alertas > 0 && !seg.cerrado && (
+                            <button
+                              onClick={() => cerrarCaso(g.guia)}
+                              className="text-[9.5px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded px-1 py-0.5 hover:bg-[var(--vg-bg)]"
+                              title="Cerrar caso"
+                            >
+                              ✕ Cerrar
+                            </button>
+                          )}
                         </div>
                       );
                     })()}
@@ -717,7 +726,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
               })}
               {!filas.length && (
                 <tr>
-                  <td colSpan={25} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={24} className="text-center text-[var(--vg-text3)] py-6">
                     No hay guías abiertas con este filtro
                   </td>
                 </tr>
