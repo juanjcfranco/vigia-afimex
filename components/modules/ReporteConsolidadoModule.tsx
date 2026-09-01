@@ -16,13 +16,15 @@ import {
   efectividadTemporalidadPorRegionOficina,
   efectividadYTemporalidadPorCampo,
   calcularResumenExcepciones,
+  calcularResumenDevoluciones,
   formatearPeriodo,
   accionEfectiva,
   diasEntreFechas,
   retornoEstaEntregado,
   calcularEtiquetaSeguimiento,
+  calcularSemaforoGuia,
 } from '@/lib/business-logic';
-import { exportReporteConsolidadoPDF, exportToExcel, ResumenAbiertasPorEstado } from '@/lib/export';
+import { exportReporteConsolidadoPDF, exportReporteSimplificadoPDF, exportToExcel, ResumenAbiertasPorEstado } from '@/lib/export';
 
 // Agrupa una lista de guías en la estructura pivotada Región → Oficina
 // (filas) × Estado (columnas) — usado para las 2 tablas resumen del PDF
@@ -98,6 +100,92 @@ export default function ReporteConsolidadoModule({
       '<html><body style="font-family:Arial,sans-serif;padding:60px;color:#1E3A8A;text-align:center;"><h2>Generando Reporte Ejecutivo Consolidado…</h2><p style="color:#64748B;">Junta varias secciones — puede tardar unos segundos.</p></body></html>'
     );
     setTimeout(() => generarYEscribirReporte(ventana), 0);
+  }
+
+  // Reporte simplificado (1 página) — pensado para dirección: solo KPIs
+  // principales + resumen de issues (guías críticas, pendientes de
+  // cierre, top excepciones/devoluciones), sin los desgloses detallados
+  // por región/oficina/cliente que sí trae el Reporte Ejecutivo Consolidado.
+  function generarReporteSimplificado() {
+    const ventana = window.open('', '_blank');
+    if (!ventana) {
+      alert('Tu navegador bloqueó la ventana de impresión. Habilita pop-ups para este sitio.');
+      return;
+    }
+    ventana.document.write(
+      '<html><body style="font-family:Arial,sans-serif;padding:60px;color:#1E3A8A;text-align:center;"><h2>Generando Resumen Ejecutivo…</h2></body></html>'
+    );
+    setTimeout(() => generarYEscribirReporteSimplificado(ventana), 0);
+  }
+
+  function generarYEscribirReporteSimplificado(ventana: Window) {
+    const clientesDistintos = [...new Set(guias.map((g) => g.cliente).filter(Boolean))] as string[];
+    const clienteTexto =
+      clientesDistintos.length === 1
+        ? clientesDistintos[0]
+        : clientesDistintos.length > 1
+          ? `Varios clientes (${clientesDistintos.length})`
+          : 'Sin cliente';
+
+    const mesesDoc = guias
+      .map((g) => g.f_documentacion)
+      .filter((f): f is string => !!f)
+      .sort();
+    const periodoTexto =
+      mesesDoc.length > 0
+        ? (() => {
+            const primero = mesesDoc[0].slice(0, 7);
+            const ultimo = mesesDoc[mesesDoc.length - 1].slice(0, 7);
+            return primero === ultimo ? formatearPeriodo(primero) : `${formatearPeriodo(primero)} — ${formatearPeriodo(ultimo)}`;
+          })()
+        : 'Sin fecha';
+
+    const guiasOriginales = guias.filter(esGuiaOriginal);
+    const entregadas = guiasOriginales.filter((g) => isEntregada(g.estado_guia)).length;
+    const devoluciones = guiasOriginales.filter((g) => g.es_devolucion).length;
+    const abiertasLista = guiasOriginales.filter((g) => isAbiertaPorEstado(g));
+    const abiertas = abiertasLista.length;
+    const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
+    const temporalidadGeneral = temporalidadPorCampo(guias, () => 'TOTAL')[0] ?? null;
+
+    // Issues
+    const guiasCriticas = abiertasLista.filter((g) => calcularSemaforoGuia(g.dias_sin_movimiento).nivel === 'ROJO').length;
+    const pendientes30Mas = abiertasLista.filter((g) => (g.dias_sin_movimiento ?? 0) >= 30).length;
+    const retornosAbiertosLista = guiasOriginales.filter((g) => g.es_devolucion && g.retorno_guia);
+    const retornoPorGuia = new Map<string, Guia>();
+    guias.forEach((g) => {
+      if (g.es_retorno && g.guia) retornoPorGuia.set(g.guia, g);
+    });
+    const retornosAbiertos = retornosAbiertosLista.filter(
+      (g) => !retornoEstaEntregado(g, g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined)
+    ).length;
+
+    const resumenExc = calcularResumenExcepciones(guias, 5);
+    const resumenDev = calcularResumenDevoluciones(guias, 5);
+
+    exportReporteSimplificadoPDF(
+      {
+        cliente: clienteTexto,
+        periodoTexto,
+        totalGuias: guias.length,
+        kpis: {
+          totalProcesadas: guiasOriginales.length,
+          entregadas,
+          devoluciones,
+          abiertas,
+          efectividad,
+          pctDentroDe15Dias: temporalidadGeneral?.pctVerde ?? null,
+        },
+        guiasCriticas,
+        pendientes30Mas,
+        retornosAbiertos,
+        topExcepciones: resumenExc.porTipo,
+        totalConExcepcion: resumenExc.total,
+        topDevolucionesPorMotivo: resumenDev.porMotivo,
+        totalDevoluciones: resumenDev.total,
+      },
+      ventana
+    );
   }
 
   function generarYEscribirReporte(ventana: Window) {
@@ -334,6 +422,21 @@ export default function ReporteConsolidadoModule({
         <div className="text-[10.5px] text-[var(--vg-text3)] mt-3">
           Respeta los filtros globales (Cliente, Oficina, Entidad) que tengas activos arriba.
         </div>
+      </div>
+
+      <div className="bg-white rounded-lg border border-[var(--vg-border)] p-6 text-center">
+        <div className="text-[15px] font-bold text-[var(--vg-text)] mb-1">📄 Resumen Ejecutivo (1 página)</div>
+        <div className="text-[12px] text-[var(--vg-text2)] max-w-xl mx-auto mb-5">
+          Versión corta, pensada para dirección: solo los KPIs principales y un resumen de issues — guías en
+          seguimiento crítico, pendientes de cierre (+30 días), retornos abiertos, y el Top de excepciones/
+          devoluciones. Sin desgloses por región/oficina/cliente.
+        </div>
+        <button
+          onClick={generarReporteSimplificado}
+          className="text-[13px] font-semibold text-white bg-[#0891B2] rounded-md px-5 py-2.5 hover:opacity-90"
+        >
+          📄 Generar Resumen Ejecutivo (PDF)
+        </button>
       </div>
 
       <div className="bg-white rounded-lg border border-[var(--vg-border)] p-5">

@@ -2637,3 +2637,162 @@ export function exportReporteConsolidadoPDF(data: ReporteConsolidadoData, ventan
   `);
   win.document.close();
 }
+
+// ============================================================
+// REPORTE SIMPLIFICADO PARA DIRECCIÓN (agregado ago-2026): 1 sola
+// página, pensado para alguien que solo quiere ver "qué tan bien vamos"
+// y "qué está fallando", sin entrar al detalle del Reporte Ejecutivo
+// Consolidado (que sí trae desgloses completos por región/oficina/
+// cliente). Aquí solo van los números principales + un resumen de
+// issues (guías críticas, pendientes de cierre, top excepciones/
+// devoluciones) — nada de tablas largas ni desgloses jerárquicos.
+// ============================================================
+export interface ReporteSimplificadoData {
+  cliente: string;
+  periodoTexto: string;
+  totalGuias: number;
+
+  kpis: {
+    totalProcesadas: number;
+    entregadas: number;
+    devoluciones: number;
+    abiertas: number;
+    efectividad: number | null;
+    pctDentroDe15Dias: number | null;
+  };
+
+  // Resumen de issues — lo que requiere atención de dirección
+  guiasCriticas: number; // seguimiento ROJO (5+ días sin movimiento)
+  pendientes30Mas: number; // cierre operativo: 30+ días sin movimiento
+  retornosAbiertos: number;
+  topExcepciones: Array<{ key: string; count: number }>;
+  totalConExcepcion: number;
+  topDevolucionesPorMotivo: Array<{ key: string; count: number }>;
+  totalDevoluciones: number;
+}
+
+export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, ventanaExistente?: Window | null) {
+  const win = ventanaExistente ?? window.open('', '_blank');
+  if (!win) {
+    alert('Tu navegador bloqueó la ventana de impresión. Habilita pop-ups para este sitio.');
+    return;
+  }
+
+  const fechaGenerado = new Date().toLocaleString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const k = data.kpis;
+  const kpiCards = [
+    { label: 'Guías Procesadas', value: k.totalProcesadas.toLocaleString('es-MX'), color: '#1E3A8A' },
+    { label: 'Entregadas', value: k.entregadas.toLocaleString('es-MX'), color: '#0B9B67' },
+    { label: 'Devoluciones', value: k.devoluciones.toLocaleString('es-MX'), color: '#DC2626' },
+    { label: 'Abiertas', value: k.abiertas.toLocaleString('es-MX'), color: '#EA7C1A' },
+    {
+      label: 'Efectividad',
+      value: k.efectividad !== null ? `${k.efectividad}%` : '—',
+      color: colorEfectividadInforme(k.efectividad),
+    },
+    {
+      label: '% Dentro de 15 Días',
+      value: k.pctDentroDe15Dias !== null ? `${k.pctDentroDe15Dias}%` : '—',
+      color: colorEfectividadInforme(k.pctDentroDe15Dias),
+    },
+  ]
+    .map(
+      (c) => `
+      <div class="kpi-card">
+        <div class="kpi-label">${escapeHtml(c.label)}</div>
+        <div class="kpi-value" style="color:${c.color};">${c.value}</div>
+      </div>`
+    )
+    .join('');
+
+  const issueCard = (titulo: string, valor: number, color: string) => `
+    <div class="issue-card" style="border-color:${valor > 0 ? color : '#E2E8F0'};">
+      <div class="issue-valor" style="color:${valor > 0 ? color : '#94A3B8'};">${valor.toLocaleString('es-MX')}</div>
+      <div class="issue-titulo">${escapeHtml(titulo)}</div>
+    </div>`;
+
+  win.document.open();
+  win.document.write(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="utf-8"/>
+      <title>VIGIA - Resumen Ejecutivo</title>
+      <style>
+        * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
+        body { font-family: Arial, Helvetica, sans-serif; padding: 24px; color: #1E293B; }
+        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1E3A8A; padding-bottom: 12px; margin-bottom: 16px; }
+        .header h1 { font-size: 21px; color: #1E3A8A; margin: 0 0 4px 0; }
+        .header .subtitulo { font-size: 13px; color: #64748B; }
+        .header .meta { font-size: 11px; color: #64748B; text-align: right; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 20px; }
+        .kpi-card { border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 10px; background: #F8FAFC; text-align: center; }
+        .kpi-label { font-size: 9.5px; font-weight: 700; color: #64748B; margin-bottom: 4px; text-transform: uppercase; }
+        .kpi-value { font-size: 20px; font-weight: 800; }
+        .seccion-titulo { font-size: 14px; font-weight: 800; margin: 18px 0 10px; color: #1E3A8A; }
+        .issue-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+        .issue-card { border: 2px solid #E2E8F0; border-radius: 8px; padding: 16px; text-align: center; background: #FAFAFA; }
+        .issue-valor { font-size: 30px; font-weight: 800; line-height: 1; margin-bottom: 6px; }
+        .issue-titulo { font-size: 11px; font-weight: 700; color: #475569; }
+        .dos-columnas { display: flex; gap: 16px; }
+        .seccion { flex: 1; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; }
+        .barra-fila { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+        .barra-label { font-size: 11.5px; font-weight: 600; width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .barra-track { flex: 1; background: #F1F5F9; border-radius: 4px; height: 10px; overflow: hidden; }
+        .barra-fill { height: 100%; border-radius: 4px; }
+        .barra-valor { font-size: 11px; font-weight: 700; width: 18%; text-align: right; white-space: nowrap; }
+        .barra-pct { font-weight: 500; color: #94A3B8; }
+        .sin-datos { font-size: 11px; color: #94A3B8; padding: 8px 0; }
+        .footer { margin-top: 18px; font-size: 10px; color: #94A3B8; text-align: right; }
+        @media print {
+          body { padding: 12mm; }
+          @page { size: portrait; margin: 12mm; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div>
+          <h1>VIGÍA — Resumen Ejecutivo</h1>
+          <div class="subtitulo">${escapeHtml(data.cliente)} · ${escapeHtml(data.periodoTexto)}</div>
+        </div>
+        <div class="meta">Generado: ${escapeHtml(fechaGenerado)}<br/>${data.totalGuias.toLocaleString('es-MX')} guías en este corte</div>
+      </div>
+
+      <div class="kpi-grid">${kpiCards}</div>
+
+      <div class="seccion-titulo">⚠️ Requiere Atención</div>
+      <div class="issue-grid">
+        ${issueCard('Guías en Seguimiento Crítico (5+ días)', data.guiasCriticas, '#DC2626')}
+        ${issueCard('Pendientes de Cierre (+30 días)', data.pendientes30Mas, '#B45309')}
+        ${issueCard('Retornos Abiertos', data.retornosAbiertos, '#7C3AED')}
+      </div>
+
+      <div class="dos-columnas">
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Top Excepciones</div>
+          ${barraHtml(data.topExcepciones, data.totalConExcepcion, '#7C3AED')}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Devoluciones — Top Motivo</div>
+          ${barraHtml(data.topDevolucionesPorMotivo, data.totalDevoluciones, '#EA7C1A')}
+        </div>
+      </div>
+
+      <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
+
+      <script>
+        window.onload = function() { window.print(); };
+      </script>
+    </body>
+    </html>
+  `);
+  win.document.close();
+}
