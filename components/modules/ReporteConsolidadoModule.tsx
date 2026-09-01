@@ -24,7 +24,42 @@ import {
   calcularEtiquetaSeguimiento,
   calcularSemaforoGuia,
 } from '@/lib/business-logic';
-import { exportReporteConsolidadoPDF, exportReporteSimplificadoPDF, exportToExcel, ResumenAbiertasPorEstado } from '@/lib/export';
+import { exportReporteConsolidadoPDF, exportReporteSimplificadoPDF, exportToExcel, ResumenAbiertasPorEstado, ResumenPareto } from '@/lib/export';
+
+// Regla 80/20: dado un conjunto de {clave, valor}, devuelve las claves
+// que ORDENADAS de mayor a menor van acumulando hasta llegar al 80% del
+// total — útil para ver si el volumen (o los problemas) están repartidos
+// parejo entre muchas oficinas, o concentrados en pocas.
+function calcularPareto(items: Array<{ key: string; valor: number }>, umbral = 0.8): ResumenPareto {
+  const totalItems = items.filter((i) => i.valor > 0).length;
+  const total = items.reduce((s, i) => s + i.valor, 0);
+  if (total <= 0 || totalItems === 0) return { filas: [], totalOficinas: totalItems, pctOficinas: 0 };
+
+  const ordenado = [...items].filter((i) => i.valor > 0).sort((a, b) => b.valor - a.valor);
+  let acumulado = 0;
+  const filas: { oficina: string; valor: number; pctDelTotal: number; pctAcumulado: number }[] = [];
+  for (const it of ordenado) {
+    if (acumulado / total >= umbral) break;
+    acumulado += it.valor;
+    filas.push({
+      oficina: it.key,
+      valor: it.valor,
+      pctDelTotal: Number(((it.valor / total) * 100).toFixed(1)),
+      pctAcumulado: Number(((acumulado / total) * 100).toFixed(1)),
+    });
+  }
+  // Si por redondeo no se agregó ninguna (no debería pasar con datos > 0),
+  // garantiza al menos la primera.
+  if (!filas.length && ordenado.length) {
+    const it = ordenado[0];
+    filas.push({ oficina: it.key, valor: it.valor, pctDelTotal: Number(((it.valor / total) * 100).toFixed(1)), pctAcumulado: Number(((it.valor / total) * 100).toFixed(1)) });
+  }
+  return {
+    filas,
+    totalOficinas: totalItems,
+    pctOficinas: Number(((filas.length / totalItems) * 100).toFixed(1)),
+  };
+}
 
 // Agrupa una lista de guías en la estructura pivotada Región → Oficina
 // (filas) × Estado (columnas) — usado para las 2 tablas resumen del PDF
@@ -261,6 +296,18 @@ export default function ReporteConsolidadoModule({
       }));
 
     // ============================================================
+    // Regla 80/20: qué oficinas concentran el 80% del volumen total, y
+    // qué oficinas concentran el 80% de las guías "no efectivas"
+    // (devoluciones + abiertas — las que arrastran la efectividad hacia
+    // abajo). `porOficina` ya trae total/entregadas/devoluciones/
+    // abiertas por oficina desde el cálculo de arriba.
+    // ============================================================
+    const paretoVolumen = calcularPareto(porOficina.map((o) => ({ key: o.key, valor: o.total })));
+    const paretoNoEfectivas = calcularPareto(
+      porOficina.map((o) => ({ key: o.key, valor: o.devoluciones + o.abiertas }))
+    );
+
+    // ============================================================
     // Top excepción POR cliente (no el top general) — para ver si
     // distintos clientes tienen distintos tipos de problema.
     // ============================================================
@@ -284,6 +331,16 @@ export default function ReporteConsolidadoModule({
     // datos de arriba, para no obligar a leer todas las tablas.
     // ============================================================
     const hallazgos: string[] = [];
+    if (paretoVolumen.filas.length) {
+      hallazgos.push(
+        `El 80% del volumen total se concentra en ${paretoVolumen.filas.length} de ${paretoVolumen.totalOficinas} oficinas (${paretoVolumen.pctOficinas}%).`
+      );
+    }
+    if (paretoNoEfectivas.filas.length) {
+      hallazgos.push(
+        `El 80% de las guías no efectivas (devoluciones + abiertas) se concentra en ${paretoNoEfectivas.filas.length} de ${paretoNoEfectivas.totalOficinas} oficinas (${paretoNoEfectivas.pctOficinas}%).`
+      );
+    }
     if (comparativoEfectividad.length >= 2) {
       const ultimo = comparativoEfectividad[comparativoEfectividad.length - 1];
       const anterior = comparativoEfectividad[comparativoEfectividad.length - 2];
@@ -339,6 +396,8 @@ export default function ReporteConsolidadoModule({
         comparativoEfectividad,
         comparativoTemporalidad,
         comparativoRegion,
+        paretoVolumen,
+        paretoNoEfectivas,
         topExcepcionesPorCliente,
         hallazgos,
         retornosAbiertos,

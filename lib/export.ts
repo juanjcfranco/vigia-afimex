@@ -2672,6 +2672,19 @@ export interface FilaExcepcionPorCliente {
   totalConExcepcion: number;
 }
 
+export interface FilaParetoOficina {
+  oficina: string;
+  valor: number;
+  pctDelTotal: number;
+  pctAcumulado: number;
+}
+
+export interface ResumenPareto {
+  filas: FilaParetoOficina[]; // solo las oficinas dentro del 80% acumulado
+  totalOficinas: number; // total de oficinas con datos, para sacar el %
+  pctOficinas: number; // qué % de oficinas representa ese 80%
+}
+
 export interface FilaComparativoRegion {
   region: string;
   total: number;
@@ -2727,6 +2740,13 @@ export interface ReporteSimplificadoData {
 
   // Comparativo general por Región — efectividad y temporalidad juntas.
   comparativoRegion: FilaComparativoRegion[];
+
+  // Regla 80/20: qué oficinas concentran el 80% del volumen total, y
+  // qué oficinas concentran el 80% de las guías "no efectivas"
+  // (devoluciones + abiertas) — para ver si el problema está repartido
+  // parejo o concentrado en pocos lugares.
+  paretoVolumen: ResumenPareto;
+  paretoNoEfectivas: ResumenPareto;
 
   // Top excepción de cada cliente (no el top general — el principal
   // problema DE CADA cliente, para ver si distintos clientes tienen
@@ -2907,6 +2927,31 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
     </table>`
     : '<div class="sin-datos">Se necesita más de un mes para comparar</div>';
 
+  const tablaParetoHtml = (resumen: ResumenPareto, etiquetaValor: string, colorBarra: string) => {
+    if (!resumen.filas.length) return '<div class="sin-datos">Sin datos suficientes para este corte</div>';
+    const filas = resumen.filas
+      .map(
+        (f) => `
+      <tr>
+        <td class="celda-fuerte">${escapeHtml(f.oficina)}</td>
+        <td>${f.valor.toLocaleString('es-MX')}</td>
+        <td>${f.pctDelTotal}%</td>
+        <td style="font-weight:800;">${f.pctAcumulado}%</td>
+      </tr>`
+      )
+      .join('');
+    return `
+      <div style="font-size:11px;font-weight:700;color:${colorBarra};margin-bottom:6px;">
+        ${resumen.filas.length} de ${resumen.totalOficinas} oficinas (${resumen.pctOficinas}%) concentran el 80% de ${etiquetaValor}
+      </div>
+      <table>
+        <thead><tr><th>Oficina</th><th>${etiquetaValor === 'volumen' ? 'Volumen' : 'No Efectivas'}</th><th>% del Total</th><th>% Acumulado</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>`;
+  };
+  const tablaParetoVolumen = tablaParetoHtml(data.paretoVolumen, 'volumen', '#1E3A8A');
+  const tablaParetoNoEfectivas = tablaParetoHtml(data.paretoNoEfectivas, 'no efectivas', '#DC2626');
+
   const tablaComparativoRegion = data.comparativoRegion.length
     ? `
     <table>
@@ -3037,6 +3082,18 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
       <div class="seccion-titulo" style="margin-top:0;">Comparativo General por Región</div>
       <div class="seccion" style="margin-bottom:14px;">
         ${tablaComparativoRegion}
+      </div>
+
+      <div class="seccion-titulo">Concentración 80/20 — ¿Dónde Pesa el Volumen y los Problemas?</div>
+      <div class="dos-columnas">
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Volumen</div>
+          ${tablaParetoVolumen}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Guías No Efectivas (Dev. + Abiertas)</div>
+          ${tablaParetoNoEfectivas}
+        </div>
       </div>
 
       <div class="dos-columnas">
