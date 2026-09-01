@@ -2639,14 +2639,39 @@ export function exportReporteConsolidadoPDF(data: ReporteConsolidadoData, ventan
 }
 
 // ============================================================
-// REPORTE SIMPLIFICADO PARA DIRECCIÓN (agregado ago-2026): 1 sola
-// página, pensado para alguien que solo quiere ver "qué tan bien vamos"
-// y "qué está fallando", sin entrar al detalle del Reporte Ejecutivo
-// Consolidado (que sí trae desgloses completos por región/oficina/
-// cliente). Aquí solo van los números principales + un resumen de
-// issues (guías críticas, pendientes de cierre, top excepciones/
-// devoluciones) — nada de tablas largas ni desgloses jerárquicos.
+// REPORTE SIMPLIFICADO PARA DIRECCIÓN (rediseñado ago-2026): no es solo
+// un resumen de conteos — busca responder "¿dónde está el problema y
+// cómo va la tendencia?", con datos ya cruzados (oficinas por
+// efectividad+volumen, excepciones por cliente, comparativo mes a mes) y
+// un resumen de hallazgos generado a partir de esos mismos datos. Sigue
+// siendo compacto (1-2 páginas) — el detalle completo por región/
+// oficina/cliente vive en el Reporte Ejecutivo Consolidado.
 // ============================================================
+export interface FilaOficinaAtencion {
+  oficina: string;
+  total: number;
+  efectividad: number | null;
+}
+
+export interface FilaOficinaCritica {
+  oficina: string;
+  abiertas: number;
+  criticas: number; // en seguimiento ROJO (5+ días sin movimiento)
+  promedioDias: number | null;
+}
+
+export interface FilaComparativoMes {
+  mes: string; // 'YYYY-MM'
+  efectividad: number | null;
+}
+
+export interface FilaExcepcionPorCliente {
+  cliente: string;
+  excepcion: string;
+  cantidad: number;
+  totalConExcepcion: number;
+}
+
 export interface ReporteSimplificadoData {
   cliente: string;
   periodoTexto: string;
@@ -2661,14 +2686,36 @@ export interface ReporteSimplificadoData {
     pctDentroDe15Dias: number | null;
   };
 
-  // Resumen de issues — lo que requiere atención de dirección
-  guiasCriticas: number; // seguimiento ROJO (5+ días sin movimiento)
-  pendientes30Mas: number; // cierre operativo: 30+ días sin movimiento
+  // Oficinas que requieren atención: efectividad baja + volumen
+  // significativo (las que más pesan, no solo las que tienen peor %).
+  oficinasAtencion: FilaOficinaAtencion[];
+
+  // Oficinas críticas por guías abiertas: más guías en seguimiento
+  // crítico (Rojo, 5+ días sin movimiento).
+  oficinasCriticas: FilaOficinaCritica[];
+
+  // Comparativo de efectividad mes a mes (Total, período completo del
+  // corte, sin importar el filtro de Periodo activo).
+  comparativoEfectividad: FilaComparativoMes[];
+
+  // Top excepción de cada cliente (no el top general — el principal
+  // problema DE CADA cliente, para ver si distintos clientes tienen
+  // distintos tipos de problema).
+  topExcepcionesPorCliente: FilaExcepcionPorCliente[];
+
+  // Hallazgos / desviaciones generados automáticamente a partir de los
+  // datos de arriba — frases breves, no un análisis exhaustivo.
+  hallazgos: string[];
+
   retornosAbiertos: number;
-  topExcepciones: Array<{ key: string; count: number }>;
-  totalConExcepcion: number;
-  topDevolucionesPorMotivo: Array<{ key: string; count: number }>;
-  totalDevoluciones: number;
+  pendientes30Mas: number;
+}
+
+function colorEfectividadSimplificado(valor: number | null): string {
+  if (valor === null) return '#94A3B8';
+  if (valor >= 70) return '#0B9B67';
+  if (valor >= 50) return '#EA7C1A';
+  return '#DC2626';
 }
 
 export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, ventanaExistente?: Window | null) {
@@ -2692,15 +2739,11 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
     { label: 'Entregadas', value: k.entregadas.toLocaleString('es-MX'), color: '#0B9B67' },
     { label: 'Devoluciones', value: k.devoluciones.toLocaleString('es-MX'), color: '#DC2626' },
     { label: 'Abiertas', value: k.abiertas.toLocaleString('es-MX'), color: '#EA7C1A' },
-    {
-      label: 'Efectividad',
-      value: k.efectividad !== null ? `${k.efectividad}%` : '—',
-      color: colorEfectividadInforme(k.efectividad),
-    },
+    { label: 'Efectividad', value: k.efectividad !== null ? `${k.efectividad}%` : '—', color: colorEfectividadSimplificado(k.efectividad) },
     {
       label: '% Dentro de 15 Días',
       value: k.pctDentroDe15Dias !== null ? `${k.pctDentroDe15Dias}%` : '—',
-      color: colorEfectividadInforme(k.pctDentroDe15Dias),
+      color: colorEfectividadSimplificado(k.pctDentroDe15Dias),
     },
   ]
     .map(
@@ -2712,11 +2755,100 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
     )
     .join('');
 
-  const issueCard = (titulo: string, valor: number, color: string) => `
-    <div class="issue-card" style="border-color:${valor > 0 ? color : '#E2E8F0'};">
-      <div class="issue-valor" style="color:${valor > 0 ? color : '#94A3B8'};">${valor.toLocaleString('es-MX')}</div>
-      <div class="issue-titulo">${escapeHtml(titulo)}</div>
-    </div>`;
+  const etiquetaMes = (mes: string) => {
+    const [anio, m] = mes.split('-');
+    return anio && m ? `${m}/${anio.slice(2)}` : mes;
+  };
+
+  const tablaOficinasAtencion = data.oficinasAtencion.length
+    ? `
+    <table>
+      <thead><tr><th>Oficina</th><th>Volumen</th><th>Efectividad</th></tr></thead>
+      <tbody>
+        ${data.oficinasAtencion
+          .map(
+            (o) => `
+          <tr>
+            <td class="celda-fuerte">${escapeHtml(o.oficina)}</td>
+            <td>${o.total.toLocaleString('es-MX')}</td>
+            <td><span style="font-weight:800;color:${colorEfectividadSimplificado(o.efectividad)};">${
+              o.efectividad !== null ? `${o.efectividad}%` : '—'
+            }</span></td>
+          </tr>`
+          )
+          .join('')}
+      </tbody>
+    </table>`
+    : '<div class="sin-datos">Ninguna oficina con volumen relevante está por debajo del umbral de efectividad</div>';
+
+  const tablaOficinasCriticas = data.oficinasCriticas.length
+    ? `
+    <table>
+      <thead><tr><th>Oficina</th><th>Abiertas</th><th>Críticas (5+d)</th><th>Prom. Días</th></tr></thead>
+      <tbody>
+        ${data.oficinasCriticas
+          .map(
+            (o) => `
+          <tr>
+            <td class="celda-fuerte">${escapeHtml(o.oficina)}</td>
+            <td>${o.abiertas.toLocaleString('es-MX')}</td>
+            <td><span style="font-weight:800;color:#DC2626;">${o.criticas.toLocaleString('es-MX')}</span></td>
+            <td>${o.promedioDias !== null ? `${o.promedioDias}d` : '—'}</td>
+          </tr>`
+          )
+          .join('')}
+      </tbody>
+    </table>`
+    : '<div class="sin-datos">Sin guías en seguimiento crítico</div>';
+
+  const tablaComparativo = data.comparativoEfectividad.length
+    ? `
+    <table>
+      <thead><tr><th>Mes</th><th>Efectividad</th><th>vs. Mes Anterior</th></tr></thead>
+      <tbody>
+        ${data.comparativoEfectividad
+          .map((f, i) => {
+            const anterior = i > 0 ? data.comparativoEfectividad[i - 1].efectividad : null;
+            const delta = f.efectividad !== null && anterior !== null ? Number((f.efectividad - anterior).toFixed(1)) : null;
+            const deltaTxt =
+              delta === null ? '—' : delta === 0 ? 'Sin cambio' : `${delta > 0 ? '▲' : '▼'} ${Math.abs(delta)} pts`;
+            const deltaColor = delta === null ? '#94A3B8' : delta > 0 ? '#0B9B67' : delta < 0 ? '#DC2626' : '#94A3B8';
+            return `
+          <tr>
+            <td class="celda-fuerte">${escapeHtml(etiquetaMes(f.mes))}</td>
+            <td><span style="font-weight:800;color:${colorEfectividadSimplificado(f.efectividad)};">${
+              f.efectividad !== null ? `${f.efectividad}%` : '—'
+            }</span></td>
+            <td style="color:${deltaColor};font-weight:700;">${deltaTxt}</td>
+          </tr>`;
+          })
+          .join('')}
+      </tbody>
+    </table>`
+    : '<div class="sin-datos">Se necesita más de un mes para comparar</div>';
+
+  const tablaExcPorCliente = data.topExcepcionesPorCliente.length
+    ? `
+    <table>
+      <thead><tr><th>Cliente</th><th>Excepción Principal</th><th>Cantidad</th></tr></thead>
+      <tbody>
+        ${data.topExcepcionesPorCliente
+          .map(
+            (f) => `
+          <tr>
+            <td class="celda-fuerte">${escapeHtml(f.cliente)}</td>
+            <td>${escapeHtml(f.excepcion)}</td>
+            <td>${f.cantidad.toLocaleString('es-MX')}</td>
+          </tr>`
+          )
+          .join('')}
+      </tbody>
+    </table>`
+    : '<div class="sin-datos">Sin excepciones registradas</div>';
+
+  const listaHallazgos = data.hallazgos.length
+    ? `<ul class="hallazgos-lista">${data.hallazgos.map((h) => `<li>${escapeHtml(h)}</li>`).join('')}</ul>`
+    : '<div class="sin-datos">Sin hallazgos relevantes detectados en este corte</div>';
 
   win.document.open();
   win.document.write(`
@@ -2732,25 +2864,22 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
         .header h1 { font-size: 21px; color: #1E3A8A; margin: 0 0 4px 0; }
         .header .subtitulo { font-size: 13px; color: #64748B; }
         .header .meta { font-size: 11px; color: #64748B; text-align: right; }
-        .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 20px; }
-        .kpi-card { border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 10px; background: #F8FAFC; text-align: center; }
-        .kpi-label { font-size: 9.5px; font-weight: 700; color: #64748B; margin-bottom: 4px; text-transform: uppercase; }
-        .kpi-value { font-size: 20px; font-weight: 800; }
-        .seccion-titulo { font-size: 14px; font-weight: 800; margin: 18px 0 10px; color: #1E3A8A; }
-        .issue-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
-        .issue-card { border: 2px solid #E2E8F0; border-radius: 8px; padding: 16px; text-align: center; background: #FAFAFA; }
-        .issue-valor { font-size: 30px; font-weight: 800; line-height: 1; margin-bottom: 6px; }
-        .issue-titulo { font-size: 11px; font-weight: 700; color: #475569; }
-        .dos-columnas { display: flex; gap: 16px; }
-        .seccion { flex: 1; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; }
-        .barra-fila { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
-        .barra-label { font-size: 11.5px; font-weight: 600; width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .barra-track { flex: 1; background: #F1F5F9; border-radius: 4px; height: 10px; overflow: hidden; }
-        .barra-fill { height: 100%; border-radius: 4px; }
-        .barra-valor { font-size: 11px; font-weight: 700; width: 18%; text-align: right; white-space: nowrap; }
-        .barra-pct { font-weight: 500; color: #94A3B8; }
-        .sin-datos { font-size: 11px; color: #94A3B8; padding: 8px 0; }
-        .footer { margin-top: 18px; font-size: 10px; color: #94A3B8; text-align: right; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 18px; }
+        .kpi-card { border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px 8px; background: #F8FAFC; text-align: center; }
+        .kpi-label { font-size: 9px; font-weight: 700; color: #64748B; margin-bottom: 4px; text-transform: uppercase; }
+        .kpi-value { font-size: 18px; font-weight: 800; }
+        .seccion-titulo { font-size: 13.5px; font-weight: 800; margin: 16px 0 8px; color: #1E3A8A; }
+        .dos-columnas { display: flex; gap: 14px; margin-bottom: 4px; }
+        .seccion { flex: 1; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        th { text-align: left; padding: 5px 6px; background: #F8FAFC; border-bottom: 2px solid #E2E8F0; color: #64748B; font-size: 9.5px; text-transform: uppercase; }
+        td { padding: 4px 6px; border-bottom: 1px solid #F1F5F9; }
+        .celda-fuerte { font-weight: 700; }
+        .sin-datos { font-size: 11px; color: #94A3B8; padding: 6px 0; }
+        .hallazgos-box { border: 2px solid #1E3A8A; border-radius: 8px; padding: 14px 16px; margin-top: 4px; background: #F8FAFC; }
+        .hallazgos-lista { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.7; }
+        .hallazgos-lista li { margin-bottom: 4px; }
+        .footer { margin-top: 16px; font-size: 10px; color: #94A3B8; text-align: right; }
         @media print {
           body { padding: 12mm; }
           @page { size: portrait; margin: 12mm; }
@@ -2768,21 +2897,32 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
 
       <div class="kpi-grid">${kpiCards}</div>
 
-      <div class="seccion-titulo">⚠️ Requiere Atención</div>
-      <div class="issue-grid">
-        ${issueCard('Guías en Seguimiento Crítico (5+ días)', data.guiasCriticas, '#DC2626')}
-        ${issueCard('Pendientes de Cierre (+30 días)', data.pendientes30Mas, '#B45309')}
-        ${issueCard('Retornos Abiertos', data.retornosAbiertos, '#7C3AED')}
+      <div class="hallazgos-box">
+        <div class="seccion-titulo" style="margin-top:0;">🔎 Principales Hallazgos / Tendencias</div>
+        ${listaHallazgos}
       </div>
 
       <div class="dos-columnas">
         <div class="seccion">
-          <div class="seccion-titulo" style="margin-top:0;">Top Excepciones</div>
-          ${barraHtml(data.topExcepciones, data.totalConExcepcion, '#7C3AED')}
+          <div class="seccion-titulo" style="margin-top:0;">Oficinas que Requieren Atención</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Efectividad baja + volumen relevante</div>
+          ${tablaOficinasAtencion}
         </div>
         <div class="seccion">
-          <div class="seccion-titulo" style="margin-top:0;">Devoluciones — Top Motivo</div>
-          ${barraHtml(data.topDevolucionesPorMotivo, data.totalDevoluciones, '#EA7C1A')}
+          <div class="seccion-titulo" style="margin-top:0;">Oficinas Críticas — Guías Abiertas</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Más guías en seguimiento crítico (5+ días)</div>
+          ${tablaOficinasCriticas}
+        </div>
+      </div>
+
+      <div class="dos-columnas">
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Comparativo de Efectividad</div>
+          ${tablaComparativo}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Top Excepciones por Cliente</div>
+          ${tablaExcPorCliente}
         </div>
       </div>
 

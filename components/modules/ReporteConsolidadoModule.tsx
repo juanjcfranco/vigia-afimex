@@ -148,20 +148,124 @@ export default function ReporteConsolidadoModule({
     const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
     const temporalidadGeneral = temporalidadPorCampo(guias, () => 'TOTAL')[0] ?? null;
 
-    // Issues
-    const guiasCriticas = abiertasLista.filter((g) => calcularSemaforoGuia(g.dias_sin_movimiento).nivel === 'ROJO').length;
     const pendientes30Mas = abiertasLista.filter((g) => (g.dias_sin_movimiento ?? 0) >= 30).length;
-    const retornosAbiertosLista = guiasOriginales.filter((g) => g.es_devolucion && g.retorno_guia);
+    const devolucionesConRetorno = guiasOriginales.filter((g) => g.es_devolucion && g.retorno_guia);
     const retornoPorGuia = new Map<string, Guia>();
     guias.forEach((g) => {
       if (g.es_retorno && g.guia) retornoPorGuia.set(g.guia, g);
     });
-    const retornosAbiertos = retornosAbiertosLista.filter(
+    const retornosAbiertos = devolucionesConRetorno.filter(
       (g) => !retornoEstaEntregado(g, g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined)
     ).length;
 
-    const resumenExc = calcularResumenExcepciones(guias, 5);
-    const resumenDev = calcularResumenDevoluciones(guias, 5);
+    // ============================================================
+    // Oficinas que requieren atención: efectividad baja (<60%) +
+    // volumen relevante (>=20 guías, para no meter ruido de oficinas con
+    // 2-3 guías donde 1 devolución ya se ve como "50% efectividad").
+    // Ordenadas por volumen — las que más pesan primero, no solo las que
+    // tienen peor %.
+    // ============================================================
+    const UMBRAL_EFECTIVIDAD = 60;
+    const VOLUMEN_MINIMO = 20;
+    const porOficina = efectividadYTemporalidadPorCampo(guias, 'oficina_destino');
+    const oficinasAtencion = porOficina
+      .filter((o) => o.total >= VOLUMEN_MINIMO && o.efectividad !== null && o.efectividad < UMBRAL_EFECTIVIDAD)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8)
+      .map((o) => ({ oficina: o.key, total: o.total, efectividad: o.efectividad }));
+
+    // ============================================================
+    // Oficinas críticas por guías abiertas: cuántas de sus abiertas
+    // están en seguimiento crítico (Rojo, 5+ días sin movimiento).
+    // ============================================================
+    const acumOficina: Record<string, { abiertas: number; criticas: number; sumaDias: number }> = {};
+    abiertasLista.forEach((g) => {
+      const of = g.oficina_destino || 'SIN OFICINA';
+      if (!acumOficina[of]) acumOficina[of] = { abiertas: 0, criticas: 0, sumaDias: 0 };
+      acumOficina[of].abiertas += 1;
+      acumOficina[of].sumaDias += g.dias_sin_movimiento ?? 0;
+      if (calcularSemaforoGuia(g.dias_sin_movimiento).nivel === 'ROJO') acumOficina[of].criticas += 1;
+    });
+    const oficinasCriticas = Object.entries(acumOficina)
+      .map(([oficina, d]) => ({
+        oficina,
+        abiertas: d.abiertas,
+        criticas: d.criticas,
+        promedioDias: d.abiertas ? Number((d.sumaDias / d.abiertas).toFixed(1)) : null,
+      }))
+      .filter((o) => o.criticas > 0)
+      .sort((a, b) => b.criticas - a.criticas)
+      .slice(0, 8);
+
+    // ============================================================
+    // Comparativo de efectividad mes a mes — usa guiasBaseTendencias
+    // (independiente del filtro de Periodo) para que siga mostrando la
+    // comparación aunque haya un mes específico seleccionado.
+    // ============================================================
+    const tendenciaEf = tendenciaMensualPorCampo(guiasBaseTendencias, null, 'efectividad');
+    const comparativoEfectividad = tendenciaEf.datos.map((d) => ({
+      mes: d.mes,
+      efectividad: d.TOTAL as number | null,
+    }));
+
+    // ============================================================
+    // Top excepción POR cliente (no el top general) — para ver si
+    // distintos clientes tienen distintos tipos de problema.
+    // ============================================================
+    const topExcepcionesPorCliente = clientesDistintos
+      .map((cliente) => {
+        const guiasCliente = guias.filter((g) => g.cliente === cliente);
+        const resumen = calcularResumenExcepciones(guiasCliente, 1);
+        return {
+          cliente,
+          excepcion: resumen.porTipo[0]?.key || '',
+          cantidad: resumen.porTipo[0]?.count || 0,
+          totalConExcepcion: resumen.total,
+        };
+      })
+      .filter((c) => c.excepcion)
+      .sort((a, b) => b.cantidad - a.cantidad)
+      .slice(0, 8);
+
+    // ============================================================
+    // Hallazgos automáticos — frases generadas a partir de los mismos
+    // datos de arriba, para no obligar a leer todas las tablas.
+    // ============================================================
+    const hallazgos: string[] = [];
+    if (comparativoEfectividad.length >= 2) {
+      const ultimo = comparativoEfectividad[comparativoEfectividad.length - 1];
+      const anterior = comparativoEfectividad[comparativoEfectividad.length - 2];
+      if (ultimo.efectividad !== null && anterior.efectividad !== null) {
+        const delta = Number((ultimo.efectividad - anterior.efectividad).toFixed(1));
+        if (Math.abs(delta) >= 3) {
+          hallazgos.push(
+            `La efectividad ${delta > 0 ? 'subió' : 'bajó'} ${Math.abs(delta)} puntos en ${formatearPeriodo(ultimo.mes)} respecto al mes anterior.`
+          );
+        }
+      }
+    }
+    if (oficinasAtencion.length) {
+      const peor = oficinasAtencion[0];
+      hallazgos.push(
+        `La oficina con mayor volumen y efectividad baja es ${peor.oficina} (${peor.total.toLocaleString('es-MX')} guías, ${peor.efectividad}% de efectividad).`
+      );
+    }
+    if (oficinasCriticas.length) {
+      const totalCriticas = oficinasCriticas.reduce((s, o) => s + o.criticas, 0);
+      hallazgos.push(
+        `${totalCriticas.toLocaleString('es-MX')} guías están en seguimiento crítico (5+ días sin movimiento), concentradas principalmente en ${oficinasCriticas[0].oficina}.`
+      );
+    }
+    if (pendientes30Mas > 0) {
+      hallazgos.push(`${pendientes30Mas.toLocaleString('es-MX')} guías llevan 30+ días sin movimiento y requieren cierre operativo.`);
+    }
+    if (retornosAbiertos > 0) {
+      hallazgos.push(`${retornosAbiertos.toLocaleString('es-MX')} retornos siguen abiertos (el paquete de la devolución aún no llega).`);
+    }
+    if (topExcepcionesPorCliente.length) {
+      const top = topExcepcionesPorCliente[0];
+      hallazgos.push(`El cliente con la excepción más concentrada es ${top.cliente}: "${top.excepcion}" (${top.cantidad.toLocaleString('es-MX')} guías).`);
+    }
 
     exportReporteSimplificadoPDF(
       {
@@ -176,13 +280,13 @@ export default function ReporteConsolidadoModule({
           efectividad,
           pctDentroDe15Dias: temporalidadGeneral?.pctVerde ?? null,
         },
-        guiasCriticas,
-        pendientes30Mas,
+        oficinasAtencion,
+        oficinasCriticas,
+        comparativoEfectividad,
+        topExcepcionesPorCliente,
+        hallazgos,
         retornosAbiertos,
-        topExcepciones: resumenExc.porTipo,
-        totalConExcepcion: resumenExc.total,
-        topDevolucionesPorMotivo: resumenDev.porMotivo,
-        totalDevoluciones: resumenDev.total,
+        pendientes30Mas,
       },
       ventana
     );
@@ -427,9 +531,9 @@ export default function ReporteConsolidadoModule({
       <div className="bg-white rounded-lg border border-[var(--vg-border)] p-6 text-center">
         <div className="text-[15px] font-bold text-[var(--vg-text)] mb-1">📄 Resumen Ejecutivo (1 página)</div>
         <div className="text-[12px] text-[var(--vg-text2)] max-w-xl mx-auto mb-5">
-          Versión corta, pensada para dirección: solo los KPIs principales y un resumen de issues — guías en
-          seguimiento crítico, pendientes de cierre (+30 días), retornos abiertos, y el Top de excepciones/
-          devoluciones. Sin desgloses por región/oficina/cliente.
+          Versión analítica de 1-2 páginas, pensada para dirección: hallazgos automáticos, oficinas que requieren
+          atención (efectividad baja + volumen relevante), oficinas críticas por guías abiertas, comparativo de
+          efectividad mes a mes, y el top de excepciones por cliente.
         </div>
         <button
           onClick={generarReporteSimplificado}
