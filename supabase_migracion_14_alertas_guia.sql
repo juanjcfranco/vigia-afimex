@@ -10,10 +10,10 @@
 -- contra esta tabla y muestra en qué nivel de alerta se quedó.
 --
 -- Semáforo (definido en lib/business-logic.ts, calcularSemaforoGuia()):
---   Verde    0-1 días sin movimiento — Monitoreo normal
---   Amarillo 2-3 días — 1ª alerta — Iniciar investigación
---   Naranja  4 días   — 2ª alerta — Solicitar evidencia fotográfica
---   Rojo     5+ días  — 3ª alerta — Cierre del caso y cobro
+--   Verde    1-2 días sin movimiento — Monitoreo normal
+--   Amarillo 3 días   — 1ª alerta — Iniciar investigación
+--   Naranja  4 días    — 2ª alerta — Solicitar evidencia fotográfica
+--   Rojo     5+ días   — 3ª alerta — Cierre del caso y cobro
 -- ============================================================
 
 create table if not exists alertas_guia_historial (

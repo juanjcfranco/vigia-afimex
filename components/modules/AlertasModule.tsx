@@ -213,7 +213,7 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
           <div>
             <div className="font-bold text-[13px]">🚦 Semáforo de Escalamiento — Guías Abiertas</div>
             <div className="text-[11px] text-[var(--vg-text2)]">
-              Verde 0-1d · Amarillo 2-3d (1ª alerta) · Naranja 4d (2ª alerta) · Rojo 5+d (3ª alerta)
+              Verde 1-2d (monitoreo) · Amarillo 3d (1ª alerta) · Naranja 4d (2ª alerta) · Rojo 5+d (3ª alerta, cierre de caso)
             </div>
           </div>
         </div>

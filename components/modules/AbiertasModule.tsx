@@ -609,7 +609,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Región" sortKey="region" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Ciclo" sortKey="ciclo" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Días sin Mov." sortKey="dias" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
-                <th>Semáforo</th>
+                <th>Seguimiento</th>
                 <th>Alerta Registrada</th>
                 <SortableTh label="Últ. Mov." sortKey="ultmov" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Última Excepción" sortKey="ultimaexcepcion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
@@ -670,7 +670,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                       if (semaforo.nivel === 'VERDE') return <span className="text-[var(--vg-text3)]">—</span>;
                       return (
                         <span
-                          title={`${semaforo.accion} · Responsable: ${semaforo.responsable}`}
+                          title={`Sugerido según días sin movimiento (no cuenta como enviado): ${semaforo.accion} · Responsable: ${semaforo.responsable}`}
                           className="inline-block text-[9.5px] font-bold text-white px-1.5 py-[2px] rounded whitespace-nowrap"
                           style={{ backgroundColor: semaforo.color }}
                         >

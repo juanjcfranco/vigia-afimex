@@ -718,9 +718,17 @@ export function nivelAlertaPorDias(dias: number | null): NivelAlerta {
 // acción y responsable definidos según la tabla de escalamiento
 // operativo. DISTINTO de nivelAlertaPorDias() de arriba (que usa otros
 // umbrales — 3/7/14 días — y alimenta accionEfectiva()/el módulo
-// Acciones): este semáforo tiene su propia tabla de umbrales (0-1 / 2-3
-// / 4 / 5+) y es el que se muestra en Abiertas y dispara las
-// notificaciones + el historial persistente (alertas_guia_historial).
+// Acciones): este semáforo tiene su propia tabla de umbrales (1-2 / 3
+// / 4 / 5+) y es el que se muestra en Abiertas (columna "Seguimiento") y
+// dispara las notificaciones + el historial persistente
+// (alertas_guia_historial).
+//
+// IMPORTANTE: este cálculo es una PREVISUALIZACIÓN automática — indica
+// qué acción correspondería según los días sin movimiento de HOY, pero
+// NO significa que esa alerta ya se haya enviado. El conteo real de
+// alertas enviadas vive únicamente en alertas_guia_historial (columna
+// "Alerta Registrada" en pantalla), y solo avanza cuando alguien
+// efectivamente registra el envío — nunca automáticamente.
 // ============================================================
 export interface NivelSemaforo {
   nivel: 'VERDE' | 'AMARILLO' | 'NARANJA' | 'ROJO';
@@ -731,7 +739,7 @@ export interface NivelSemaforo {
 }
 
 export function calcularSemaforoGuia(dias: number | null): NivelSemaforo {
-  if (dias === null || dias <= 1) {
+  if (dias === null || dias <= 2) {
     return {
       nivel: 'VERDE',
       etiquetaAlerta: '',
@@ -740,10 +748,10 @@ export function calcularSemaforoGuia(dias: number | null): NivelSemaforo {
       color: '#0B9B67',
     };
   }
-  if (dias <= 3) {
+  if (dias === 3) {
     return {
       nivel: 'AMARILLO',
-      etiquetaAlerta: '1ª alerta',
+      etiquetaAlerta: 'Primera alerta',
       accion: 'Iniciar investigación (ubicar última plaza/circuito que escaneó la guía)',
       responsable: 'Jefe de oficina',
       color: '#EAB308',
@@ -752,7 +760,7 @@ export function calcularSemaforoGuia(dias: number | null): NivelSemaforo {
   if (dias === 4) {
     return {
       nivel: 'NARANJA',
-      etiquetaAlerta: '2ª alerta',
+      etiquetaAlerta: 'Segunda alerta',
       accion: 'Solicitar evidencia fotográfica del paquete y notificar posible cobro al responsable',
       responsable: 'Jefe de circuitos / Jefe de plataforma',
       color: '#EA7C1A',
@@ -760,7 +768,7 @@ export function calcularSemaforoGuia(dias: number | null): NivelSemaforo {
   }
   return {
     nivel: 'ROJO',
-    etiquetaAlerta: '3ª alerta',
+    etiquetaAlerta: 'Tercera alerta',
     accion: 'Cierre del caso y cobro al responsable',
     responsable: 'Gerente de operaciones',
     color: '#DC2626',
