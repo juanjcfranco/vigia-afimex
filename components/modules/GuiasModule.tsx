@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
+import { esRetornoAmplio } from '@/lib/business-logic';
 import AccionBadge from '@/components/AccionBadge';
 import BulkSearch from '@/components/BulkSearch';
 import { exportToExcel, exportToPDF } from '@/lib/export';
@@ -40,6 +41,8 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
       switch (key) {
         case 'guia':
           return g.guia;
+        case 'tipo':
+          return esRetornoAmplio(g) ? 'Retorno' : 'Original';
         case 'estado':
           return g.estado_guia;
         case 'oficina':
@@ -56,6 +59,8 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
           return g.accion_recomendada;
         case 'recibidopor':
           return g.nombre_recibio;
+        case 'fentrega':
+          return g.f_confirmacion;
         case 'fdoc':
           return g.f_documentacion;
         default:
@@ -80,6 +85,7 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
 
   const columnasExport = [
     { header: 'Guía', value: (g: Guia) => g.guia },
+    { header: 'Tipo', value: (g: Guia) => (esRetornoAmplio(g) ? 'Retorno' : 'Original') },
     { header: 'Estado', value: (g: Guia) => g.estado_guia || '' },
     { header: 'Oficina', value: (g: Guia) => g.oficina_destino || '' },
     { header: 'Entidad', value: (g: Guia) => g.entidad_destinatario || '' },
@@ -88,6 +94,7 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
     { header: 'COD', value: (g: Guia) => g.cod || 0 },
     { header: 'Acción', value: (g: Guia) => g.accion_recomendada || '' },
     { header: 'Recibido por', value: (g: Guia) => g.nombre_recibio || '' },
+    { header: 'Fecha de Entrega', value: (g: Guia) => g.f_confirmacion || '' },
     { header: 'F. Documentación', value: (g: Guia) => g.f_documentacion || '' },
     ...temporalidadColumnasExport(),
   ];
@@ -162,6 +169,7 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
             <thead>
               <tr>
                 <SortableTh label="Guía" sortKey="guia" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Tipo" sortKey="tipo" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Estado" sortKey="estado" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Oficina" sortKey="oficina" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Entidad" sortKey="entidad" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
@@ -170,6 +178,7 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="COD" sortKey="cod" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Acción" sortKey="accion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Recibido por" sortKey="recibidopor" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Fecha de Entrega" sortKey="fentrega" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="F. Documentación" sortKey="fdoc" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <TemporalidadHeaders sortKey={sortKey} sortDir={sortDir} onSort={requestSort} />
               </tr>
@@ -178,6 +187,17 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
               {filas.map((g) => (
                 <tr key={g.id}>
                   <td className="font-mono font-semibold">{g.guia}</td>
+                  <td>
+                    {esRetornoAmplio(g) ? (
+                      <span className="text-[10px] font-bold text-white bg-[var(--vg-purple)] rounded-full px-1.5 py-0.5">
+                        Retorno
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold text-white bg-[var(--vg-blue)] rounded-full px-1.5 py-0.5">
+                        Original
+                      </span>
+                    )}
+                  </td>
                   <td>{g.estado_guia}</td>
                   <td>{g.oficina_destino}</td>
                   <td>{g.entidad_destinatario}</td>
@@ -188,13 +208,14 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
                     <AccionBadge accion={g.accion_recomendada} />
                   </td>
                   <td>{g.nombre_recibio || '—'}</td>
+                  <td>{g.f_confirmacion || '—'}</td>
                   <td>{g.f_documentacion || '—'}</td>
                   <TemporalidadCells guia={g} />
                 </tr>
               ))}
               {!filas.length && (
                 <tr>
-                  <td colSpan={17} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={19} className="text-center text-[var(--vg-text3)] py-6">
                     No se encontraron guías
                   </td>
                 </tr>
