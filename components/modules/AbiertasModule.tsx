@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Guia, ContactoOficina } from '@/lib/types';
-import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio, ultimaExcepcion, accionEfectiva } from '@/lib/business-logic';
+import { Guia, ContactoOficina, AlertaGuiaEvento } from '@/lib/types';
+import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio, ultimaExcepcion, accionEfectiva, calcularSemaforoGuia } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import BulkSearch from '@/components/BulkSearch';
 import AlertaDiasBadge from '@/components/AlertaDiasBadge';
 import AccionMasivaModal, { TipoAccionMasiva } from '@/components/AccionMasivaModal';
 import AlertaSinMovimientoModal from '@/components/AlertaSinMovimientoModal';
+import SemaforoAlertaModal from '@/components/SemaforoAlertaModal';
 import { exportToExcel, exportToPDF } from '@/lib/export';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
@@ -35,14 +36,44 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   const [contactos, setContactos] = useState<ContactoOficina[]>([]);
   const [modalTipo, setModalTipo] = useState<TipoAccionMasiva | null>(null);
   const [modalAlertaDias, setModalAlertaDias] = useState(false);
+  const [modalSemaforo, setModalSemaforo] = useState(false);
   const [guiasIndemnizadas, setGuiasIndemnizadas] = useState<Set<string>>(new Set());
   const [marcando, setMarcando] = useState(false);
+  const [historialAlertas, setHistorialAlertas] = useState<AlertaGuiaEvento[]>([]);
+
+  function recargarHistorialAlertas() {
+    fetch('/api/alertas-guia')
+      .then((r) => r.json())
+      .then((j) => setHistorialAlertas(j.eventos || []));
+  }
+
+  async function cerrarCaso(guia: string) {
+    if (!confirm(`¿Cerrar el caso de la guía ${guia}? Esto marca el historial de alertas como resuelto.`)) return;
+    await fetch('/api/alertas-guia', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guia, nivel: 'CERRADO' }),
+    });
+    recargarHistorialAlertas();
+  }
 
   useEffect(() => {
     fetch('/api/contactos')
       .then((r) => r.json())
       .then((j) => setContactos(j.contactos || []));
+    recargarHistorialAlertas();
   }, []);
+
+  // Último evento registrado por guía (el arreglo viene ordenado
+  // ascendente por creado_en, así que la última escritura al recorrerlo
+  // gana — queda el evento más reciente de cada guía). Así, si una guía
+  // reaparece en un corte nuevo, ya se sabe en qué nivel de alerta se
+  // quedó, sin importar de qué carga venga ahora.
+  const ultimoEventoPorGuia = useMemo(() => {
+    const map = new Map<string, AlertaGuiaEvento>();
+    historialAlertas.forEach((ev) => map.set(ev.guia, ev));
+    return map;
+  }, [historialAlertas]);
 
   function cargarIndemnizadas() {
     fetch('/api/indemnizaciones')
@@ -509,6 +540,12 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
               ⏰ Alerta sin movimiento
             </button>
             <button
+              onClick={() => setModalSemaforo(true)}
+              className="text-[11.5px] font-semibold text-white bg-[#7C3AED] rounded-md px-3 py-1"
+            >
+              🚦 Notificar Semáforo
+            </button>
+            <button
               onClick={marcarParaIndemnizacion}
               disabled={marcando}
               className="text-[11.5px] font-semibold text-white bg-[#B45309] rounded-md px-3 py-1 disabled:opacity-50"
@@ -572,6 +609,8 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Región" sortKey="region" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Ciclo" sortKey="ciclo" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Días sin Mov." sortKey="dias" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <th>Semáforo</th>
+                <th>Alerta Registrada</th>
                 <SortableTh label="Últ. Mov." sortKey="ultmov" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Última Excepción" sortKey="ultimaexcepcion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Fecha Últ. Excepción" sortKey="fechaultimaexcepcion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
@@ -625,6 +664,48 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                       <AlertaDiasBadge dias={g.dias_sin_movimiento} />
                     </div>
                   </td>
+                  <td>
+                    {(() => {
+                      const semaforo = calcularSemaforoGuia(g.dias_sin_movimiento);
+                      if (semaforo.nivel === 'VERDE') return <span className="text-[var(--vg-text3)]">—</span>;
+                      return (
+                        <span
+                          title={`${semaforo.accion} · Responsable: ${semaforo.responsable}`}
+                          className="inline-block text-[9.5px] font-bold text-white px-1.5 py-[2px] rounded whitespace-nowrap"
+                          style={{ backgroundColor: semaforo.color }}
+                        >
+                          {semaforo.etiquetaAlerta}
+                        </span>
+                      );
+                    })()}
+                  </td>
+                  <td>
+                    {(() => {
+                      const ultimo = ultimoEventoPorGuia.get(g.guia);
+                      if (!ultimo) return <span className="text-[var(--vg-text3)]">Sin registrar</span>;
+                      if (ultimo.nivel === 'CERRADO') {
+                        return <span className="text-[10px] font-bold text-white bg-[#64748B] rounded-full px-1.5 py-0.5">Cerrado</span>;
+                      }
+                      const colorPorNivel: Record<string, string> = { AMARILLO: '#EAB308', NARANJA: '#EA7C1A', ROJO: '#DC2626' };
+                      return (
+                        <div className="flex items-center gap-1">
+                          <span
+                            className="text-[10px] font-bold text-white rounded-full px-1.5 py-0.5"
+                            style={{ backgroundColor: colorPorNivel[ultimo.nivel] || '#6B7280' }}
+                          >
+                            {ultimo.nivel}
+                          </span>
+                          <button
+                            onClick={() => cerrarCaso(g.guia)}
+                            className="text-[9.5px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded px-1 py-0.5 hover:bg-[var(--vg-bg)]"
+                            title="Cerrar caso"
+                          >
+                            ✕ Cerrar
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </td>
                   <td>{g.f_historia || '—'}</td>
                   <td>{ultExc.nombre || '—'}</td>
                   <td>{ultExc.fecha || '—'}</td>
@@ -636,7 +717,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
               })}
               {!filas.length && (
                 <tr>
-                  <td colSpan={23} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={25} className="text-center text-[var(--vg-text3)] py-6">
                     No hay guías abiertas con este filtro
                   </td>
                 </tr>
@@ -664,6 +745,19 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
           guiasSeleccionadas={guiasSeleccionadasObj}
           contactos={contactos}
           onCompletado={() => setSeleccionadas(new Set())}
+        />
+      )}
+
+      {modalSemaforo && (
+        <SemaforoAlertaModal
+          open={modalSemaforo}
+          onClose={() => setModalSemaforo(false)}
+          guiasSeleccionadas={guiasSeleccionadasObj}
+          contactos={contactos}
+          onCompletado={() => {
+            setSeleccionadas(new Set());
+            recargarHistorialAlertas();
+          }}
         />
       )}
     </div>

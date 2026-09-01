@@ -1,11 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Guia, ContactoOficina, ACCION_COLORS } from '@/lib/types';
-import { isAbierta, accionEfectiva } from '@/lib/business-logic';
+import { Guia, ContactoOficina, ACCION_COLORS, AlertaGuiaEvento } from '@/lib/types';
+import { isAbierta, accionEfectiva, calcularSemaforoGuia } from '@/lib/business-logic';
 import AlertaPreviewModal from '@/components/AlertaPreviewModal';
+import SemaforoAlertaModal from '@/components/SemaforoAlertaModal';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
+
+const COLOR_NIVEL: Record<string, string> = { AMARILLO: '#EAB308', NARANJA: '#EA7C1A', ROJO: '#DC2626', CERRADO: '#64748B' };
 
 const ACCIONES_RAPIDAS = [
   'ESTADO CRÍTICO',
@@ -27,6 +30,58 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
   const [modalAbierto, setModalAbierto] = useState(false);
   const [modalTitulo, setModalTitulo] = useState('');
   const [modalGuias, setModalGuias] = useState<Guia[]>([]);
+
+  // Semáforo de escalamiento — historial persistente por guía (ver
+  // supabase_migracion_14_alertas_guia.sql), independiente de guías/cargas.
+  const [modalSemaforo, setModalSemaforo] = useState(false);
+  const [modalSemaforoGuias, setModalSemaforoGuias] = useState<Guia[]>([]);
+  const [historialAlertas, setHistorialAlertas] = useState<AlertaGuiaEvento[]>([]);
+
+  function recargarHistorialAlertas() {
+    fetch('/api/alertas-guia')
+      .then((r) => r.json())
+      .then((j) => setHistorialAlertas(j.eventos || []));
+  }
+
+  useEffect(() => {
+    recargarHistorialAlertas();
+  }, []);
+
+  // Guías abiertas agrupadas por nivel de semáforo (solo las que ya están
+  // en algún nivel de alerta — Amarillo/Naranja/Rojo, no Verde).
+  const guiasPorNivelSemaforo = useMemo(() => {
+    const grupos: Record<string, Guia[]> = { AMARILLO: [], NARANJA: [], ROJO: [] };
+    guias.forEach((g) => {
+      if (!isAbierta(g)) return;
+      const semaforo = calcularSemaforoGuia(g.dias_sin_movimiento);
+      if (semaforo.nivel !== 'VERDE') grupos[semaforo.nivel].push(g);
+    });
+    return grupos;
+  }, [guias]);
+
+  function abrirSemaforoPorNivel(nivel: string) {
+    const lista = guiasPorNivelSemaforo[nivel] || [];
+    if (!lista.length) {
+      setMensaje(`Sin guías en nivel ${nivel}.`);
+      return;
+    }
+    setModalSemaforoGuias(lista);
+    setModalSemaforo(true);
+  }
+
+  // Historial agrupado por guía, en orden cronológico — para mostrar la
+  // secuencia "Alerta 1 (acción) → Alerta 2 (acción) → ... → Cerrar caso"
+  // tal cual, sin importar de qué carga venga la guía ahora.
+  const historialPorGuia = useMemo(() => {
+    const grupos: Record<string, AlertaGuiaEvento[]> = {};
+    historialAlertas.forEach((ev) => {
+      if (!grupos[ev.guia]) grupos[ev.guia] = [];
+      grupos[ev.guia].push(ev);
+    });
+    return Object.entries(grupos).sort(
+      (a, b) => new Date(b[1][b[1].length - 1].creado_en).getTime() - new Date(a[1][a[1].length - 1].creado_en).getTime()
+    );
+  }, [historialAlertas]);
 
   useEffect(() => {
     fetch('/api/contactos')
@@ -141,8 +196,108 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
     return null;
   });
 
+  async function cerrarCaso(guia: string) {
+    if (!confirm(`¿Cerrar el caso de la guía ${guia}?`)) return;
+    await fetch('/api/alertas-guia', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guia, nivel: 'CERRADO' }),
+    });
+    recargarHistorialAlertas();
+  }
+
   return (
     <div className="p-5 space-y-4">
+      <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
+        <div className="px-4 py-3 border-b border-[var(--vg-border)] flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <div className="font-bold text-[13px]">🚦 Semáforo de Escalamiento — Guías Abiertas</div>
+            <div className="text-[11px] text-[var(--vg-text2)]">
+              Verde 0-1d · Amarillo 2-3d (1ª alerta) · Naranja 4d (2ª alerta) · Rojo 5+d (3ª alerta)
+            </div>
+          </div>
+        </div>
+        <div className="px-4 py-2.5 flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => abrirSemaforoPorNivel('AMARILLO')}
+            className="text-[11px] font-bold text-white rounded-md px-2.5 py-1"
+            style={{ backgroundColor: COLOR_NIVEL.AMARILLO }}
+          >
+            🟡 Amarillo — 1ª alerta ({guiasPorNivelSemaforo.AMARILLO.length})
+          </button>
+          <button
+            onClick={() => abrirSemaforoPorNivel('NARANJA')}
+            className="text-[11px] font-bold text-white rounded-md px-2.5 py-1"
+            style={{ backgroundColor: COLOR_NIVEL.NARANJA }}
+          >
+            🟠 Naranja — 2ª alerta ({guiasPorNivelSemaforo.NARANJA.length})
+          </button>
+          <button
+            onClick={() => abrirSemaforoPorNivel('ROJO')}
+            className="text-[11px] font-bold text-white rounded-md px-2.5 py-1"
+            style={{ backgroundColor: COLOR_NIVEL.ROJO }}
+          >
+            🔴 Rojo — 3ª alerta ({guiasPorNivelSemaforo.ROJO.length})
+          </button>
+        </div>
+
+        <div className="px-4 pb-4">
+          <div className="font-bold text-[12px] mb-2">Historial de Alertas por Guía ({historialPorGuia.length})</div>
+          <div className="max-h-[280px] overflow-y-auto vg-scroll border border-[var(--vg-border)] rounded-md">
+            <table className="vg-table">
+              <thead>
+                <tr>
+                  <th>Guía</th>
+                  <th>Secuencia</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {historialPorGuia.map(([guia, eventos]) => {
+                  const cerrado = eventos[eventos.length - 1].nivel === 'CERRADO';
+                  return (
+                    <tr key={guia}>
+                      <td className="font-mono font-semibold">{guia}</td>
+                      <td className="text-[11px]">
+                        {eventos.map((ev, i) => (
+                          <span key={ev.id}>
+                            <span
+                              className="inline-block text-[9.5px] font-bold text-white rounded px-1.5 py-[1px] mr-0.5"
+                              style={{ backgroundColor: COLOR_NIVEL[ev.nivel] || '#6B7280' }}
+                              title={ev.accion || ''}
+                            >
+                              {ev.nivel}
+                            </span>
+                            {i < eventos.length - 1 && <span className="text-[var(--vg-text3)] mx-0.5">→</span>}
+                          </span>
+                        ))}
+                      </td>
+                      <td>
+                        {!cerrado && (
+                          <button
+                            onClick={() => cerrarCaso(guia)}
+                            className="text-[10px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded px-1.5 py-0.5 hover:bg-[var(--vg-bg)]"
+                          >
+                            ✕ Cerrar caso
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!historialPorGuia.length && (
+                  <tr>
+                    <td colSpan={3} className="text-center text-[var(--vg-text3)] py-4">
+                      Aún no hay alertas registradas
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
         <div className="px-4 py-3 border-b border-[var(--vg-border)] flex items-center justify-between flex-wrap gap-2">
           <div>
@@ -316,6 +471,19 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
         contactos={contactos}
         onEnviado={() => setMensaje('✅ Proceso de envío completado')}
       />
+
+      {modalSemaforo && (
+        <SemaforoAlertaModal
+          open={modalSemaforo}
+          onClose={() => setModalSemaforo(false)}
+          guiasSeleccionadas={modalSemaforoGuias}
+          contactos={contactos}
+          onCompletado={() => {
+            recargarHistorialAlertas();
+            setMensaje('✅ Alertas de semáforo registradas');
+          }}
+        />
+      )}
     </div>
   );
 }

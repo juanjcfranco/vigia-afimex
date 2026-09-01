@@ -714,6 +714,60 @@ export function nivelAlertaPorDias(dias: number | null): NivelAlerta {
 }
 
 // ============================================================
+// Semáforo de días sin movimiento (agregado ago-2026) — 4 niveles con
+// acción y responsable definidos según la tabla de escalamiento
+// operativo. DISTINTO de nivelAlertaPorDias() de arriba (que usa otros
+// umbrales — 3/7/14 días — y alimenta accionEfectiva()/el módulo
+// Acciones): este semáforo tiene su propia tabla de umbrales (0-1 / 2-3
+// / 4 / 5+) y es el que se muestra en Abiertas y dispara las
+// notificaciones + el historial persistente (alertas_guia_historial).
+// ============================================================
+export interface NivelSemaforo {
+  nivel: 'VERDE' | 'AMARILLO' | 'NARANJA' | 'ROJO';
+  etiquetaAlerta: string; // "1ª alerta" / "2ª alerta" / "3ª alerta" / '' para verde
+  accion: string;
+  responsable: string;
+  color: string;
+}
+
+export function calcularSemaforoGuia(dias: number | null): NivelSemaforo {
+  if (dias === null || dias <= 1) {
+    return {
+      nivel: 'VERDE',
+      etiquetaAlerta: '',
+      accion: 'Monitoreo normal',
+      responsable: 'Supervisor de operaciones',
+      color: '#0B9B67',
+    };
+  }
+  if (dias <= 3) {
+    return {
+      nivel: 'AMARILLO',
+      etiquetaAlerta: '1ª alerta',
+      accion: 'Iniciar investigación (ubicar última plaza/circuito que escaneó la guía)',
+      responsable: 'Jefe de oficina',
+      color: '#EAB308',
+    };
+  }
+  if (dias === 4) {
+    return {
+      nivel: 'NARANJA',
+      etiquetaAlerta: '2ª alerta',
+      accion: 'Solicitar evidencia fotográfica del paquete y notificar posible cobro al responsable',
+      responsable: 'Jefe de circuitos / Jefe de plataforma',
+      color: '#EA7C1A',
+    };
+  }
+  return {
+    nivel: 'ROJO',
+    etiquetaAlerta: '3ª alerta',
+    accion: 'Cierre del caso y cobro al responsable',
+    responsable: 'Gerente de operaciones',
+    color: '#DC2626',
+  };
+}
+
+// ============================================================
 // Acción efectiva de una guía: la del catálogo si existe (calculada al
 // momento de la carga, a partir de sus excepciones), y si no hay ninguna
 // —el caso de una guía LISTO PARA ENTREGAR / EN ALMACEN sin ninguna

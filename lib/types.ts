@@ -188,3 +188,20 @@ export const ACCION_COLORS: Record<string, string> = {
   'INFORMAR A CLIENTE': '#14532D',
   'POSIBLE INDEMNIZACIÓN': '#B45309',
 };
+
+// ============================================================
+// Historial de alertas por guía (agregado ago-2026) — un evento por
+// cada alerta enviada o cierre de caso, persistente e independiente de
+// cargas/guias (tabla alertas_guia_historial, indexada por número de
+// guía) — mismo patrón que Indemnizaciones, para que sobreviva
+// recargas del Excel.
+// ============================================================
+export interface AlertaGuiaEvento {
+  id: string;
+  guia: string;
+  nivel: 'AMARILLO' | 'NARANJA' | 'ROJO' | 'CERRADO';
+  accion: string | null;
+  enviado_a: string | null;
+  registrado_por: string | null;
+  creado_en: string;
+}
