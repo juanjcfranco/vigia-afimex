@@ -209,11 +209,11 @@ export default function ReporteConsolidadoModule({
         .slice(0, Math.max(minimo, maximo))
         .map((o) => ({ oficina: o.key, total: o.total, efectividad: o.efectividad }));
     }
-    const oficinasAtencion = tomarPorScore(porOficina, 5, 8);
+    const oficinasAtencion = tomarPorScore(porOficina, 5, 5);
 
     // Igual, pero acotado a la Región CONCESIONARIOS específicamente.
     const porOficinaConcesionarios = porOficina.filter((o) => obtenerRegion(o.key) === 'CONCESIONARIOS');
-    const concesionariosAtencion = tomarPorScore(porOficinaConcesionarios, 5, 8);
+    const concesionariosAtencion = tomarPorScore(porOficinaConcesionarios, 5, 5);
 
     // ============================================================
     // Oficinas críticas por guías abiertas: cuántas de sus abiertas
@@ -236,7 +236,7 @@ export default function ReporteConsolidadoModule({
       }))
       .filter((o) => o.criticas > 0)
       .sort((a, b) => b.criticas - a.criticas)
-      .slice(0, 8);
+      .slice(0, 5);
 
     // ============================================================
     // Top oficinas/concesionarios por VOLUMEN de guías abiertas (no
@@ -264,22 +264,23 @@ export default function ReporteConsolidadoModule({
         };
       })
       .sort((a, b) => b.total - a.total)
-      .slice(0, 10);
+      .slice(0, 5);
 
     // ============================================================
     // Comparativo de efectividad mes a mes — usa guiasBaseTendencias
     // (independiente del filtro de Periodo) para que siga mostrando la
     // comparación aunque haya un mes específico seleccionado.
     // ============================================================
+    const MAX_MESES_COMPARATIVO = 6; // limita el largo si el corte abarca muchos meses
     const tendenciaEf = tendenciaMensualPorCampo(guiasBaseTendencias, null, 'efectividad');
-    const comparativoEfectividad = tendenciaEf.datos.map((d) => ({
+    const comparativoEfectividad = tendenciaEf.datos.slice(-MAX_MESES_COMPARATIVO).map((d) => ({
       mes: d.mes,
       efectividad: d.TOTAL as number | null,
     }));
 
     // Comparativo de temporalidad mes a mes (% dentro de 15 días).
     const tendenciaTemp = tendenciaMensualPorCampo(guiasBaseTendencias, null, 'temporalidad');
-    const comparativoTemporalidad = tendenciaTemp.datos.map((d) => ({
+    const comparativoTemporalidad = tendenciaTemp.datos.slice(-MAX_MESES_COMPARATIVO).map((d) => ({
       mes: d.mes,
       valor: d.TOTAL as number | null,
     }));
@@ -324,7 +325,7 @@ export default function ReporteConsolidadoModule({
       })
       .filter((c) => c.excepcion)
       .sort((a, b) => b.cantidad - a.cantidad)
-      .slice(0, 8);
+      .slice(0, 5);
 
     // ============================================================
     // Hallazgos automáticos — frases generadas a partir de los mismos

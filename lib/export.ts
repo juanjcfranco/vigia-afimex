@@ -2927,9 +2927,11 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
     </table>`
     : '<div class="sin-datos">Se necesita más de un mes para comparar</div>';
 
+  const MAX_FILAS_PARETO_TABLA = 6; // el conteo real (headline) usa resumen.filas.length completo
   const tablaParetoHtml = (resumen: ResumenPareto, etiquetaValor: string, colorBarra: string) => {
     if (!resumen.filas.length) return '<div class="sin-datos">Sin datos suficientes para este corte</div>';
-    const filas = resumen.filas
+    const visibles = resumen.filas.slice(0, MAX_FILAS_PARETO_TABLA);
+    const filas = visibles
       .map(
         (f) => `
       <tr>
@@ -2940,6 +2942,7 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
       </tr>`
       )
       .join('');
+    const restantes = resumen.filas.length - visibles.length;
     return `
       <div style="font-size:11px;font-weight:700;color:${colorBarra};margin-bottom:6px;">
         ${resumen.filas.length} de ${resumen.totalOficinas} oficinas (${resumen.pctOficinas}%) concentran el 80% de ${etiquetaValor}
@@ -2947,7 +2950,8 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
       <table>
         <thead><tr><th>Oficina</th><th>${etiquetaValor === 'volumen' ? 'Volumen' : 'No Efectivas'}</th><th>% del Total</th><th>% Acumulado</th></tr></thead>
         <tbody>${filas}</tbody>
-      </table>`;
+      </table>
+      ${restantes > 0 ? `<div style="font-size:9.5px;color:#94A3B8;margin-top:4px;">+ ${restantes} oficina(s) más hasta completar el 80%</div>` : ''}`;
   };
   const tablaParetoVolumen = tablaParetoHtml(data.paretoVolumen, 'volumen', '#1E3A8A');
   const tablaParetoNoEfectivas = tablaParetoHtml(data.paretoNoEfectivas, 'no efectivas', '#DC2626');
@@ -3008,30 +3012,30 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
       <title>VIGIA - Resumen Ejecutivo</title>
       <style>
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
-        body { font-family: Arial, Helvetica, sans-serif; padding: 24px; color: #1E293B; }
-        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1E3A8A; padding-bottom: 12px; margin-bottom: 16px; }
-        .header h1 { font-size: 21px; color: #1E3A8A; margin: 0 0 4px 0; }
-        .header .subtitulo { font-size: 13px; color: #64748B; }
-        .header .meta { font-size: 11px; color: #64748B; text-align: right; }
-        .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 18px; }
-        .kpi-card { border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px 8px; background: #F8FAFC; text-align: center; }
-        .kpi-label { font-size: 9px; font-weight: 700; color: #64748B; margin-bottom: 4px; text-transform: uppercase; }
-        .kpi-value { font-size: 18px; font-weight: 800; }
-        .seccion-titulo { font-size: 13.5px; font-weight: 800; margin: 16px 0 8px; color: #1E3A8A; }
-        .dos-columnas { display: flex; gap: 14px; margin-bottom: 4px; }
-        .seccion { flex: 1; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px; }
-        table { width: 100%; border-collapse: collapse; font-size: 11px; }
-        th { text-align: left; padding: 5px 6px; background: #F8FAFC; border-bottom: 2px solid #E2E8F0; color: #64748B; font-size: 9.5px; text-transform: uppercase; }
-        td { padding: 4px 6px; border-bottom: 1px solid #F1F5F9; }
+        body { font-family: Arial, Helvetica, sans-serif; padding: 16px; color: #1E293B; }
+        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1E3A8A; padding-bottom: 8px; margin-bottom: 10px; }
+        .header h1 { font-size: 19px; color: #1E3A8A; margin: 0 0 2px 0; }
+        .header .subtitulo { font-size: 12px; color: #64748B; }
+        .header .meta { font-size: 10px; color: #64748B; text-align: right; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 10px; }
+        .kpi-card { border: 1px solid #E2E8F0; border-radius: 6px; padding: 7px 6px; background: #F8FAFC; text-align: center; }
+        .kpi-label { font-size: 8px; font-weight: 700; color: #64748B; margin-bottom: 2px; text-transform: uppercase; }
+        .kpi-value { font-size: 15px; font-weight: 800; }
+        .seccion-titulo { font-size: 12px; font-weight: 800; margin: 9px 0 5px; color: #1E3A8A; }
+        .dos-columnas { display: flex; gap: 10px; margin-bottom: 3px; }
+        .seccion { flex: 1; border: 1px solid #E2E8F0; border-radius: 6px; padding: 8px 10px; }
+        table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
+        th { text-align: left; padding: 3px 5px; background: #F8FAFC; border-bottom: 2px solid #E2E8F0; color: #64748B; font-size: 8px; text-transform: uppercase; }
+        td { padding: 2.5px 5px; border-bottom: 1px solid #F1F5F9; }
         .celda-fuerte { font-weight: 700; }
-        .sin-datos { font-size: 11px; color: #94A3B8; padding: 6px 0; }
-        .hallazgos-box { border: 2px solid #1E3A8A; border-radius: 8px; padding: 14px 16px; margin-top: 4px; background: #F8FAFC; }
-        .hallazgos-lista { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.7; }
-        .hallazgos-lista li { margin-bottom: 4px; }
-        .footer { margin-top: 16px; font-size: 10px; color: #94A3B8; text-align: right; }
+        .sin-datos { font-size: 9.5px; color: #94A3B8; padding: 4px 0; }
+        .hallazgos-box { border: 2px solid #1E3A8A; border-radius: 6px; padding: 9px 12px; margin-top: 2px; background: #F8FAFC; }
+        .hallazgos-lista { margin: 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; }
+        .hallazgos-lista li { margin-bottom: 2px; }
+        .footer { margin-top: 10px; font-size: 9px; color: #94A3B8; text-align: right; }
         @media print {
-          body { padding: 12mm; }
-          @page { size: portrait; margin: 12mm; }
+          body { padding: 8mm; }
+          @page { size: portrait; margin: 8mm; }
         }
       </style>
     </head>
@@ -3077,7 +3081,9 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
         </div>
       </div>
 
-      <div style="page-break-before: always;"></div>
+      <!-- Sin salto de página forzado: con los límites de filas reducidos
+           (5 por tabla, 6 meses, 6 oficinas en Pareto), el contenido cabe
+           en 1-2 páginas de forma natural. -->
 
       <div class="seccion-titulo" style="margin-top:0;">Comparativo General por Región</div>
       <div class="seccion" style="margin-bottom:14px;">
