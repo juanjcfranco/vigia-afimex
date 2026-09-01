@@ -54,6 +54,8 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
           return g.cod;
         case 'accion':
           return g.accion_recomendada;
+        case 'recibidopor':
+          return g.nombre_recibio;
         case 'fdoc':
           return g.f_documentacion;
         default:
@@ -85,6 +87,7 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
     { header: 'Calificación', value: (g: Guia) => g.calificacion || '' },
     { header: 'COD', value: (g: Guia) => g.cod || 0 },
     { header: 'Acción', value: (g: Guia) => g.accion_recomendada || '' },
+    { header: 'Recibido por', value: (g: Guia) => g.nombre_recibio || '' },
     { header: 'F. Documentación', value: (g: Guia) => g.f_documentacion || '' },
     ...temporalidadColumnasExport(),
   ];
@@ -166,6 +169,7 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Calificación" sortKey="calificacion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="COD" sortKey="cod" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Acción" sortKey="accion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Recibido por" sortKey="recibidopor" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="F. Documentación" sortKey="fdoc" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <TemporalidadHeaders sortKey={sortKey} sortDir={sortDir} onSort={requestSort} />
               </tr>
@@ -183,13 +187,14 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
                   <td>
                     <AccionBadge accion={g.accion_recomendada} />
                   </td>
+                  <td>{g.nombre_recibio || '—'}</td>
                   <td>{g.f_documentacion || '—'}</td>
                   <TemporalidadCells guia={g} />
                 </tr>
               ))}
               {!filas.length && (
                 <tr>
-                  <td colSpan={16} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={17} className="text-center text-[var(--vg-text3)] py-6">
                     No se encontraron guías
                   </td>
                 </tr>
