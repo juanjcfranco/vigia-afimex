@@ -209,7 +209,14 @@ export default function ReporteConsolidadoModule({
         .slice(0, Math.max(minimo, maximo))
         .map((o) => ({ oficina: o.key, total: o.total, efectividad: o.efectividad }));
     }
-    const oficinasAtencion = tomarPorScore(porOficina, 5, 5);
+    // "Oficinas" excluye explícitamente Concesionarios y Virtual — esas
+    // se muestran en su propia tabla aparte (mismo criterio de score),
+    // para no repetir la misma oficina en ambas listas.
+    const porOficinaPropia = porOficina.filter((o) => {
+      const region = obtenerRegion(o.key);
+      return region !== 'CONCESIONARIOS' && region !== 'VIRTUAL';
+    });
+    const oficinasAtencion = tomarPorScore(porOficinaPropia, 5, 5);
 
     // Igual, pero acotado a la Región CONCESIONARIOS específicamente.
     const porOficinaConcesionarios = porOficina.filter((o) => obtenerRegion(o.key) === 'CONCESIONARIOS');
@@ -221,6 +228,10 @@ export default function ReporteConsolidadoModule({
     // ============================================================
     const acumOficina: Record<string, { abiertas: number; criticas: number; sumaDias: number }> = {};
     abiertasLista.forEach((g) => {
+      // Excluye Concesionarios y Virtual — mismo criterio que "Oficinas
+      // que Requieren Atención": esta tabla es solo de oficinas propias.
+      const region = obtenerRegion(g.oficina_destino);
+      if (region === 'CONCESIONARIOS' || region === 'VIRTUAL') return;
       const of = g.oficina_destino || 'SIN OFICINA';
       if (!acumOficina[of]) acumOficina[of] = { abiertas: 0, criticas: 0, sumaDias: 0 };
       acumOficina[of].abiertas += 1;
@@ -348,9 +359,18 @@ export default function ReporteConsolidadoModule({
       if (ultimo.efectividad !== null && anterior.efectividad !== null) {
         const delta = Number((ultimo.efectividad - anterior.efectividad).toFixed(1));
         if (Math.abs(delta) >= 3) {
-          hallazgos.push(
-            `La efectividad ${delta > 0 ? 'subió' : 'bajó'} ${Math.abs(delta)} puntos en ${formatearPeriodo(ultimo.mes)} respecto al mes anterior.`
-          );
+          // La efectividad de un mes reciente es, matemáticamente, un piso
+          // (no un techo): mientras haya guías abiertas de ese mes sin
+          // resolver, solo pueden sumar a "entregadas" o quedar igual al
+          // convertirse en devolución — nunca bajan el % ya calculado. Por
+          // eso, si bajó, se aclara que es una cifra preliminar que puede
+          // subir; si subió, se reporta sin ese matiz (no hace falta
+          // advertencia para una buena noticia).
+          const mensaje =
+            delta > 0
+              ? `La efectividad subió ${Math.abs(delta)} puntos en ${formatearPeriodo(ultimo.mes)} respecto al mes anterior.`
+              : `La efectividad de ${formatearPeriodo(ultimo.mes)} está ${Math.abs(delta)} puntos por debajo del mes anterior — cifra preliminar, ya que aún hay guías abiertas en proceso que podrían elevar este porcentaje conforme se resuelvan.`;
+          hallazgos.push(mensaje);
         }
       }
     }
