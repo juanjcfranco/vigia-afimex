@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina, ACCION_COLORS, AlertaGuiaEvento } from '@/lib/types';
-import { isAbierta, accionEfectiva, calcularSemaforoGuia } from '@/lib/business-logic';
+import { isAbierta, isAbiertaPorEstado, accionEfectiva, calcularSemaforoGuia } from '@/lib/business-logic';
 import AlertaPreviewModal from '@/components/AlertaPreviewModal';
 import SemaforoAlertaModal from '@/components/SemaforoAlertaModal';
 import { useSortableTable } from '@/lib/useSortableTable';
@@ -48,11 +48,16 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
   }, []);
 
   // Guías abiertas agrupadas por nivel de semáforo (solo las que ya están
-  // en algún nivel de alerta — Amarillo/Naranja/Rojo, no Verde).
+  // en algún nivel de alerta — Amarillo/Naranja/Rojo, no Verde). Usa
+  // isAbiertaPorEstado (no isAbierta): esta última puede clasificar como
+  // "abierta" una guía en DEVOLUCION si su campo Calificación del Excel
+  // dice "ABIERTA" (dato manual que puede no reflejar el estado real) —
+  // el semáforo de escalamiento debe basarse solo en el estado real de la
+  // guía, nunca incluir devoluciones ya resueltas.
   const guiasPorNivelSemaforo = useMemo(() => {
     const grupos: Record<string, Guia[]> = { AMARILLO: [], NARANJA: [], ROJO: [] };
     guias.forEach((g) => {
-      if (!isAbierta(g)) return;
+      if (!isAbiertaPorEstado(g)) return;
       const semaforo = calcularSemaforoGuia(g.dias_sin_movimiento);
       if (semaforo.nivel !== 'VERDE') grupos[semaforo.nivel].push(g);
     });
@@ -82,6 +87,16 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
       (a, b) => new Date(b[1][b[1].length - 1].creado_en).getTime() - new Date(a[1][a[1].length - 1].creado_en).getTime()
     );
   }, [historialAlertas]);
+
+  // Datos de trazabilidad de cada guía (si sigue presente en el corte
+  // actual) para enriquecer la tabla de historial — si la guía ya no
+  // está en la carga activa (se reemplazó por un corte más nuevo), se
+  // muestra "—" en vez de fallar.
+  const datosGuiaPorNumero = useMemo(() => {
+    const map = new Map<string, Guia>();
+    guias.forEach((g) => map.set(g.guia, g));
+    return map;
+  }, [guias]);
 
   useEffect(() => {
     fetch('/api/contactos')
@@ -206,6 +221,15 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
     recargarHistorialAlertas();
   }
 
+  // Borra el historial COMPLETO de la guía (todos sus eventos) — distinto
+  // de "Cerrar caso", que solo agrega un evento sin borrar nada. Útil si
+  // se registró una alerta por error o se quiere reiniciar el seguimiento.
+  async function borrarAlerta(guia: string) {
+    if (!confirm(`¿Borrar todo el historial de alertas de la guía ${guia}? Esta acción no se puede deshacer.`)) return;
+    await fetch(`/api/alertas-guia?guia=${encodeURIComponent(guia)}`, { method: 'DELETE' });
+    recargarHistorialAlertas();
+  }
+
   return (
     <div className="p-5 space-y-4">
       <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden">
@@ -243,11 +267,16 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
 
         <div className="px-4 pb-4">
           <div className="font-bold text-[12px] mb-2">Historial de Alertas por Guía ({historialPorGuia.length})</div>
-          <div className="max-h-[280px] overflow-y-auto vg-scroll border border-[var(--vg-border)] rounded-md">
+          <div className="max-h-[400px] overflow-auto vg-scroll border border-[var(--vg-border)] rounded-md">
             <table className="vg-table">
               <thead>
                 <tr>
                   <th>Guía</th>
+                  <th>Cliente</th>
+                  <th>Oficina Origen</th>
+                  <th>Oficina Destino</th>
+                  <th>Fecha Creación</th>
+                  <th>Últ. Movimiento</th>
                   <th>Secuencia</th>
                   <th></th>
                 </tr>
@@ -255,9 +284,15 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
               <tbody>
                 {historialPorGuia.map(([guia, eventos]) => {
                   const cerrado = eventos[eventos.length - 1].nivel === 'CERRADO';
+                  const datosGuia = datosGuiaPorNumero.get(guia);
                   return (
                     <tr key={guia}>
                       <td className="font-mono font-semibold">{guia}</td>
+                      <td>{datosGuia?.cliente || '—'}</td>
+                      <td>{datosGuia?.of_origen || '—'}</td>
+                      <td>{datosGuia?.oficina_destino || '—'}</td>
+                      <td>{datosGuia?.f_documentacion || '—'}</td>
+                      <td>{datosGuia?.f_historia || '—'}</td>
                       <td className="text-[11px]">
                         {eventos.map((ev, i) => (
                           <span key={ev.id}>
@@ -272,22 +307,29 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
                           </span>
                         ))}
                       </td>
-                      <td>
+                      <td className="whitespace-nowrap">
                         {!cerrado && (
                           <button
                             onClick={() => cerrarCaso(guia)}
-                            className="text-[10px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded px-1.5 py-0.5 hover:bg-[var(--vg-bg)]"
+                            className="text-[10px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded px-1.5 py-0.5 hover:bg-[var(--vg-bg)] mr-1"
                           >
-                            ✕ Cerrar caso
+                            ✕ Cerrar
                           </button>
                         )}
+                        <button
+                          onClick={() => borrarAlerta(guia)}
+                          className="text-[10px] font-semibold text-[var(--vg-red)] border border-[var(--vg-border)] rounded px-1.5 py-0.5 hover:bg-red-50"
+                          title="Borra todo el historial de esta guía (no se puede deshacer)"
+                        >
+                          🗑 Borrar
+                        </button>
                       </td>
                     </tr>
                   );
                 })}
                 {!historialPorGuia.length && (
                   <tr>
-                    <td colSpan={3} className="text-center text-[var(--vg-text3)] py-4">
+                    <td colSpan={8} className="text-center text-[var(--vg-text3)] py-4">
                       Aún no hay alertas registradas
                     </td>
                   </tr>
