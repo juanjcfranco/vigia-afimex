@@ -45,3 +45,21 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ evento: data });
 }
+
+// Borra el historial completo de una guía (todos sus eventos) — a
+// diferencia de "Cerrar caso" (que AGREGA un evento CERRADO sin borrar
+// nada), esto elimina el registro por completo, por si se cargó una
+// alerta por error o se quiere reiniciar el seguimiento de esa guía.
+export async function DELETE(req: NextRequest) {
+  const db = supabaseAdmin();
+  const { searchParams } = new URL(req.url);
+  const guia = searchParams.get('guia');
+
+  if (!guia) {
+    return NextResponse.json({ error: 'guia es requerido' }, { status: 400 });
+  }
+
+  const { error } = await db.from('alertas_guia_historial').delete().eq('guia', guia);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}

@@ -226,7 +226,17 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
   // se registró una alerta por error o se quiere reiniciar el seguimiento.
   async function borrarAlerta(guia: string) {
     if (!confirm(`¿Borrar todo el historial de alertas de la guía ${guia}? Esta acción no se puede deshacer.`)) return;
-    await fetch(`/api/alertas-guia?guia=${encodeURIComponent(guia)}`, { method: 'DELETE' });
+    try {
+      const res = await fetch(`/api/alertas-guia?guia=${encodeURIComponent(guia)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(`No se pudo borrar: ${j.error || `Error ${res.status}`}`);
+        return;
+      }
+    } catch {
+      alert('No se pudo borrar: error de red al contactar el servidor.');
+      return;
+    }
     recargarHistorialAlertas();
   }
 
