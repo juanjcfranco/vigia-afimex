@@ -283,6 +283,14 @@ export default function ReporteConsolidadoModule({
     // comparación aunque haya un mes específico seleccionado.
     // ============================================================
     const MAX_MESES_COMPARATIVO = 6; // limita el largo si el corte abarca muchos meses
+    const MAX_CLIENTES_COMPARATIVO = 5; // top clientes por volumen, para no hacer la matriz enorme
+
+    const tendenciaVol = tendenciaMensualPorCampo(guiasBaseTendencias, null, 'volumen');
+    const comparativoVolumen = tendenciaVol.datos.slice(-MAX_MESES_COMPARATIVO).map((d) => ({
+      mes: d.mes,
+      valor: d.TOTAL as number | null,
+    }));
+
     const tendenciaEf = tendenciaMensualPorCampo(guiasBaseTendencias, null, 'efectividad');
     const comparativoEfectividad = tendenciaEf.datos.slice(-MAX_MESES_COMPARATIVO).map((d) => ({
       mes: d.mes,
@@ -295,6 +303,35 @@ export default function ReporteConsolidadoModule({
       mes: d.mes,
       valor: d.TOTAL as number | null,
     }));
+
+    // Mismos 3 comparativos, desglosados por Cliente — solo si hay más de
+    // un cliente en el corte (con 1 solo sería idéntico al Total). Se
+    // arma como matriz (filas=cliente, columnas=mes) para no repetir una
+    // tabla completa por cada cliente.
+    function aMatrizPorCliente(
+      tendencia: { datos: ReturnType<typeof tendenciaMensualPorCampo>['datos']; series: string[] }
+    ): { meses: string[]; filas: Array<{ cliente: string; valores: Array<number | null> }> } {
+      const mesesRecortados = tendencia.datos.slice(-MAX_MESES_COMPARATIVO).map((d) => d.mes);
+      const filas = tendencia.series.map((cliente) => ({
+        cliente,
+        valores: mesesRecortados.map((mes) => {
+          const punto = tendencia.datos.find((d) => d.mes === mes);
+          return (punto?.[cliente] as number | null) ?? null;
+        }),
+      }));
+      return { meses: mesesRecortados, filas };
+    }
+
+    const esMultiClienteReporte = clientesDistintos.length > 1;
+    const comparativoVolumenPorCliente = esMultiClienteReporte
+      ? aMatrizPorCliente(tendenciaMensualPorCampo(guiasBaseTendencias, 'cliente', 'volumen', MAX_CLIENTES_COMPARATIVO))
+      : null;
+    const comparativoEfectividadPorCliente = esMultiClienteReporte
+      ? aMatrizPorCliente(tendenciaMensualPorCampo(guiasBaseTendencias, 'cliente', 'efectividad', MAX_CLIENTES_COMPARATIVO))
+      : null;
+    const comparativoTemporalidadPorCliente = esMultiClienteReporte
+      ? aMatrizPorCliente(tendenciaMensualPorCampo(guiasBaseTendencias, 'cliente', 'temporalidad', MAX_CLIENTES_COMPARATIVO))
+      : null;
 
     // Comparativo general por Región — efectividad y temporalidad juntas.
     const porRegion = efectividadYTemporalidadPorCampo(guias, (g) => obtenerRegion(g.oficina_destino));
@@ -414,8 +451,12 @@ export default function ReporteConsolidadoModule({
         concesionariosAtencion,
         oficinasCriticas,
         topAbiertasPorOficina,
+        comparativoVolumen,
         comparativoEfectividad,
         comparativoTemporalidad,
+        comparativoVolumenPorCliente,
+        comparativoEfectividadPorCliente,
+        comparativoTemporalidadPorCliente,
         comparativoRegion,
         paretoVolumen,
         paretoNoEfectivas,

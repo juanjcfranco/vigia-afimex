@@ -2697,6 +2697,14 @@ export interface FilaComparativoMetrica {
   valor: number | null;
 }
 
+// Matriz compacta para comparativos por cliente: filas = cliente,
+// columnas = mes (mismo orden para todas las filas) — así se ve todo en
+// una sola tabla en vez de una tabla separada por cliente.
+export interface ComparativoPorCliente {
+  meses: string[]; // 'YYYY-MM', en orden
+  filas: Array<{ cliente: string; valores: Array<number | null> }>; // valores[i] corresponde a meses[i]
+}
+
 export interface FilaAbiertasPorOficina {
   oficina: string;
   region: string;
@@ -2735,8 +2743,15 @@ export interface ReporteSimplificadoData {
 
   // Comparativo mes a mes (Total, período completo del corte, sin
   // importar el filtro de Periodo activo).
+  comparativoVolumen: FilaComparativoMetrica[];
   comparativoEfectividad: FilaComparativoMes[];
   comparativoTemporalidad: FilaComparativoMetrica[];
+
+  // Mismos 3 comparativos, desglosados por Cliente (null si el corte
+  // tiene un solo cliente — sería idéntico al Total).
+  comparativoVolumenPorCliente: ComparativoPorCliente | null;
+  comparativoEfectividadPorCliente: ComparativoPorCliente | null;
+  comparativoTemporalidadPorCliente: ComparativoPorCliente | null;
 
   // Comparativo general por Región — efectividad y temporalidad juntas.
   comparativoRegion: FilaComparativoRegion[];
@@ -2927,6 +2942,64 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
     </table>`
     : '<div class="sin-datos">Se necesita más de un mes para comparar</div>';
 
+  const tablaComparativoVolumen = data.comparativoVolumen.length
+    ? `
+    <table>
+      <thead><tr><th>Mes</th><th>Guías Procesadas</th><th>vs. Mes Anterior</th></tr></thead>
+      <tbody>
+        ${data.comparativoVolumen
+          .map((f, i) => {
+            const anterior = i > 0 ? data.comparativoVolumen[i - 1].valor : null;
+            const delta = f.valor !== null && anterior !== null ? f.valor - anterior : null;
+            const deltaTxt = delta === null ? '—' : delta === 0 ? 'Sin cambio' : `${delta > 0 ? '▲' : '▼'} ${Math.abs(delta).toLocaleString('es-MX')}`;
+            const deltaColor = delta === null ? '#94A3B8' : delta > 0 ? '#0B9B67' : delta < 0 ? '#DC2626' : '#94A3B8';
+            return `
+          <tr>
+            <td class="celda-fuerte">${escapeHtml(etiquetaMes(f.mes))}</td>
+            <td style="font-weight:800;">${f.valor !== null ? f.valor.toLocaleString('es-MX') : '—'}</td>
+            <td style="color:${deltaColor};font-weight:700;">${deltaTxt}</td>
+          </tr>`;
+          })
+          .join('')}
+      </tbody>
+    </table>`
+    : '<div class="sin-datos">Se necesita más de un mes para comparar</div>';
+
+  // Matriz compacta filas=cliente / columnas=mes, reusada para los 3
+  // comparativos por cliente (Volumen, Efectividad, Temporalidad).
+  const tablaComparativoPorClienteHtml = (comp: ComparativoPorCliente | null, sufijo: string, esVolumen = false) => {
+    if (!comp || !comp.filas.length) return '';
+    const filasHtml = comp.filas
+      .map(
+        (f) => `
+      <tr>
+        <td class="celda-fuerte">${escapeHtml(f.cliente)}</td>
+        ${f.valores
+          .map((v) => {
+            if (v === null) return '<td>—</td>';
+            const texto = esVolumen ? v.toLocaleString('es-MX') : `${v}${sufijo}`;
+            const color = esVolumen ? '#1E293B' : colorEfectividadSimplificado(v);
+            return `<td style="font-weight:700;color:${color};">${texto}</td>`;
+          })
+          .join('')}
+      </tr>`
+      )
+      .join('');
+    return `
+      <table>
+        <thead>
+          <tr>
+            <th>Cliente</th>
+            ${comp.meses.map((m) => `<th>${escapeHtml(etiquetaMes(m))}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>${filasHtml}</tbody>
+      </table>`;
+  };
+  const tablaVolumenPorCliente = tablaComparativoPorClienteHtml(data.comparativoVolumenPorCliente, '', true);
+  const tablaEfectividadPorCliente = tablaComparativoPorClienteHtml(data.comparativoEfectividadPorCliente, '%');
+  const tablaTemporalidadPorCliente = tablaComparativoPorClienteHtml(data.comparativoTemporalidadPorCliente, '%');
+
   const MAX_FILAS_PARETO_TABLA = 6; // el conteo real (headline) usa resumen.filas.length completo
   const tablaParetoHtml = (resumen: ResumenPareto, etiquetaValor: string, colorBarra: string) => {
     if (!resumen.filas.length) return '<div class="sin-datos">Sin datos suficientes para este corte</div>';
@@ -3104,19 +3177,36 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
 
       <div class="dos-columnas">
         <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Comparativo de Volumen</div>
+          ${tablaComparativoVolumen}
+        </div>
+        <div class="seccion">
           <div class="seccion-titulo" style="margin-top:0;">Comparativo de Efectividad</div>
           ${tablaComparativo}
         </div>
+      </div>
+
+      <div class="dos-columnas">
         <div class="seccion">
           <div class="seccion-titulo" style="margin-top:0;">Comparativo de Temporalidad (% ≤15 Días)</div>
           ${tablaComparativoTemporalidad}
         </div>
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Top Excepciones por Cliente</div>
+          ${tablaExcPorCliente}
+        </div>
       </div>
 
-      <div class="seccion-titulo">Top Excepciones por Cliente</div>
-      <div class="seccion">
-        ${tablaExcPorCliente}
-      </div>
+      ${
+        tablaVolumenPorCliente || tablaEfectividadPorCliente || tablaTemporalidadPorCliente
+          ? `
+      <div class="seccion-titulo">Comparativo Mensual por Cliente</div>
+      ${tablaVolumenPorCliente ? `<div class="seccion" style="margin-bottom:10px;"><div class="seccion-titulo" style="margin-top:0;font-size:11px;">Volumen</div>${tablaVolumenPorCliente}</div>` : ''}
+      ${tablaEfectividadPorCliente ? `<div class="seccion" style="margin-bottom:10px;"><div class="seccion-titulo" style="margin-top:0;font-size:11px;">Efectividad</div>${tablaEfectividadPorCliente}</div>` : ''}
+      ${tablaTemporalidadPorCliente ? `<div class="seccion"><div class="seccion-titulo" style="margin-top:0;font-size:11px;">Temporalidad (% ≤15 Días)</div>${tablaTemporalidadPorCliente}</div>` : ''}
+      `
+          : ''
+      }
 
       <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
 
