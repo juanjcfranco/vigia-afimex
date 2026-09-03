@@ -283,7 +283,10 @@ export default function ReporteConsolidadoModule({
     // comparación aunque haya un mes específico seleccionado.
     // ============================================================
     const MAX_MESES_COMPARATIVO = 6; // limita el largo si el corte abarca muchos meses
-    const MAX_CLIENTES_COMPARATIVO = 5; // top clientes por volumen, para no hacer la matriz enorme
+    // Sin límite: se muestran todos los clientes que tenga el corte, no
+    // solo un Top N — tendenciaMensualPorCampo ordena por volumen, así
+    // que el orden de filas ya queda de mayor a menor.
+    const MAX_CLIENTES_COMPARATIVO = 999;
 
     const tendenciaVol = tendenciaMensualPorCampo(guiasBaseTendencias, null, 'volumen');
     const comparativoVolumen = tendenciaVol.datos.slice(-MAX_MESES_COMPARATIVO).map((d) => ({
@@ -358,7 +361,9 @@ export default function ReporteConsolidadoModule({
 
     // ============================================================
     // Top excepción POR cliente (no el top general) — para ver si
-    // distintos clientes tienen distintos tipos de problema.
+    // distintos clientes tienen distintos tipos de problema. Sin límite:
+    // se incluyen TODOS los clientes del corte que tengan al menos una
+    // excepción registrada, no un Top N.
     // ============================================================
     const topExcepcionesPorCliente = clientesDistintos
       .map((cliente) => {
@@ -372,8 +377,7 @@ export default function ReporteConsolidadoModule({
         };
       })
       .filter((c) => c.excepcion)
-      .sort((a, b) => b.cantidad - a.cantidad)
-      .slice(0, 5);
+      .sort((a, b) => b.cantidad - a.cantidad);
 
     // ============================================================
     // Hallazgos automáticos — frases generadas a partir de los mismos
