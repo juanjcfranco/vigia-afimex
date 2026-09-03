@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { esRetornoAmplio } from '@/lib/business-logic';
+import { esRetornoAmplio, ultimaExcepcion } from '@/lib/business-logic';
 import AccionBadge from '@/components/AccionBadge';
 import BulkSearch from '@/components/BulkSearch';
 import { exportToExcel, exportToPDF } from '@/lib/export';
@@ -18,6 +18,62 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
   const [filtroEstado, setFiltroEstado] = useState('');
   const [bulkGuias, setBulkGuias] = useState<string[] | null>(null);
   const [pagina, setPagina] = useState(1);
+
+  // Vínculo Devolución ↔ Retorno: para una devolución con retorno_guia,
+  // encontrar la fila PROPIA de ese retorno (si está en este corte) para
+  // sacar quién lo recibió; y para una fila que ES un retorno (es_retorno),
+  // encontrar qué devolución la referencia como "su" retorno (búsqueda
+  // inversa) para mostrar la guía original vinculada.
+  const retornoPorGuia = useMemo(() => {
+    const map = new Map<string, Guia>();
+    guias.forEach((g) => {
+      if (g.es_retorno && g.guia) map.set(g.guia, g);
+    });
+    return map;
+  }, [guias]);
+
+  const originalPorRetorno = useMemo(() => {
+    const map = new Map<string, string>(); // guia del retorno -> guia de la devolución que lo referencia
+    guias.forEach((g) => {
+      if (g.es_devolucion && g.retorno_guia) map.set(g.retorno_guia, g.guia);
+    });
+    return map;
+  }, [guias]);
+
+  // Guía vinculada: "Retorno: X" si esta fila es una devolución con
+  // retorno referenciado; "Original: X" si esta fila ES el retorno de
+  // alguna devolución; "—" si no aplica ninguno de los dos casos.
+  function guiaVinculada(g: Guia): string {
+    if (g.es_devolucion && g.retorno_guia) return `Retorno: ${g.retorno_guia}`;
+    const original = originalPorRetorno.get(g.guia);
+    if (original) return `Original: ${original}`;
+    return '';
+  }
+
+  // Quién recibió el retorno: solo aplica a devoluciones con retorno
+  // referenciado — busca la fila propia del retorno en este corte y toma
+  // su Nombre_Recibio (quien recibió el paquete de vuelta).
+  function quienRecibioRetorno(g: Guia): string {
+    if (!g.es_devolucion || !g.retorno_guia) return '';
+    const filaRetorno = retornoPorGuia.get(g.retorno_guia);
+    return filaRetorno?.nombre_recibio || '';
+  }
+
+  // Todas las excepciones de la guía (hasta 5), con su fecha cada una —
+  // en un solo texto separado por "; " para no necesitar 10 columnas.
+  function todasLasExcepcionesTexto(g: Guia): string {
+    const pares: Array<[string | null, string | null]> = [
+      [g.excepcion_1, g.f_excepcion_1],
+      [g.excepcion_2, g.f_excepcion_2],
+      [g.excepcion_3, g.f_excepcion_3],
+      [g.excepcion_4, g.f_excepcion_4],
+      [g.excepcion_5, g.f_excepcion_5],
+    ];
+    return pares
+      .filter(([nombre]) => (nombre || '').trim())
+      .map(([nombre, fecha]) => `${(nombre || '').trim()}${fecha ? ` (${fecha})` : ''}`)
+      .join('; ');
+  }
 
   const estados = useMemo(() => [...new Set(guias.map((g) => g.estado_guia).filter(Boolean))] as string[], [guias]);
 
@@ -59,6 +115,14 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
           return g.accion_recomendada;
         case 'recibidopor':
           return g.nombre_recibio;
+        case 'vinculada':
+          return guiaVinculada(g);
+        case 'recibioretorno':
+          return quienRecibioRetorno(g);
+        case 'ultimaexcepcion':
+          return ultimaExcepcion(g).nombre;
+        case 'fechaultimaexcepcion':
+          return ultimaExcepcion(g).fecha;
         case 'fentrega':
           return g.f_confirmacion;
         case 'fdoc':
@@ -94,6 +158,11 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
     { header: 'COD', value: (g: Guia) => g.cod || 0 },
     { header: 'Acción', value: (g: Guia) => g.accion_recomendada || '' },
     { header: 'Recibido por', value: (g: Guia) => g.nombre_recibio || '' },
+    { header: 'Guía Vinculada', value: (g: Guia) => guiaVinculada(g) },
+    { header: 'Quién Recibió el Retorno', value: (g: Guia) => quienRecibioRetorno(g) },
+    { header: 'Última Excepción', value: (g: Guia) => ultimaExcepcion(g).nombre || '' },
+    { header: 'Fecha Última Excepción', value: (g: Guia) => ultimaExcepcion(g).fecha || '' },
+    { header: 'Todas las Excepciones', value: (g: Guia) => todasLasExcepcionesTexto(g) },
     { header: 'Fecha de Entrega', value: (g: Guia) => g.f_confirmacion || '' },
     { header: 'F. Documentación', value: (g: Guia) => g.f_documentacion || '' },
     ...temporalidadColumnasExport(),
@@ -178,6 +247,11 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="COD" sortKey="cod" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Acción" sortKey="accion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Recibido por" sortKey="recibidopor" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Guía Vinculada" sortKey="vinculada" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Quién Recibió el Retorno" sortKey="recibioretorno" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Última Excepción" sortKey="ultimaexcepcion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="Fecha Últ. Excepción" sortKey="fechaultimaexcepcion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <th>Todas las Excepciones</th>
                 <SortableTh label="Fecha de Entrega" sortKey="fentrega" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="F. Documentación" sortKey="fdoc" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <TemporalidadHeaders sortKey={sortKey} sortDir={sortDir} onSort={requestSort} />
@@ -208,6 +282,11 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
                     <AccionBadge accion={g.accion_recomendada} />
                   </td>
                   <td>{g.nombre_recibio || '—'}</td>
+                  <td>{guiaVinculada(g) || '—'}</td>
+                  <td>{quienRecibioRetorno(g) || '—'}</td>
+                  <td>{ultimaExcepcion(g).nombre || '—'}</td>
+                  <td>{ultimaExcepcion(g).fecha || '—'}</td>
+                  <td className="text-[11px] max-w-[280px]">{todasLasExcepcionesTexto(g) || '—'}</td>
                   <td>{g.f_confirmacion || '—'}</td>
                   <td>{g.f_documentacion || '—'}</td>
                   <TemporalidadCells guia={g} />
@@ -215,7 +294,7 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
               ))}
               {!filas.length && (
                 <tr>
-                  <td colSpan={19} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={24} className="text-center text-[var(--vg-text3)] py-6">
                     No se encontraron guías
                   </td>
                 </tr>
