@@ -107,6 +107,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   const [filtroRegionLocal, setFiltroRegionLocal] = useState('');
   const [filtroOficinaLocal, setFiltroOficinaLocal] = useState('');
   const [filtroTipoLocal, setFiltroTipoLocal] = useState<'' | 'original' | 'retorno'>('');
+  const [filtroCicloLocal, setFiltroCicloLocal] = useState('');
 
   const regionesDisponibles = useMemo(
     () => [...new Set(guias.map((g) => obtenerRegion(g.oficina_destino)))].sort(),
@@ -118,6 +119,12 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
       : guias;
     return [...new Set(universo.map((g) => g.oficina_destino).filter(Boolean))].sort() as string[];
   }, [guias, filtroRegionLocal]);
+  // Ciclos disponibles, en el orden real del pipeline (no alfabético) —
+  // mismo criterio que ORDEN_CICLOS en el resto de la app.
+  const ciclosDisponibles = useMemo(() => {
+    const presentes = new Set(guias.map((g) => obtenerCiclo(g.estado_guia)));
+    return ORDEN_CICLOS.filter((c) => presentes.has(c));
+  }, [guias]);
 
   // Si cambia la región y la oficina elegida ya no pertenece a ella, se
   // limpia — evita quedar con una combinación imposible (0 resultados sin
@@ -134,9 +141,10 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
         if (filtroOficinaLocal && g.oficina_destino !== filtroOficinaLocal) return false;
         if (filtroTipoLocal === 'original' && esRetornoAmplio(g)) return false;
         if (filtroTipoLocal === 'retorno' && !esRetornoAmplio(g)) return false;
+        if (filtroCicloLocal && obtenerCiclo(g.estado_guia) !== filtroCicloLocal) return false;
         return true;
       }),
-    [guias, filtroRegionLocal, filtroOficinaLocal, filtroTipoLocal]
+    [guias, filtroRegionLocal, filtroOficinaLocal, filtroTipoLocal, filtroCicloLocal]
   );
 
   // KPI por estado: conteo de guías abiertas por cada estado
@@ -349,12 +357,25 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
             <option value="original">Solo Originales</option>
             <option value="retorno">Solo Retornos</option>
           </select>
-          {(filtroRegionLocal || filtroOficinaLocal || filtroTipoLocal || filtroEstado || bulkGuias) && (
+          <select
+            value={filtroCicloLocal}
+            onChange={(e) => setFiltroCicloLocal(e.target.value)}
+            className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
+          >
+            <option value="">Todos los ciclos</option>
+            {ciclosDisponibles.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          {(filtroRegionLocal || filtroOficinaLocal || filtroTipoLocal || filtroCicloLocal || filtroEstado || bulkGuias) && (
             <button
               onClick={() => {
                 setFiltroRegionLocal('');
                 setFiltroOficinaLocal('');
                 setFiltroTipoLocal('');
+                setFiltroCicloLocal('');
                 setFiltroEstado('');
                 setBulkGuias(null);
               }}
