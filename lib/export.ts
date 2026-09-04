@@ -2713,6 +2713,18 @@ export interface FilaAbiertasPorOficina {
   cantidadEnCiclo: number;
 }
 
+// Retornos abiertos en seguimiento crítico (Rojo, 5+ días), por Oficina
+// o Concesionario (con Región para distinguirlos) — incluye el Ciclo
+// (etapa del pipeline) donde se concentran, distinto de "Oficinas
+// Críticas" (que es sobre guías ORIGINALES, no retornos).
+export interface FilaRetornoCritico {
+  oficina: string;
+  region: string;
+  retornosAbiertos: number;
+  criticos: number; // en seguimiento ROJO (5+ días)
+  cicloDominante: string;
+}
+
 export interface ReporteSimplificadoData {
   cliente: string;
   periodoTexto: string;
@@ -2736,10 +2748,17 @@ export interface ReporteSimplificadoData {
   // Oficinas críticas por guías abiertas: más guías en seguimiento
   // crítico (Rojo, 5+ días sin movimiento).
   oficinasCriticas: FilaOficinaCritica[];
+  // Igual, pero acotado a la Región CONCESIONARIOS específicamente.
+  concesionariosCriticos: FilaOficinaCritica[];
 
   // Top oficinas/concesionarios por VOLUMEN de guías abiertas (no solo
   // las críticas), con el Ciclo (etapa del pipeline) donde se concentran.
   topAbiertasPorOficina: FilaAbiertasPorOficina[];
+
+  // Retornos abiertos en seguimiento crítico (Rojo), por Oficina/
+  // Concesionario y su Ciclo dominante — distinto de oficinasCriticas
+  // (que es sobre guías originales).
+  retornosCriticosPorOficina: FilaRetornoCritico[];
 
   // Comparativo mes a mes (Total, período completo del corte, sin
   // importar el filtro de Periodo activo).
@@ -2850,12 +2869,13 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
   const tablaOficinasAtencion = tablaAtencionHtml(data.oficinasAtencion, 'Sin datos suficientes para este corte');
   const tablaConcesionariosAtencion = tablaAtencionHtml(data.concesionariosAtencion, 'Sin oficinas de Concesionarios en este corte');
 
-  const tablaOficinasCriticas = data.oficinasCriticas.length
-    ? `
+  const tablaOficinasCriticasHtml = (lista: FilaOficinaCritica[]) =>
+    lista.length
+      ? `
     <table>
       <thead><tr><th>Oficina</th><th>Abiertas</th><th>Críticas (5+d)</th><th>Prom. Días</th></tr></thead>
       <tbody>
-        ${data.oficinasCriticas
+        ${lista
           .map(
             (o) => `
           <tr>
@@ -2868,7 +2888,9 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
           .join('')}
       </tbody>
     </table>`
-    : '<div class="sin-datos">Sin guías en seguimiento crítico</div>';
+      : '<div class="sin-datos">Sin guías en seguimiento crítico</div>';
+  const tablaOficinasCriticas = tablaOficinasCriticasHtml(data.oficinasCriticas);
+  const tablaConcesionariosCriticos = tablaOficinasCriticasHtml(data.concesionariosCriticos);
 
   const tablaTopAbiertasPorOficina = data.topAbiertasPorOficina.length
     ? `
@@ -2889,6 +2911,27 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
       </tbody>
     </table>`
     : '<div class="sin-datos">Sin guías abiertas en este corte</div>';
+
+  const tablaRetornosCriticosPorOficina = data.retornosCriticosPorOficina.length
+    ? `
+    <table>
+      <thead><tr><th>Oficina</th><th>Región</th><th>Retornos Abiertos</th><th>Críticos (5+d)</th><th>Ciclo Dominante</th></tr></thead>
+      <tbody>
+        ${data.retornosCriticosPorOficina
+          .map(
+            (o) => `
+          <tr>
+            <td class="celda-fuerte">${escapeHtml(o.oficina)}</td>
+            <td>${escapeHtml(o.region)}</td>
+            <td>${o.retornosAbiertos.toLocaleString('es-MX')}</td>
+            <td><span style="font-weight:800;color:#DC2626;">${o.criticos.toLocaleString('es-MX')}</span></td>
+            <td>${escapeHtml(o.cicloDominante)}</td>
+          </tr>`
+          )
+          .join('')}
+      </tbody>
+    </table>`
+    : '<div class="sin-datos">Sin retornos en seguimiento crítico</div>';
 
   const tablaComparativo = data.comparativoEfectividad.length
     ? `
@@ -3148,9 +3191,22 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
           ${tablaOficinasCriticas}
         </div>
         <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Concesionarios Críticos — Guías Abiertas</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Región CONCESIONARIOS — mismo criterio</div>
+          ${tablaConcesionariosCriticos}
+        </div>
+      </div>
+
+      <div class="dos-columnas">
+        <div class="seccion">
           <div class="seccion-titulo" style="margin-top:0;">Top Oficinas/Concesionarios — Guías Abiertas por Ciclo</div>
           <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Por volumen total, con la etapa del proceso donde se concentran</div>
           ${tablaTopAbiertasPorOficina}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Retornos Críticos — por Oficina/Concesionario y Ciclo</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Retornos en seguimiento crítico (5+ días)</div>
+          ${tablaRetornosCriticosPorOficina}
         </div>
       </div>
 

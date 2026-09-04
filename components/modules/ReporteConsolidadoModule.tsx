@@ -249,6 +249,27 @@ export default function ReporteConsolidadoModule({
       .sort((a, b) => b.criticas - a.criticas)
       .slice(0, 5);
 
+    // Igual, pero acotado a la Región CONCESIONARIOS específicamente.
+    const acumConcesionario: Record<string, { abiertas: number; criticas: number; sumaDias: number }> = {};
+    abiertasLista.forEach((g) => {
+      if (obtenerRegion(g.oficina_destino) !== 'CONCESIONARIOS') return;
+      const of = g.oficina_destino || 'SIN OFICINA';
+      if (!acumConcesionario[of]) acumConcesionario[of] = { abiertas: 0, criticas: 0, sumaDias: 0 };
+      acumConcesionario[of].abiertas += 1;
+      acumConcesionario[of].sumaDias += g.dias_sin_movimiento ?? 0;
+      if (calcularSemaforoGuia(g.dias_sin_movimiento).nivel === 'ROJO') acumConcesionario[of].criticas += 1;
+    });
+    const concesionariosCriticos = Object.entries(acumConcesionario)
+      .map(([oficina, d]) => ({
+        oficina,
+        abiertas: d.abiertas,
+        criticas: d.criticas,
+        promedioDias: d.abiertas ? Number((d.sumaDias / d.abiertas).toFixed(1)) : null,
+      }))
+      .filter((o) => o.criticas > 0)
+      .sort((a, b) => b.criticas - a.criticas)
+      .slice(0, 5);
+
     // ============================================================
     // Top oficinas/concesionarios por VOLUMEN de guías abiertas (no
     // solo las críticas), con el Ciclo (etapa del pipeline) donde se
@@ -275,6 +296,40 @@ export default function ReporteConsolidadoModule({
         };
       })
       .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+
+    // ============================================================
+    // Retornos abiertos en seguimiento crítico (Rojo, 5+ días), por
+    // Oficina/Concesionario (mezclados, con Región para distinguirlos —
+    // mismo criterio que topAbiertasPorOficina) y su Ciclo dominante.
+    // Distinto de oficinasCriticas, que es sobre guías ORIGINALES.
+    // ============================================================
+    const retornosAbiertosListaSimplificado = guias.filter((g) => isAbiertaPorEstado(g) && esRetornoAmplio(g));
+    const acumRetornosCriticos: Record<string, { retornosAbiertos: number; criticos: number; porCiclo: Record<string, number> }> = {};
+    retornosAbiertosListaSimplificado.forEach((g) => {
+      const of = g.oficina_destino || 'SIN OFICINA';
+      if (!acumRetornosCriticos[of]) acumRetornosCriticos[of] = { retornosAbiertos: 0, criticos: 0, porCiclo: {} };
+      acumRetornosCriticos[of].retornosAbiertos += 1;
+      const esCritico = calcularSemaforoGuia(g.dias_sin_movimiento).nivel === 'ROJO';
+      if (esCritico) {
+        acumRetornosCriticos[of].criticos += 1;
+        const ciclo = obtenerCiclo(g.estado_guia);
+        acumRetornosCriticos[of].porCiclo[ciclo] = (acumRetornosCriticos[of].porCiclo[ciclo] || 0) + 1;
+      }
+    });
+    const retornosCriticosPorOficina = Object.entries(acumRetornosCriticos)
+      .map(([oficina, d]) => {
+        const cicloTop = Object.entries(d.porCiclo).sort((a, b) => b[1] - a[1])[0];
+        return {
+          oficina,
+          region: obtenerRegion(oficina),
+          retornosAbiertos: d.retornosAbiertos,
+          criticos: d.criticos,
+          cicloDominante: cicloTop ? cicloTop[0] : '—',
+        };
+      })
+      .filter((o) => o.criticos > 0)
+      .sort((a, b) => b.criticos - a.criticos)
       .slice(0, 5);
 
     // ============================================================
@@ -438,6 +493,33 @@ export default function ReporteConsolidadoModule({
       hallazgos.push(`El cliente con la excepción más concentrada es ${top.cliente}: "${top.excepcion}" (${top.cantidad.toLocaleString('es-MX')} guías).`);
     }
 
+    // ============================================================
+    // Objetivo de efectividad COD: la mayoría de clientes con este
+    // esquema piden entre 60-65%. Si la efectividad general no llega al
+    // mínimo de ese rango (60%), se pide un plan de acción, desglosado
+    // por región para ver dónde está el mayor déficit y cuánto falta.
+    // ============================================================
+    const UMBRAL_EFECTIVIDAD_COD = 60;
+    if (efectividad !== null && efectividad < UMBRAL_EFECTIVIDAD_COD) {
+      hallazgos.push(
+        `La efectividad general (${efectividad}%) está por debajo del rango que la mayoría de clientes COD solicita (60-65%) — se recomienda compartir un plan de acción para elevar el porcentaje.`
+      );
+      const regionesBajoObjetivo = comparativoRegion
+        .filter((r) => r.efectividad !== null && r.efectividad < UMBRAL_EFECTIVIDAD_COD)
+        .map((r) => ({
+          region: r.region,
+          efectividad: r.efectividad as number,
+          faltante: Number((UMBRAL_EFECTIVIDAD_COD - (r.efectividad as number)).toFixed(1)),
+        }))
+        .sort((a, b) => b.faltante - a.faltante);
+      regionesBajoObjetivo.slice(0, 5).forEach((r) => {
+        hallazgos.push(`Región ${r.region}: ${r.efectividad}% de efectividad — faltan ${r.faltante} puntos para llegar al 60%.`);
+      });
+      if (regionesBajoObjetivo.length > 5) {
+        hallazgos.push(`+ ${regionesBajoObjetivo.length - 5} región(es) más por debajo del objetivo de 60%.`);
+      }
+    }
+
     exportReporteSimplificadoPDF(
       {
         cliente: clienteTexto,
@@ -454,7 +536,9 @@ export default function ReporteConsolidadoModule({
         oficinasAtencion,
         concesionariosAtencion,
         oficinasCriticas,
+        concesionariosCriticos,
         topAbiertasPorOficina,
+        retornosCriticosPorOficina,
         comparativoVolumen,
         comparativoEfectividad,
         comparativoTemporalidad,
