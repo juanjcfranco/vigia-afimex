@@ -102,10 +102,11 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
 
   // Mismo criterio de elegibilidad que Acciones: no devoluciones, no entregadas,
   // no canceladas, no pre-documentadas (basado en estado puro, no Calificación)
-  // + filtros locales de Región/Oficina (independientes del filtro global,
-  // para poder enfocar esta vista sin afectar el resto de módulos).
+  // + filtros locales de Región/Oficina/Tipo (independientes del filtro
+  // global, para poder enfocar esta vista sin afectar el resto de módulos).
   const [filtroRegionLocal, setFiltroRegionLocal] = useState('');
   const [filtroOficinaLocal, setFiltroOficinaLocal] = useState('');
+  const [filtroTipoLocal, setFiltroTipoLocal] = useState<'' | 'original' | 'retorno'>('');
 
   const regionesDisponibles = useMemo(
     () => [...new Set(guias.map((g) => obtenerRegion(g.oficina_destino)))].sort(),
@@ -131,14 +132,11 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
         if (!isAbiertaPorEstado(g)) return false;
         if (filtroRegionLocal && obtenerRegion(g.oficina_destino) !== filtroRegionLocal) return false;
         if (filtroOficinaLocal && g.oficina_destino !== filtroOficinaLocal) return false;
+        if (filtroTipoLocal === 'original' && esRetornoAmplio(g)) return false;
+        if (filtroTipoLocal === 'retorno' && !esRetornoAmplio(g)) return false;
         return true;
       }),
-    [guias, filtroRegionLocal, filtroOficinaLocal]
-  );
-
-  const estados = useMemo(
-    () => [...new Set(base.map((g) => g.estado_guia).filter(Boolean))] as string[],
-    [base]
+    [guias, filtroRegionLocal, filtroOficinaLocal, filtroTipoLocal]
   );
 
   // KPI por estado: conteo de guías abiertas por cada estado
@@ -315,43 +313,84 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
 
   return (
     <div className="p-5 space-y-4">
-      <div className="flex items-center gap-2.5 flex-wrap bg-white border border-[var(--vg-border)] rounded-lg p-3">
-        <span className="text-[12px] font-semibold text-[var(--vg-text2)]">🔍 Filtrar esta vista:</span>
-        <select
-          value={filtroRegionLocal}
-          onChange={(e) => setFiltroRegionLocal(e.target.value)}
-          className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
-        >
-          <option value="">Todas las regiones</option>
-          {regionesDisponibles.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filtroOficinaLocal}
-          onChange={(e) => setFiltroOficinaLocal(e.target.value)}
-          className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
-        >
-          <option value="">Todas las oficinas</option>
-          {oficinasDisponibles.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </select>
-        {(filtroRegionLocal || filtroOficinaLocal) && (
-          <button
-            onClick={() => {
-              setFiltroRegionLocal('');
-              setFiltroOficinaLocal('');
-            }}
-            className="text-[12px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 hover:bg-[var(--vg-bg)]"
+      <div className="bg-white border border-[var(--vg-border)] rounded-lg p-3 space-y-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <span className="text-[12px] font-semibold text-[var(--vg-text2)]">🔍 Filtrar esta vista:</span>
+          <select
+            value={filtroRegionLocal}
+            onChange={(e) => setFiltroRegionLocal(e.target.value)}
+            className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
           >
-            ✕ Limpiar
+            <option value="">Todas las regiones</option>
+            {regionesDisponibles.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+          <select
+            value={filtroOficinaLocal}
+            onChange={(e) => setFiltroOficinaLocal(e.target.value)}
+            className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
+          >
+            <option value="">Todas las oficinas</option>
+            {oficinasDisponibles.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
+          <select
+            value={filtroTipoLocal}
+            onChange={(e) => setFiltroTipoLocal(e.target.value as '' | 'original' | 'retorno')}
+            className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
+          >
+            <option value="">Originales y Retornos</option>
+            <option value="original">Solo Originales</option>
+            <option value="retorno">Solo Retornos</option>
+          </select>
+          {(filtroRegionLocal || filtroOficinaLocal || filtroTipoLocal || filtroEstado || bulkGuias) && (
+            <button
+              onClick={() => {
+                setFiltroRegionLocal('');
+                setFiltroOficinaLocal('');
+                setFiltroTipoLocal('');
+                setFiltroEstado('');
+                setBulkGuias(null);
+              }}
+              className="text-[12px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 hover:bg-[var(--vg-bg)]"
+            >
+              ✕ Limpiar
+            </button>
+          )}
+        </div>
+
+        <BulkSearch onSearch={setBulkGuias} onClear={() => setBulkGuias(null)} activo={!!bulkGuias} />
+
+        <div className="flex items-center gap-2 flex-wrap overflow-x-auto vg-scroll">
+          <span className="text-[11px] font-bold text-[var(--vg-text2)] whitespace-nowrap">Por estado:</span>
+          <button
+            onClick={() => setFiltroEstado('')}
+            className={`text-[10.5px] font-semibold rounded-full px-2.5 py-1 whitespace-nowrap ${
+              !filtroEstado ? 'bg-[var(--vg-blue)] text-white' : 'border border-[var(--vg-border)] text-[var(--vg-text2)] hover:bg-[var(--vg-bg)]'
+            }`}
+          >
+            Todos <span className="font-bold">{base.length}</span>
           </button>
-        )}
+          {kpisPorEstado.map(([estado, n]) => (
+            <button
+              key={estado}
+              onClick={() => setFiltroEstado(estado === filtroEstado ? '' : estado)}
+              className={`text-[10.5px] font-semibold rounded-full px-2.5 py-1 whitespace-nowrap ${
+                filtroEstado === estado
+                  ? 'bg-[var(--vg-blue)] text-white'
+                  : 'border border-[var(--vg-border)] text-[var(--vg-text2)] hover:bg-[var(--vg-bg)]'
+              }`}
+            >
+              {estado} <span className="font-bold">{n}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <TemporalidadKpis guias={listaOriginales} variante="abiertas" />
@@ -510,18 +549,6 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <select
-              value={filtroEstado}
-              onChange={(e) => setFiltroEstado(e.target.value)}
-              className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5"
-            >
-              <option value="">Todos los estados</option>
-              {estados.map((e) => (
-                <option key={e} value={e}>
-                  {e}
-                </option>
-              ))}
-            </select>
             <button
               onClick={() => exportToExcel(filas, columnasExport, 'Abiertas')}
               className="text-[11px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
@@ -581,33 +608,6 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
             </button>
           </div>
         )}
-
-        <BulkSearch onSearch={setBulkGuias} onClear={() => setBulkGuias(null)} activo={!!bulkGuias} />
-
-        <div className="px-4 py-2.5 border-b border-[var(--vg-border)] flex items-center gap-2 flex-wrap overflow-x-auto vg-scroll">
-          <span className="text-[11px] font-bold text-[var(--vg-text2)] whitespace-nowrap">Por estado:</span>
-          <button
-            onClick={() => setFiltroEstado('')}
-            className={`text-[10.5px] font-semibold rounded-full px-2.5 py-1 whitespace-nowrap ${
-              !filtroEstado ? 'bg-[var(--vg-blue)] text-white' : 'border border-[var(--vg-border)] text-[var(--vg-text2)] hover:bg-[var(--vg-bg)]'
-            }`}
-          >
-            Todos <span className="font-bold">{base.length}</span>
-          </button>
-          {kpisPorEstado.map(([estado, n]) => (
-            <button
-              key={estado}
-              onClick={() => setFiltroEstado(estado === filtroEstado ? '' : estado)}
-              className={`text-[10.5px] font-semibold rounded-full px-2.5 py-1 whitespace-nowrap ${
-                filtroEstado === estado
-                  ? 'bg-[var(--vg-blue)] text-white'
-                  : 'border border-[var(--vg-border)] text-[var(--vg-text2)] hover:bg-[var(--vg-bg)]'
-              }`}
-            >
-              {estado} <span className="font-bold">{n}</span>
-            </button>
-          ))}
-        </div>
 
         <div className="max-h-[600px] overflow-y-auto vg-scroll">
           <table className="vg-table">
