@@ -788,6 +788,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
           onClose={() => setModalSemaforo(false)}
           guiasSeleccionadas={guiasSeleccionadasObj}
           contactos={contactos}
+          historialAlertas={historialAlertas}
           onCompletado={() => {
             setSeleccionadas(new Set());
             recargarHistorialAlertas();

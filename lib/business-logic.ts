@@ -738,6 +738,36 @@ export interface NivelSemaforo {
   color: string;
 }
 
+// Info fija por nivel de alerta (etiqueta/acción/responsable/color) —
+// compartida entre el semáforo calculado por DÍAS (calcularSemaforoGuia,
+// "¿qué tan urgente se ve HOY?") y la secuencia real de alertas YA
+// REGISTRADAS (nivelPorSecuenciaAlertas, "¿cuántas veces se ha alertado
+// esta guía de verdad?") — son dos cosas distintas que antes se
+// mezclaban: el color de hoy NO significa que ya hubo una alerta previa.
+export const INFO_NIVEL_ALERTA: Record<
+  'AMARILLO' | 'NARANJA' | 'ROJO',
+  { etiquetaAlerta: string; accion: string; responsable: string; color: string }
+> = {
+  AMARILLO: {
+    etiquetaAlerta: 'Primera alerta',
+    accion: 'Iniciar investigación (ubicar última plaza/circuito que escaneó la guía)',
+    responsable: 'Jefe de oficina',
+    color: '#EAB308',
+  },
+  NARANJA: {
+    etiquetaAlerta: 'Segunda alerta',
+    accion: 'Solicitar evidencia fotográfica del paquete y notificar posible cobro al responsable',
+    responsable: 'Jefe de circuitos / Jefe de plataforma',
+    color: '#EA7C1A',
+  },
+  ROJO: {
+    etiquetaAlerta: 'Tercera alerta',
+    accion: 'Cierre del caso y cobro al responsable',
+    responsable: 'Gerente de operaciones',
+    color: '#DC2626',
+  },
+};
+
 export function calcularSemaforoGuia(dias: number | null): NivelSemaforo {
   if (dias === null || dias <= 2) {
     return {
@@ -748,31 +778,21 @@ export function calcularSemaforoGuia(dias: number | null): NivelSemaforo {
       color: '#0B9B67',
     };
   }
-  if (dias === 3) {
-    return {
-      nivel: 'AMARILLO',
-      etiquetaAlerta: 'Primera alerta',
-      accion: 'Iniciar investigación (ubicar última plaza/circuito que escaneó la guía)',
-      responsable: 'Jefe de oficina',
-      color: '#EAB308',
-    };
-  }
-  if (dias === 4) {
-    return {
-      nivel: 'NARANJA',
-      etiquetaAlerta: 'Segunda alerta',
-      accion: 'Solicitar evidencia fotográfica del paquete y notificar posible cobro al responsable',
-      responsable: 'Jefe de circuitos / Jefe de plataforma',
-      color: '#EA7C1A',
-    };
-  }
-  return {
-    nivel: 'ROJO',
-    etiquetaAlerta: 'Tercera alerta',
-    accion: 'Cierre del caso y cobro al responsable',
-    responsable: 'Gerente de operaciones',
-    color: '#DC2626',
-  };
+  if (dias === 3) return { nivel: 'AMARILLO', ...INFO_NIVEL_ALERTA.AMARILLO };
+  if (dias === 4) return { nivel: 'NARANJA', ...INFO_NIVEL_ALERTA.NARANJA };
+  return { nivel: 'ROJO', ...INFO_NIVEL_ALERTA.ROJO };
+}
+
+// Nivel de la PRÓXIMA alerta a REGISTRAR para una guía, según cuántas
+// alertas YA tiene registradas en su historial (alertas_guia_historial)
+// — no según el color/días de hoy. La primera vez que se registra una
+// alerta para una guía SIEMPRE es la 1ª (Amarillo), sin importar si ya
+// lleva 8 días sin movimiento; la secuencia 1ª→2ª→3ª depende
+// exclusivamente del historial real, nunca del semáforo calculado.
+export function nivelPorSecuenciaAlertas(alertasPrevias: number): 'AMARILLO' | 'NARANJA' | 'ROJO' {
+  if (alertasPrevias <= 0) return 'AMARILLO';
+  if (alertasPrevias === 1) return 'NARANJA';
+  return 'ROJO';
 }
 
 // ============================================================

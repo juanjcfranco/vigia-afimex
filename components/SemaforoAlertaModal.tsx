@@ -1,33 +1,51 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Guia, ContactoOficina } from '@/lib/types';
-import { calcularSemaforoGuia, buildMailtoUrl } from '@/lib/business-logic';
+import { Guia, ContactoOficina, AlertaGuiaEvento } from '@/lib/types';
+import { calcularSemaforoGuia, nivelPorSecuenciaAlertas, INFO_NIVEL_ALERTA, buildMailtoUrl } from '@/lib/business-logic';
 
 interface SemaforoAlertaModalProps {
   open: boolean;
   onClose: () => void;
   guiasSeleccionadas: Guia[];
   contactos: ContactoOficina[];
+  // Historial YA registrado (alertas_guia_historial) — necesario para
+  // saber cuántas alertas lleva cada guía y así registrar la SIGUIENTE
+  // con el nivel correcto (1ª/2ª/3ª), no con el color calculado de hoy.
+  historialAlertas: AlertaGuiaEvento[];
   onCompletado: () => void;
 }
 
 // Envía una alerta por correo (por oficina, igual que AlertaSinMovimientoModal)
-// usando el semáforo de escalamiento (Verde 0-1d / Amarillo 2-3d / Naranja
-// 4d / Rojo 5+d), y registra CADA guía en el historial persistente
-// (alertas_guia_historial) con su nivel y acción correspondientes — así,
-// si la guía reaparece en un corte futuro, ya se sabe en qué nivel de
-// alerta se quedó (ver badge "Alerta Registrada" en AbiertasModule).
+// y registra CADA guía en el historial persistente (alertas_guia_historial).
+//
+// IMPORTANTE: el NIVEL que se registra/envía (1ª/2ª/3ª alerta) depende de
+// cuántas alertas YA tiene esa guía en su historial — NO del color del
+// semáforo calculado por días sin movimiento. El color de hoy solo decide
+// SI la guía necesita atención (no se registra nada si está en Verde),
+// pero no determina si "ya tuvo una alerta previa" — eso solo lo sabe el
+// historial real.
 export default function SemaforoAlertaModal({
   open,
   onClose,
   guiasSeleccionadas,
   contactos,
+  historialAlertas,
   onCompletado,
 }: SemaforoAlertaModalProps) {
   const [oficinasEnviadas, setOficinasEnviadas] = useState<Set<string>>(new Set());
   const [registrado, setRegistrado] = useState(false);
   const [enviando, setEnviando] = useState(false);
+
+  // Cuántas alertas (no-cierre) tiene YA cada guía en su historial —
+  // determina si la que se está a punto de registrar es la 1ª, 2ª o 3ª.
+  const alertasPreviasPorGuia = useMemo(() => {
+    const map = new Map<string, number>();
+    historialAlertas.forEach((ev) => {
+      if (ev.nivel !== 'CERRADO') map.set(ev.guia, (map.get(ev.guia) || 0) + 1);
+    });
+    return map;
+  }, [historialAlertas]);
 
   const porOficina = useMemo(() => {
     const grupos: Record<string, Guia[]> = {};
@@ -62,18 +80,22 @@ export default function SemaforoAlertaModal({
     });
 
     const lineas = lista.map((g, i) => {
-      const semaforo = calcularSemaforoGuia(g.dias_sin_movimiento);
+      // Nivel de esta notificación = secuencia real (historial), no el
+      // color calculado por días — ver comentario arriba del componente.
+      const alertasPrevias = alertasPreviasPorGuia.get(g.guia) || 0;
+      const nivelSecuencia = nivelPorSecuenciaAlertas(alertasPrevias);
+      const info = INFO_NIVEL_ALERTA[nivelSecuencia];
       return `${i + 1}. Guía: ${g.guia} | Desc: ${g.descripcion || '—'} | Estado: ${g.estado_guia || '—'} | Destino: ${
         g.oficina_destino || '—'
-      } | Días sin mov: ${g.dias_sin_movimiento ?? '—'} | Nivel: ${semaforo.nivel} (${semaforo.etiquetaAlerta || 'sin alerta'}) | Acción: ${
-        semaforo.accion
-      } | Responsable: ${semaforo.responsable}`;
+      } | Días sin mov: ${g.dias_sin_movimiento ?? '—'} | Nivel: ${nivelSecuencia} (${info.etiquetaAlerta}) | Acción: ${
+        info.accion
+      } | Responsable: ${info.responsable}`;
     });
 
     const cuerpoTexto = [
       'Estimado equipo,',
       '',
-      `Las siguientes guías en la Oficina ${oficina} requieren la acción indicada según el semáforo de escalamiento.`,
+      `Las siguientes guías en la Oficina ${oficina} requieren la acción indicada según su nivel de alerta.`,
       '',
       ...lineas,
       '',
@@ -82,7 +104,7 @@ export default function SemaforoAlertaModal({
       `Generado el ${fechaGenerado} · VIGÍA Dashboard — AFIMEX`,
     ].join('\n');
 
-    const asuntoTexto = `[AFIMEX] [${cliente}] Semáforo de Escalamiento — ${lista.length} guía${lista.length === 1 ? '' : 's'} · Oficina ${oficina}`;
+    const asuntoTexto = `[AFIMEX] [${cliente}] Alerta de guías sin movimiento — ${lista.length} guía${lista.length === 1 ? '' : 's'} · Oficina ${oficina}`;
 
     const mailto = buildMailtoUrl(para, { cc, subject: asuntoTexto, body: cuerpoTexto });
     const link = document.createElement('a');
@@ -100,20 +122,25 @@ export default function SemaforoAlertaModal({
     try {
       await Promise.all(
         guiasSeleccionadas.map((g) => {
+          // El color de HOY solo decide si vale la pena registrar algo
+          // (Verde = recién creada, 0-2 días, no necesita alerta) — pero
+          // el NIVEL que se guarda (1ª/2ª/3ª) viene de la secuencia real
+          // registrada, no de este color.
+          if (calcularSemaforoGuia(g.dias_sin_movimiento).nivel === 'VERDE') return Promise.resolve();
+
           const oficina = g.oficina_destino || 'SIN OFICINA';
           const contacto = contactoDe(oficina);
-          const semaforo = calcularSemaforoGuia(g.dias_sin_movimiento);
-          // Solo tiene sentido registrar un evento si la guía realmente
-          // está en un nivel de alerta (Amarillo/Naranja/Rojo) — el nivel
-          // Verde ("monitoreo normal") no genera un evento en el historial.
-          if (semaforo.nivel === 'VERDE') return Promise.resolve();
+          const alertasPrevias = alertasPreviasPorGuia.get(g.guia) || 0;
+          const nivelSecuencia = nivelPorSecuenciaAlertas(alertasPrevias);
+          const info = INFO_NIVEL_ALERTA[nivelSecuencia];
+
           return fetch('/api/alertas-guia', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               guia: g.guia,
-              nivel: semaforo.nivel,
-              accion: semaforo.accion,
+              nivel: nivelSecuencia,
+              accion: info.accion,
               enviado_a: contacto?.email_to || null,
             }),
           });
