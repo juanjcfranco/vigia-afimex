@@ -207,7 +207,10 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   }, [base, filtroEstado, bulkGuias]);
 
   function toggleAll(checked: boolean) {
-    setSeleccionadas(checked ? new Set(filas.map((g) => g.guia)) : new Set());
+    // Las guías ya marcadas para indemnización quedan fuera de "seleccionar
+    // todo" — no tiene sentido volver a alertarlas/accionarlas, ya están
+    // en proceso de reclamo.
+    setSeleccionadas(checked ? new Set(filas.filter((g) => !guiasIndemnizadas.has(g.guia)).map((g) => g.guia)) : new Set());
   }
   function toggleOne(guia: string) {
     const next = new Set(seleccionadas);
@@ -632,7 +635,10 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                 <th>
                   <input
                     type="checkbox"
-                    checked={filas.length > 0 && seleccionadas.size === filas.length}
+                    checked={
+                      filas.filter((g) => !guiasIndemnizadas.has(g.guia)).length > 0 &&
+                      seleccionadas.size === filas.filter((g) => !guiasIndemnizadas.has(g.guia)).length
+                    }
                     onChange={(e) => toggleAll(e.target.checked)}
                   />
                 </th>
@@ -659,6 +665,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
               {sorted.map((g) => {
                 const esRetorno = esRetornoAmplio(g);
                 const ultExc = ultimaExcepcion(g);
+                const estaIndemnizada = guiasIndemnizadas.has(g.guia);
                 return (
                 <tr key={g.id}>
                   <td>
@@ -666,6 +673,8 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                       type="checkbox"
                       checked={seleccionadas.has(g.guia)}
                       onChange={() => toggleOne(g.guia)}
+                      disabled={estaIndemnizada}
+                      title={estaIndemnizada ? 'Ya marcada para indemnización — no seleccionable' : undefined}
                     />
                   </td>
                   <td>
