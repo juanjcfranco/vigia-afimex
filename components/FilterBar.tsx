@@ -24,7 +24,7 @@ interface FilterBarProps {
 
 // Selector múltiple genérico: un botón que abre un panel con checkboxes.
 // Vacío ([]) significa "todos" (todas las opciones), sea cliente o periodo.
-function SelectorMultiple({
+export function SelectorMultiple({
   opciones,
   seleccionados,
   onChange,

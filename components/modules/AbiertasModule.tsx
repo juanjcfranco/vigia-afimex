@@ -5,6 +5,7 @@ import { Guia, ContactoOficina, AlertaGuiaEvento } from '@/lib/types';
 import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio, ultimaExcepcion, accionEfectiva, calcularSemaforoGuia, calcularEtiquetaSeguimiento } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import BulkSearch from '@/components/BulkSearch';
+import { SelectorMultiple } from '@/components/FilterBar';
 import AlertaDiasBadge from '@/components/AlertaDiasBadge';
 import AccionMasivaModal, { TipoAccionMasiva } from '@/components/AccionMasivaModal';
 import AlertaSinMovimientoModal from '@/components/AlertaSinMovimientoModal';
@@ -107,7 +108,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   const [filtroRegionLocal, setFiltroRegionLocal] = useState('');
   const [filtroOficinaLocal, setFiltroOficinaLocal] = useState('');
   const [filtroTipoLocal, setFiltroTipoLocal] = useState<'' | 'original' | 'retorno'>('');
-  const [filtroCicloLocal, setFiltroCicloLocal] = useState('');
+  const [filtroCicloLocal, setFiltroCicloLocal] = useState<string[]>([]);
 
   const regionesDisponibles = useMemo(
     () => [...new Set(guias.map((g) => obtenerRegion(g.oficina_destino)))].sort(),
@@ -141,7 +142,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
         if (filtroOficinaLocal && g.oficina_destino !== filtroOficinaLocal) return false;
         if (filtroTipoLocal === 'original' && esRetornoAmplio(g)) return false;
         if (filtroTipoLocal === 'retorno' && !esRetornoAmplio(g)) return false;
-        if (filtroCicloLocal && obtenerCiclo(g.estado_guia) !== filtroCicloLocal) return false;
+        if (filtroCicloLocal.length > 0 && !filtroCicloLocal.includes(obtenerCiclo(g.estado_guia))) return false;
         return true;
       }),
     [guias, filtroRegionLocal, filtroOficinaLocal, filtroTipoLocal, filtroCicloLocal]
@@ -357,25 +358,19 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
             <option value="original">Solo Originales</option>
             <option value="retorno">Solo Retornos</option>
           </select>
-          <select
-            value={filtroCicloLocal}
-            onChange={(e) => setFiltroCicloLocal(e.target.value)}
-            className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
-          >
-            <option value="">Todos los ciclos</option>
-            {ciclosDisponibles.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          {(filtroRegionLocal || filtroOficinaLocal || filtroTipoLocal || filtroCicloLocal || filtroEstado || bulkGuias) && (
+          <SelectorMultiple
+            opciones={ciclosDisponibles}
+            seleccionados={filtroCicloLocal}
+            onChange={setFiltroCicloLocal}
+            etiquetaTodos="Todos los ciclos"
+          />
+          {(filtroRegionLocal || filtroOficinaLocal || filtroTipoLocal || filtroCicloLocal.length > 0 || filtroEstado || bulkGuias) && (
             <button
               onClick={() => {
                 setFiltroRegionLocal('');
                 setFiltroOficinaLocal('');
                 setFiltroTipoLocal('');
-                setFiltroCicloLocal('');
+                setFiltroCicloLocal([]);
                 setFiltroEstado('');
                 setBulkGuias(null);
               }}
