@@ -23,8 +23,9 @@ import {
   retornoEstaEntregado,
   calcularEtiquetaSeguimiento,
   calcularSemaforoGuia,
+  diasRecibidoOficinaHastaResolucion,
 } from '@/lib/business-logic';
-import { exportReporteConsolidadoPDF, exportReporteSimplificadoPDF, exportToExcel, ResumenAbiertasPorEstado, ResumenPareto } from '@/lib/export';
+import { exportReporteConsolidadoPDF, exportReporteSimplificadoPDF, exportToExcel, ResumenAbiertasPorEstado, ResumenPareto, FilaDiasEntrega } from '@/lib/export';
 
 // Regla 80/20: dado un conjunto de {clave, valor}, devuelve las claves
 // que ORDENADAS de mayor a menor van acumulando hasta llegar al 80% del
@@ -403,6 +404,65 @@ export default function ReporteConsolidadoModule({
       }));
 
     // ============================================================
+    // Peor oficina DENTRO de cada región (mismo score volumen×(100-ef.)
+    // que "Oficinas que Requieren Atención", pero acotado región por
+    // región) — para el hallazgo de "compartir plan de acción por plaza".
+    // Excluye Concesionarios/Virtual (esas ya tienen su propia sección).
+    // ============================================================
+    const VOLUMEN_MINIMO_REGION = 10;
+    const regionesConDatos = [...new Set(porOficina.map((o) => obtenerRegion(o.key)))].filter(
+      (r) => r !== 'CONCESIONARIOS' && r !== 'VIRTUAL'
+    );
+    const peorOficinaPorRegion = regionesConDatos
+      .map((region) => {
+        const oficinasRegion = porOficina.filter(
+          (o) => obtenerRegion(o.key) === region && o.total >= VOLUMEN_MINIMO_REGION && o.efectividad !== null
+        );
+        if (!oficinasRegion.length) return null;
+        const peor = [...oficinasRegion]
+          .map((o) => ({ ...o, score: o.total * (100 - (o.efectividad ?? 100)) }))
+          .sort((a, b) => b.score - a.score)[0];
+        return { region, oficina: peor.key, total: peor.total, efectividad: peor.efectividad };
+      })
+      .filter((r): r is { region: string; oficina: string; total: number; efectividad: number | null } => r !== null);
+
+    // ============================================================
+    // Top 5 oficinas / Top 5 concesionarios con MÁS días promedio en
+    // entregar (Recibido Oficina → F_Confirmación) — solo guías
+    // ORIGINALES ya entregadas (no retornos, no devoluciones/abiertas,
+    // que no tienen un "tiempo de entrega" real que reportar).
+    // ============================================================
+    const MINIMO_ENTREGADAS_DIAS = 5;
+    const acumDiasEntrega: Record<string, { suma: number; count: number }> = {};
+    guiasOriginales.forEach((g) => {
+      if (!isEntregada(g.estado_guia)) return;
+      const dias = diasRecibidoOficinaHastaResolucion(g);
+      if (dias === null) return;
+      const of = g.oficina_destino || 'SIN OFICINA';
+      if (!acumDiasEntrega[of]) acumDiasEntrega[of] = { suma: 0, count: 0 };
+      acumDiasEntrega[of].suma += dias;
+      acumDiasEntrega[of].count += 1;
+    });
+    const promedioDiasPorOficina = Object.entries(acumDiasEntrega)
+      .filter(([, d]) => d.count >= MINIMO_ENTREGADAS_DIAS)
+      .map(([oficina, d]) => ({
+        oficina,
+        region: obtenerRegion(oficina),
+        promedioDias: Number((d.suma / d.count).toFixed(1)),
+        totalEntregadas: d.count,
+      }));
+    const topOficinasDiasEntrega = promedioDiasPorOficina
+      .filter((o) => o.region !== 'CONCESIONARIOS' && o.region !== 'VIRTUAL')
+      .sort((a, b) => b.promedioDias - a.promedioDias)
+      .slice(0, 5)
+      .map(({ oficina, promedioDias, totalEntregadas }) => ({ oficina, promedioDias, totalEntregadas }));
+    const topConcesionariosDiasEntrega = promedioDiasPorOficina
+      .filter((o) => o.region === 'CONCESIONARIOS')
+      .sort((a, b) => b.promedioDias - a.promedioDias)
+      .slice(0, 5)
+      .map(({ oficina, promedioDias, totalEntregadas }) => ({ oficina, promedioDias, totalEntregadas }));
+
+    // ============================================================
     // Regla 80/20: qué oficinas concentran el 80% del volumen total, y
     // qué oficinas concentran el 80% de las guías "no efectivas"
     // (devoluciones + abiertas — las que arrastran la efectividad hacia
@@ -492,6 +552,23 @@ export default function ReporteConsolidadoModule({
       const top = topExcepcionesPorCliente[0];
       hallazgos.push(`El cliente con la excepción más concentrada es ${top.cliente}: "${top.excepcion}" (${top.cantidad.toLocaleString('es-MX')} guías).`);
     }
+    peorOficinaPorRegion.forEach((p) => {
+      hallazgos.push(
+        `${p.region}: la oficina con mayor oportunidad de mejora es ${p.oficina} (${p.total.toLocaleString('es-MX')} guías, ${p.efectividad}% de efectividad) — se recomienda compartir la situación de la plaza, informar las áreas de oportunidad, y definir un plan de acción para mejorar la efectividad.`
+      );
+    });
+    if (topOficinasDiasEntrega.length) {
+      const peor = topOficinasDiasEntrega[0];
+      hallazgos.push(
+        `La oficina con más días promedio para entregar (Recibido Oficina → Confirmación) es ${peor.oficina}: ${peor.promedioDias} días.`
+      );
+    }
+    if (topConcesionariosDiasEntrega.length) {
+      const peor = topConcesionariosDiasEntrega[0];
+      hallazgos.push(
+        `El concesionario con más días promedio para entregar es ${peor.oficina}: ${peor.promedioDias} días.`
+      );
+    }
 
     // ============================================================
     // Objetivo de efectividad COD: la mayoría de clientes con este
@@ -539,6 +616,8 @@ export default function ReporteConsolidadoModule({
         concesionariosCriticos,
         topAbiertasPorOficina,
         retornosCriticosPorOficina,
+        topOficinasDiasEntrega,
+        topConcesionariosDiasEntrega,
         comparativoVolumen,
         comparativoEfectividad,
         comparativoTemporalidad,

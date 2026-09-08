@@ -2725,6 +2725,16 @@ export interface FilaRetornoCritico {
   cicloDominante: string;
 }
 
+// Top oficinas/concesionarios por MÁS días promedio en entregar (Recibido
+// Oficina → F_Confirmación) — solo guías ORIGINALES entregadas, no
+// retornos. Tablas separadas (oficinas / concesionarios), mismo criterio
+// de score que el resto del reporte.
+export interface FilaDiasEntrega {
+  oficina: string;
+  promedioDias: number;
+  totalEntregadas: number;
+}
+
 export interface ReporteSimplificadoData {
   cliente: string;
   periodoTexto: string;
@@ -2759,6 +2769,11 @@ export interface ReporteSimplificadoData {
   // Concesionario y su Ciclo dominante — distinto de oficinasCriticas
   // (que es sobre guías originales).
   retornosCriticosPorOficina: FilaRetornoCritico[];
+
+  // Top 5 oficinas / top 5 concesionarios con MÁS días promedio en
+  // entregar (Recibido Oficina → F_Confirmación) — solo originales.
+  topOficinasDiasEntrega: FilaDiasEntrega[];
+  topConcesionariosDiasEntrega: FilaDiasEntrega[];
 
   // Comparativo mes a mes (Total, período completo del corte, sin
   // importar el filtro de Periodo activo).
@@ -2932,6 +2947,28 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
       </tbody>
     </table>`
     : '<div class="sin-datos">Sin retornos en seguimiento crítico</div>';
+
+  const tablaDiasEntregaHtml = (lista: FilaDiasEntrega[]) =>
+    lista.length
+      ? `
+    <table>
+      <thead><tr><th>Oficina</th><th>Prom. Días</th><th>Entregadas</th></tr></thead>
+      <tbody>
+        ${lista
+          .map(
+            (o) => `
+          <tr>
+            <td class="celda-fuerte">${escapeHtml(o.oficina)}</td>
+            <td><span style="font-weight:800;color:#DC2626;">${o.promedioDias}d</span></td>
+            <td>${o.totalEntregadas.toLocaleString('es-MX')}</td>
+          </tr>`
+          )
+          .join('')}
+      </tbody>
+    </table>`
+      : '<div class="sin-datos">Sin datos suficientes para este corte</div>';
+  const tablaOficinasDiasEntrega = tablaDiasEntregaHtml(data.topOficinasDiasEntrega);
+  const tablaConcesionariosDiasEntrega = tablaDiasEntregaHtml(data.topConcesionariosDiasEntrega);
 
   const tablaComparativo = data.comparativoEfectividad.length
     ? `
@@ -3207,6 +3244,19 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
           <div class="seccion-titulo" style="margin-top:0;">Retornos Críticos — por Oficina/Concesionario y Ciclo</div>
           <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Retornos en seguimiento crítico (5+ días)</div>
           ${tablaRetornosCriticosPorOficina}
+        </div>
+      </div>
+
+      <div class="dos-columnas">
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Top 5 Oficinas — Días para Entregar</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Recibido Oficina → Confirmación, solo guías originales</div>
+          ${tablaOficinasDiasEntrega}
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Top 5 Concesionarios — Días para Entregar</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Recibido Oficina → Confirmación, solo guías originales</div>
+          ${tablaConcesionariosDiasEntrega}
         </div>
       </div>
 
