@@ -2732,7 +2732,7 @@ export interface FilaRetornoCritico {
 export interface FilaDiasEntrega {
   oficina: string;
   promedioDias: number;
-  totalEntregadas: number;
+  totalGuias: number;
 }
 
 export interface ReporteSimplificadoData {
@@ -2957,7 +2957,7 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
     lista.length
       ? `
     <table>
-      <thead><tr><th>Oficina</th><th>Prom. Días</th><th>Entregadas</th></tr></thead>
+      <thead><tr><th>Oficina</th><th>Prom. Días</th><th>Guías</th></tr></thead>
       <tbody>
         ${lista
           .map(
@@ -2965,7 +2965,7 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
           <tr>
             <td class="celda-fuerte">${escapeHtml(o.oficina)}</td>
             <td><span style="font-weight:800;color:#DC2626;">${o.promedioDias}d</span></td>
-            <td>${o.totalEntregadas.toLocaleString('es-MX')}</td>
+            <td>${o.totalGuias.toLocaleString('es-MX')}</td>
           </tr>`
           )
           .join('')}
@@ -3272,12 +3272,12 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
       <div class="dos-columnas">
         <div class="seccion">
           <div class="seccion-titulo" style="margin-top:0;">Top 5 Oficinas — Días para Entregar</div>
-          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Recibido Oficina → Confirmación, solo guías originales</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Recibido Oficina → resolución (hoy si sigue abierta), solo originales</div>
           ${tablaOficinasDiasEntrega}
         </div>
         <div class="seccion">
           <div class="seccion-titulo" style="margin-top:0;">Top 5 Concesionarios — Días para Entregar</div>
-          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Recibido Oficina → Confirmación, solo guías originales</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:6px;">Recibido Oficina → resolución (hoy si sigue abierta), solo originales</div>
           ${tablaConcesionariosDiasEntrega}
         </div>
       </div>

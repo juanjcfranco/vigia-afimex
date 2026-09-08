@@ -428,14 +428,15 @@ export default function ReporteConsolidadoModule({
 
     // ============================================================
     // Top 5 oficinas / Top 5 concesionarios con MÁS días promedio en
-    // entregar (Recibido Oficina → F_Confirmación) — solo guías
-    // ORIGINALES ya entregadas (no retornos, no devoluciones/abiertas,
-    // que no tienen un "tiempo de entrega" real que reportar).
+    // "resolver" (Recibido Oficina → resolución) — solo guías
+    // ORIGINALES (no retornos). Usa el mismo criterio de resolución que
+    // el resto de la app (diasRecibidoOficinaHastaResolucion): Entregada
+    // → F_Confirmación; Devolución → F_Confirmación; Abierta → HOY (el
+    // reloj sigue corriendo, no se excluye solo porque aún no se resuelva).
     // ============================================================
-    const MINIMO_ENTREGADAS_DIAS = 5;
+    const MINIMO_GUIAS_DIAS_ENTREGA = 5;
     const acumDiasEntrega: Record<string, { suma: number; count: number }> = {};
     guiasOriginales.forEach((g) => {
-      if (!isEntregada(g.estado_guia)) return;
       const dias = diasRecibidoOficinaHastaResolucion(g);
       if (dias === null) return;
       const of = g.oficina_destino || 'SIN OFICINA';
@@ -444,23 +445,23 @@ export default function ReporteConsolidadoModule({
       acumDiasEntrega[of].count += 1;
     });
     const promedioDiasPorOficina = Object.entries(acumDiasEntrega)
-      .filter(([, d]) => d.count >= MINIMO_ENTREGADAS_DIAS)
+      .filter(([, d]) => d.count >= MINIMO_GUIAS_DIAS_ENTREGA)
       .map(([oficina, d]) => ({
         oficina,
         region: obtenerRegion(oficina),
         promedioDias: Number((d.suma / d.count).toFixed(1)),
-        totalEntregadas: d.count,
+        totalGuias: d.count,
       }));
     const topOficinasDiasEntrega = promedioDiasPorOficina
       .filter((o) => o.region !== 'CONCESIONARIOS' && o.region !== 'VIRTUAL')
       .sort((a, b) => b.promedioDias - a.promedioDias)
       .slice(0, 5)
-      .map(({ oficina, promedioDias, totalEntregadas }) => ({ oficina, promedioDias, totalEntregadas }));
+      .map(({ oficina, promedioDias, totalGuias }) => ({ oficina, promedioDias, totalGuias }));
     const topConcesionariosDiasEntrega = promedioDiasPorOficina
       .filter((o) => o.region === 'CONCESIONARIOS')
       .sort((a, b) => b.promedioDias - a.promedioDias)
       .slice(0, 5)
-      .map(({ oficina, promedioDias, totalEntregadas }) => ({ oficina, promedioDias, totalEntregadas }));
+      .map(({ oficina, promedioDias, totalGuias }) => ({ oficina, promedioDias, totalGuias }));
 
     // Peor oficina en días de entrega, DENTRO de cada región (para el
     // agrupado de hallazgos por región).
@@ -575,7 +576,7 @@ export default function ReporteConsolidadoModule({
     peorDiasEntregaPorRegion.forEach((info, region) => {
       agregarHallazgoRegion(
         region,
-        `La oficina con más días promedio para entregar (Recibido Oficina → Confirmación) es ${info.oficina}: ${info.promedioDias} días.`
+        `La oficina con más días promedio en resolver (Recibido Oficina → Confirmación, o contra hoy si sigue abierta) es ${info.oficina}: ${info.promedioDias} días.`
       );
     });
 
