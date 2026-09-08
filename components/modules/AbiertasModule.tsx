@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina, AlertaGuiaEvento } from '@/lib/types';
-import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio, ultimaExcepcion, accionEfectiva, calcularSemaforoGuia, calcularEtiquetaSeguimiento, diasRecibidoOficinaHastaResolucion } from '@/lib/business-logic';
+import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio, ultimaExcepcion, accionEfectiva, calcularSemaforoGuia, calcularEtiquetaSeguimiento, diasRecibidoOficinaHastaResolucion, agruparPorRegionOficinaEstado, agruparPorCiclo, formatearPeriodo } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import BulkSearch from '@/components/BulkSearch';
 import { SelectorMultiple } from '@/components/FilterBar';
@@ -10,7 +10,7 @@ import AlertaDiasBadge from '@/components/AlertaDiasBadge';
 import AccionMasivaModal, { TipoAccionMasiva } from '@/components/AccionMasivaModal';
 import AlertaSinMovimientoModal from '@/components/AlertaSinMovimientoModal';
 import SemaforoAlertaModal from '@/components/SemaforoAlertaModal';
-import { exportToExcel, exportToPDF } from '@/lib/export';
+import { exportToExcel, exportToPDF, exportResumenAbiertasPDF } from '@/lib/export';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
 import TemporalidadKpis from '@/components/TemporalidadKpis';
@@ -205,6 +205,51 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
     }
     return f.sort((a, b) => (b.dias_sin_movimiento || 0) - (a.dias_sin_movimiento || 0));
   }, [base, filtroEstado, bulkGuias]);
+
+  // Resumen rápido en PDF (Región/Oficina + Por Ciclo) de lo que se ve
+  // AHORA en pantalla (respeta los filtros locales de Región/Oficina/
+  // Tipo/Ciclo y el buscador masivo) — separa Guías Abiertas (originales)
+  // de Retornos, ya que son análisis distintos.
+  function generarResumenAbiertas(soloRetornos: boolean) {
+    const ventana = window.open('', '_blank');
+    if (!ventana) {
+      alert('Tu navegador bloqueó la ventana de impresión. Habilita pop-ups para este sitio.');
+      return;
+    }
+    const lista = filas.filter((g) => esRetornoAmplio(g) === soloRetornos);
+
+    const clientesDistintos = [...new Set(guias.map((g) => g.cliente).filter(Boolean))] as string[];
+    const clienteTexto =
+      clientesDistintos.length === 1
+        ? clientesDistintos[0]
+        : clientesDistintos.length > 1
+          ? `Varios clientes (${clientesDistintos.length})`
+          : 'Sin cliente';
+
+    const mesesDoc = guias
+      .map((g) => g.f_documentacion)
+      .filter((f): f is string => !!f)
+      .sort();
+    const periodoTexto =
+      mesesDoc.length > 0
+        ? (() => {
+            const primero = mesesDoc[0].slice(0, 7);
+            const ultimo = mesesDoc[mesesDoc.length - 1].slice(0, 7);
+            return primero === ultimo ? formatearPeriodo(primero) : `${formatearPeriodo(primero)} — ${formatearPeriodo(ultimo)}`;
+          })()
+        : 'Sin fecha';
+
+    exportResumenAbiertasPDF(
+      {
+        titulo: soloRetornos ? 'Retornos Abiertos' : 'Guías Abiertas',
+        cliente: clienteTexto,
+        periodoTexto,
+        resumenRegionOficina: agruparPorRegionOficinaEstado(lista),
+        porCiclo: agruparPorCiclo(lista),
+      },
+      ventana
+    );
+  }
 
   function toggleAll(checked: boolean) {
     // Las guías ya marcadas para indemnización quedan fuera de "seleccionar
@@ -585,6 +630,20 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
               className="text-[11px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
             >
               🖨 PDF
+            </button>
+            <button
+              onClick={() => generarResumenAbiertas(false)}
+              className="text-[11px] font-semibold text-white bg-[#1E3A8A] rounded-md px-2.5 py-1.5"
+              title="Resumen rápido: Región/Oficina + Por Ciclo, de las guías originales que ves ahora"
+            >
+              📄 Resumen Abiertas
+            </button>
+            <button
+              onClick={() => generarResumenAbiertas(true)}
+              className="text-[11px] font-semibold text-white bg-[#7C3AED] rounded-md px-2.5 py-1.5"
+              title="Resumen rápido: Región/Oficina + Por Ciclo, de los retornos que ves ahora"
+            >
+              📄 Resumen Retornos
             </button>
           </div>
         </div>

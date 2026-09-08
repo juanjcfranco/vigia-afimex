@@ -24,6 +24,7 @@ import {
   calcularEtiquetaSeguimiento,
   calcularSemaforoGuia,
   diasRecibidoOficinaHastaResolucion,
+  agruparPorRegionOficinaEstado,
 } from '@/lib/business-logic';
 import { exportReporteConsolidadoPDF, exportReporteSimplificadoPDF, exportToExcel, ResumenAbiertasPorEstado, ResumenPareto, FilaDiasEntrega } from '@/lib/export';
 
@@ -64,50 +65,9 @@ function calcularPareto(items: Array<{ key: string; valor: number }>, umbral = 0
 
 // Agrupa una lista de guías en la estructura pivotada Región → Oficina
 // (filas) × Estado (columnas) — usado para las 2 tablas resumen del PDF
-// (Guías Abiertas y Retornos Abiertos). Con Estado como columna en vez de
-// fila, el reporte queda mucho más compacto (regiones + oficinas, no
-// regiones × oficinas × estados). El detalle guía por guía (con Tipo/
-// Acción) se exporta aparte a Excel, no en el PDF.
-function agruparPorRegionOficinaEstado(lista: Guia[]): ResumenAbiertasPorEstado {
-  const porRegion: Record<string, Record<string, Record<string, number>>> = {};
-  const estadosSet = new Set<string>();
-
-  lista.forEach((g) => {
-    const region = obtenerRegion(g.oficina_destino);
-    const oficina = g.oficina_destino || 'SIN OFICINA';
-    const estado = g.estado_guia || 'SIN ESTADO';
-    estadosSet.add(estado);
-    if (!porRegion[region]) porRegion[region] = {};
-    if (!porRegion[region][oficina]) porRegion[region][oficina] = {};
-    porRegion[region][oficina][estado] = (porRegion[region][oficina][estado] || 0) + 1;
-  });
-
-  // Columnas ordenadas por su Ciclo (Entrada→Distribución→Recepción→
-  // Ruta→Resguardo) y luego alfabético — mismo criterio de orden que ya
-  // se usa en el panel "Guías Abiertas por Ciclo" de Efectividad.
-  const estados = [...estadosSet].sort((a, b) => {
-    const ca = ORDEN_CICLOS.indexOf(obtenerCiclo(a));
-    const cb = ORDEN_CICLOS.indexOf(obtenerCiclo(b));
-    if (ca !== cb) return ca - cb;
-    return a.localeCompare(b);
-  });
-
-  const regiones = Object.entries(porRegion)
-    .map(([region, oficinasObj]) => {
-      const oficinas = Object.entries(oficinasObj)
-        .map(([oficina, porEstado]) => ({
-          oficina,
-          total: Object.values(porEstado).reduce((s, v) => s + v, 0),
-          porEstado,
-        }))
-        .sort((a, b) => b.total - a.total);
-      const total = oficinas.reduce((s, o) => s + o.total, 0);
-      return { region, total, oficinas };
-    })
-    .sort((a, b) => b.total - a.total);
-
-  return { regiones, estados };
-}
+// (Guías Abiertas y Retornos Abiertos). Vive en business-logic.ts
+// (agruparPorRegionOficinaEstado) para que el módulo Abiertas también
+// pueda reusarla — aquí solo queda el import de arriba.
 
 export default function ReporteConsolidadoModule({
   guias,

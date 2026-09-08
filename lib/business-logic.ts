@@ -252,6 +252,79 @@ export function obtenerCiclo(estado: string | null | undefined): string {
 }
 
 // ============================================================
+// Pivot Región → Oficina (filas) × Estado (columnas) — usado en el
+// Reporte Ejecutivo Consolidado y en el resumen rápido de Abiertas del
+// propio módulo. Vive aquí (no en un componente) para que ambos lugares
+// compartan exactamente el mismo cálculo, en vez de duplicarlo.
+// ============================================================
+export interface FilaOficinaPorEstado {
+  oficina: string;
+  total: number;
+  porEstado: Record<string, number>;
+}
+export interface FilaRegionPorEstado {
+  region: string;
+  total: number;
+  oficinas: FilaOficinaPorEstado[];
+}
+export interface ResumenAbiertasPorEstado {
+  regiones: FilaRegionPorEstado[];
+  estados: string[]; // columnas, en el orden en que deben mostrarse
+}
+
+export function agruparPorRegionOficinaEstado(lista: Guia[]): ResumenAbiertasPorEstado {
+  const porRegion: Record<string, Record<string, Record<string, number>>> = {};
+  const estadosSet = new Set<string>();
+
+  lista.forEach((g) => {
+    const region = obtenerRegion(g.oficina_destino);
+    const oficina = g.oficina_destino || 'SIN OFICINA';
+    const estado = g.estado_guia || 'SIN ESTADO';
+    estadosSet.add(estado);
+    if (!porRegion[region]) porRegion[region] = {};
+    if (!porRegion[region][oficina]) porRegion[region][oficina] = {};
+    porRegion[region][oficina][estado] = (porRegion[region][oficina][estado] || 0) + 1;
+  });
+
+  // Columnas ordenadas por su Ciclo (Entrada→Distribución→Recepción→
+  // Ruta→Resguardo) y luego alfabético.
+  const estados = [...estadosSet].sort((a, b) => {
+    const ca = ORDEN_CICLOS.indexOf(obtenerCiclo(a));
+    const cb = ORDEN_CICLOS.indexOf(obtenerCiclo(b));
+    if (ca !== cb) return ca - cb;
+    return a.localeCompare(b);
+  });
+
+  const regiones = Object.entries(porRegion)
+    .map(([region, oficinasObj]) => {
+      const oficinas = Object.entries(oficinasObj)
+        .map(([oficina, porEstado]) => ({
+          oficina,
+          total: Object.values(porEstado).reduce((s, v) => s + v, 0),
+          porEstado,
+        }))
+        .sort((a, b) => b.total - a.total);
+      const total = oficinas.reduce((s, o) => s + o.total, 0);
+      return { region, total, oficinas };
+    })
+    .sort((a, b) => b.total - a.total);
+
+  return { regiones, estados };
+}
+
+// Conteo simple por Ciclo (Entrada/Distribución/Recepción/Ruta/
+// Resguardo), en el orden real del pipeline — para el resumen rápido de
+// Abiertas/Retornos del propio módulo Abiertas.
+export function agruparPorCiclo(lista: Guia[]): Array<{ ciclo: string; total: number }> {
+  const conteo: Record<string, number> = {};
+  lista.forEach((g) => {
+    const ciclo = obtenerCiclo(g.estado_guia);
+    conteo[ciclo] = (conteo[ciclo] || 0) + 1;
+  });
+  return ORDEN_CICLOS.filter((c) => conteo[c]).map((ciclo) => ({ ciclo, total: conteo[ciclo] }));
+}
+
+// ============================================================
 // Temporalidad por campo (oficina/entidad/región/cliente/etc.): 4
 // promedios de días (Doc→Plataforma, Plataforma→1ra Ruta, RecibidoOficina
 // →1ra Ruta, Plataforma→Confirmación) y el semáforo de "vida de la guía"

@@ -4,7 +4,16 @@ import * as XLSX from 'xlsx';
 import { LOGO_AFIMEX_BASE64 } from './logo-base64';
 import { Indemnizacion, Guia } from './types';
 import mexicoMapData from './mexico-map-data.json';
-import { FilaTemporalidad, FilaRegionOficina, FilaEfectividadTemporalidad, PuntoTendencia } from './business-logic';
+import {
+  FilaTemporalidad,
+  FilaRegionOficina,
+  FilaEfectividadTemporalidad,
+  PuntoTendencia,
+  FilaOficinaPorEstado,
+  FilaRegionPorEstado,
+  ResumenAbiertasPorEstado,
+} from './business-logic';
+export type { FilaOficinaPorEstado, FilaRegionPorEstado, ResumenAbiertasPorEstado };
 
 export interface ColumnaExport<T> {
   header: string;
@@ -2268,26 +2277,10 @@ export function exportEfectividadPDF(data: EfectividadExportData, ventanaExisten
 // ============================================================
 
 // Resumen de Guías Abiertas / Retornos Abiertos pivotado: filas = Región
-// → Oficina (jerárquico, igual que bloqueRegionOficinaHtml), columnas =
-// Estado de Guía. Reemplaza la versión plana (una fila por combinación
-// única de región+oficina+estado, que con muchas oficinas/estados podía
-// ser larguísima) — al usar Estado como columna en vez de fila, el
-// número de FILAS baja a (regiones + oficinas), sin perder ningún dato.
-export interface FilaOficinaPorEstado {
-  oficina: string;
-  total: number;
-  porEstado: Record<string, number>;
-}
-export interface FilaRegionPorEstado {
-  region: string;
-  total: number;
-  oficinas: FilaOficinaPorEstado[];
-}
-export interface ResumenAbiertasPorEstado {
-  regiones: FilaRegionPorEstado[];
-  estados: string[]; // columnas, en el orden en que deben mostrarse
-}
-
+// → Oficina, columnas = Estado de Guía. Las interfaces (FilaOficinaPorEstado,
+// FilaRegionPorEstado, ResumenAbiertasPorEstado) y la función que arma el
+// pivot (agruparPorRegionOficinaEstado) viven en business-logic.ts — se
+// importan arriba — para que el módulo Abiertas también pueda reusarlas.
 export interface ReporteConsolidadoData {
   cliente: string;
   periodoTexto: string;
@@ -2639,8 +2632,117 @@ export function exportReporteConsolidadoPDF(data: ReporteConsolidadoData, ventan
 }
 
 // ============================================================
-// REPORTE SIMPLIFICADO PARA DIRECCIÓN (rediseñado ago-2026): no es solo
-// un resumen de conteos — busca responder "¿dónde está el problema y
+// RESUMEN RÁPIDO — GUÍAS ABIERTAS / RETORNOS ABIERTOS (agregado, módulo
+// Abiertas): PDF de 1 sola página con el pivot Región→Oficina (por
+// Estado) + un resumen Por Ciclo — sin todo el resto del Reporte
+// Ejecutivo Consolidado, para cuando solo se necesita esto rápido desde
+// el propio módulo Abiertas.
+// ============================================================
+export interface ResumenAbiertasSimpleData {
+  titulo: string; // "Guías Abiertas" o "Retornos Abiertos"
+  cliente: string;
+  periodoTexto: string;
+  resumenRegionOficina: ResumenAbiertasPorEstado;
+  porCiclo: Array<{ ciclo: string; total: number }>;
+}
+
+export function exportResumenAbiertasPDF(data: ResumenAbiertasSimpleData, ventanaExistente?: Window | null) {
+  const win = ventanaExistente ?? window.open('', '_blank');
+  if (!win) {
+    alert('Tu navegador bloqueó la ventana de impresión. Habilita pop-ups para este sitio.');
+    return;
+  }
+
+  const fechaGenerado = new Date().toLocaleString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const totalGuias = data.resumenRegionOficina.regiones.reduce((s, r) => s + r.total, 0);
+
+  const tablaCiclo = data.porCiclo.length
+    ? `
+    <table>
+      <thead><tr><th>Ciclo</th><th>Guías</th></tr></thead>
+      <tbody>
+        ${data.porCiclo
+          .map(
+            (c) => `
+          <tr>
+            <td class="celda-fuerte">${escapeHtml(c.ciclo)}</td>
+            <td>${c.total.toLocaleString('es-MX')}</td>
+          </tr>`
+          )
+          .join('')}
+      </tbody>
+    </table>`
+    : '<div class="sin-datos">Sin datos para este corte</div>';
+
+  win.document.open();
+  win.document.write(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="utf-8"/>
+      <title>VIGIA - ${escapeHtml(data.titulo)}</title>
+      <style>
+        * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
+        body { font-family: Arial, Helvetica, sans-serif; padding: 16px; color: #1E293B; }
+        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1E3A8A; padding-bottom: 8px; margin-bottom: 12px; }
+        .header h1 { font-size: 19px; color: #1E3A8A; margin: 0 0 2px 0; }
+        .header .subtitulo { font-size: 12px; color: #64748B; }
+        .header .meta { font-size: 10px; color: #64748B; text-align: right; }
+        .seccion-titulo { font-size: 12px; font-weight: 800; margin: 10px 0 5px; color: #1E3A8A; }
+        .conteo { font-weight: 500; color: #64748B; font-size: 10px; }
+        .dos-columnas { display: flex; gap: 12px; align-items: flex-start; }
+        .seccion { flex: 1; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px 12px; }
+        table { width: 100%; border-collapse: collapse; font-size: 10px; }
+        th { text-align: left; padding: 3px 5px; background: #F8FAFC; border-bottom: 2px solid #E2E8F0; color: #64748B; font-size: 8.5px; text-transform: uppercase; }
+        td { padding: 2.5px 5px; border-bottom: 1px solid #F1F5F9; }
+        .celda-fuerte { font-weight: 700; }
+        .sin-datos { font-size: 10px; color: #94A3B8; padding: 6px 0; }
+        .tabla-region-oficina { font-size: 9.5px; }
+        .fila-region td { font-weight: 800; background: #F8FAFC; }
+        .fila-oficina td { padding-left: 10px; color: #334155; }
+        .footer { margin-top: 12px; font-size: 9px; color: #94A3B8; text-align: right; }
+        @media print {
+          body { padding: 8mm; }
+          @page { size: portrait; margin: 8mm; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div>
+          <h1>VIGÍA — ${escapeHtml(data.titulo)}</h1>
+          <div class="subtitulo">${escapeHtml(data.cliente)} · ${escapeHtml(data.periodoTexto)}</div>
+        </div>
+        <div class="meta">Generado: ${escapeHtml(fechaGenerado)}<br/>${totalGuias.toLocaleString('es-MX')} guías</div>
+      </div>
+
+      <div class="dos-columnas">
+        ${tablaResumenAbiertasHtml('Región / Oficina (por Estado)', data.resumenRegionOficina)}
+        <div class="seccion">
+          <div class="seccion-titulo" style="margin-top:0;">Por Ciclo</div>
+          ${tablaCiclo}
+        </div>
+      </div>
+
+      <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
+
+      <script>
+        window.onload = function() { window.print(); };
+      </script>
+    </body>
+    </html>
+  `);
+  win.document.close();
+}
+
+
 // cómo va la tendencia?", con datos ya cruzados (oficinas por
 // efectividad+volumen, excepciones por cliente, comparativo mes a mes) y
 // un resumen de hallazgos generado a partir de esos mismos datos. Sigue
