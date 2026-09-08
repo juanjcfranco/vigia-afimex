@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina, AlertaGuiaEvento } from '@/lib/types';
-import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio, ultimaExcepcion, accionEfectiva, calcularSemaforoGuia, calcularEtiquetaSeguimiento } from '@/lib/business-logic';
+import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio, ultimaExcepcion, accionEfectiva, calcularSemaforoGuia, calcularEtiquetaSeguimiento, diasRecibidoOficinaHastaResolucion } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import BulkSearch from '@/components/BulkSearch';
 import { SelectorMultiple } from '@/components/FilterBar';
@@ -292,6 +292,8 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
         return ultimaExcepcion(g).fecha;
       case 'accion':
         return accionEfectiva(g);
+      case 'recibofresolucion':
+        return diasRecibidoOficinaHastaResolucion(g);
       default:
         return temporalidadSortValue(g, key);
     }
@@ -321,6 +323,10 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
     { header: 'Acción a Seguir', value: (g: Guia) => accionEfectiva(g) || '' },
     { header: 'Fecha Creación', value: (g: Guia) => g.f_documentacion || '' },
     ...temporalidadColumnasExport(),
+    {
+      header: 'RecibOf → Entrega/Dev. (d)',
+      value: (g: Guia) => diasRecibidoOficinaHastaResolucion(g) ?? '',
+    },
   ];
 
   return (
@@ -659,6 +665,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Acción a Seguir" sortKey="accion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Fecha Creación" sortKey="fechacreacion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <TemporalidadHeaders sortKey={sortKey} sortDir={sortDir} onSort={requestSort} />
+                <SortableTh label="RecibOf → Entrega/Dev. (d)" sortKey="recibofresolucion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
@@ -746,12 +753,18 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                   <td>{accionEfectiva(g) || '—'}</td>
                   <td>{g.f_documentacion || '—'}</td>
                   <TemporalidadCells guia={g} />
+                  <td>
+                    {(() => {
+                      const dias = diasRecibidoOficinaHastaResolucion(g);
+                      return dias !== null ? `${dias}d` : '—';
+                    })()}
+                  </td>
                 </tr>
                 );
               })}
               {!filas.length && (
                 <tr>
-                  <td colSpan={24} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={25} className="text-center text-[var(--vg-text3)] py-6">
                     No hay guías abiertas con este filtro
                   </td>
                 </tr>

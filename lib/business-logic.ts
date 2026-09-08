@@ -327,6 +327,24 @@ function fechaFinDevolucion(
   return hoyIso;
 }
 
+// Días desde "Recibido Oficina" hasta que la guía se RESUELVE:
+//   - Entregada (incluye retornos ya entregados, mismo campo estado_guia):
+//     usa F_Confirmación.
+//   - Devolución: usa F_Confirmación también — ahí se registra la fecha
+//     en que se creó la devolución (confirmado, no necesita vincularse
+//     con la fila del retorno para este cálculo en particular).
+//   - Todo lo demás (sigue abierta, sea original o retorno en tránsito):
+//     mide contra HOY, el reloj sigue corriendo.
+// Usada en Guías y Abiertas para la columna "RecibOf → Entrega/Dev. (d)".
+export function diasRecibidoOficinaHastaResolucion(
+  g: Pick<Guia, 'recibido_oficina' | 'estado_guia' | 'f_confirmacion' | 'es_devolucion'>
+): number | null {
+  const hoyIso = new Date().toISOString().slice(0, 10);
+  const resuelta = isEntregada(g.estado_guia) || g.es_devolucion;
+  const fechaFin = resuelta ? g.f_confirmacion : hoyIso;
+  return diasEntreFechas(g.recibido_oficina, fechaFin);
+}
+
 export function temporalidadDe(
   lista: Guia[],
   retornoPorGuia: Map<string, Guia> = new Map()

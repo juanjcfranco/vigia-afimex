@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { esRetornoAmplio, ultimaExcepcion } from '@/lib/business-logic';
+import { esRetornoAmplio, ultimaExcepcion, diasRecibidoOficinaHastaResolucion } from '@/lib/business-logic';
 import AccionBadge from '@/components/AccionBadge';
 import BulkSearch from '@/components/BulkSearch';
 import { exportToExcel, exportToPDF } from '@/lib/export';
@@ -130,6 +130,8 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
           return g.f_confirmacion;
         case 'fdoc':
           return g.f_documentacion;
+        case 'recibofresolucion':
+          return diasRecibidoOficinaHastaResolucion(g);
         default:
           return temporalidadSortValue(g, key);
       }
@@ -168,6 +170,10 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
     { header: 'Fecha de Entrega', value: (g: Guia) => g.f_confirmacion || '' },
     { header: 'F. Documentación', value: (g: Guia) => g.f_documentacion || '' },
     ...temporalidadColumnasExport(),
+    {
+      header: 'RecibOf → Entrega/Dev. (d)',
+      value: (g: Guia) => diasRecibidoOficinaHastaResolucion(g) ?? '',
+    },
   ];
 
   return (
@@ -256,6 +262,7 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Fecha de Entrega" sortKey="fentrega" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="F. Documentación" sortKey="fdoc" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <TemporalidadHeaders sortKey={sortKey} sortDir={sortDir} onSort={requestSort} />
+                <SortableTh label="RecibOf → Entrega/Dev. (d)" sortKey="recibofresolucion" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
               </tr>
             </thead>
             <tbody>
@@ -290,11 +297,17 @@ export default function GuiasModule({ guias }: { guias: Guia[] }) {
                   <td>{g.f_confirmacion || '—'}</td>
                   <td>{g.f_documentacion || '—'}</td>
                   <TemporalidadCells guia={g} />
+                  <td>
+                    {(() => {
+                      const dias = diasRecibidoOficinaHastaResolucion(g);
+                      return dias !== null ? `${dias}d` : '—';
+                    })()}
+                  </td>
                 </tr>
               ))}
               {!filas.length && (
                 <tr>
-                  <td colSpan={23} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={24} className="text-center text-[var(--vg-text3)] py-6">
                     No se encontraron guías
                   </td>
                 </tr>
