@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Guia, Carga } from './types';
-import { isEntregada, isAbiertaPorEstado, calcularEfectividad, esGuiaOriginal, esRetornoAmplio } from './business-logic';
+import { isEntregada, isAbiertaPorEstado, calcularEfectividad, esGuiaOriginal, esRetornoAmplio, calcularDiasSinMovimiento } from './business-logic';
 
 export function useVigiaData() {
   const [cargas, setCargas] = useState<Carga[]>([]);
@@ -91,7 +91,21 @@ export function useVigiaData() {
         }
       }
 
-      setGuias(todas);
+      // "dias_sin_movimiento" se calculó UNA VEZ al momento de subir el
+      // archivo (hoy - F_Historia, en ese instante) y así quedó guardado
+      // en Supabase — NO se recalcula solo con el paso de los días. Si el
+      // corte se subió hace varios días y no se ha vuelto a cargar, ese
+      // número queda desactualizado (más bajo de lo que realmente es
+      // hoy), lo que hace parecer que hay menos guías críticas de las que
+      // en realidad hay. Se recalcula aquí, EN VIVO contra la fecha de
+      // hoy, en un solo lugar — así toda la app (semáforo, Abiertas,
+      // Reporte Ejecutivo, etc.) queda corregida de una sola vez, sin
+      // depender de qué tan reciente sea la carga.
+      const todasConDiasActualizados = todas.map((g) => ({
+        ...g,
+        dias_sin_movimiento: calcularDiasSinMovimiento(g.f_historia),
+      }));
+      setGuias(todasConDiasActualizados);
     } catch {
       setError('No se pudieron cargar las guías');
     } finally {
