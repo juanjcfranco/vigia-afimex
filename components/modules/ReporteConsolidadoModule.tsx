@@ -407,12 +407,12 @@ export default function ReporteConsolidadoModule({
     // Peor oficina DENTRO de cada región (mismo score volumen×(100-ef.)
     // que "Oficinas que Requieren Atención", pero acotado región por
     // región) — para el hallazgo de "compartir plan de acción por plaza".
-    // Excluye Concesionarios/Virtual (esas ya tienen su propia sección).
+    // Incluye TODAS las regiones, Concesionarios y Virtual también, ya
+    // que ahora los hallazgos se agrupan por región (Concesionarios como
+    // su propia región dentro del agrupado).
     // ============================================================
     const VOLUMEN_MINIMO_REGION = 10;
-    const regionesConDatos = [...new Set(porOficina.map((o) => obtenerRegion(o.key)))].filter(
-      (r) => r !== 'CONCESIONARIOS' && r !== 'VIRTUAL'
-    );
+    const regionesConDatos = [...new Set(porOficina.map((o) => obtenerRegion(o.key)))];
     const peorOficinaPorRegion = regionesConDatos
       .map((region) => {
         const oficinasRegion = porOficina.filter(
@@ -462,6 +462,16 @@ export default function ReporteConsolidadoModule({
       .slice(0, 5)
       .map(({ oficina, promedioDias, totalEntregadas }) => ({ oficina, promedioDias, totalEntregadas }));
 
+    // Peor oficina en días de entrega, DENTRO de cada región (para el
+    // agrupado de hallazgos por región).
+    const peorDiasEntregaPorRegion = new Map<string, { oficina: string; promedioDias: number }>();
+    promedioDiasPorOficina.forEach((o) => {
+      const actual = peorDiasEntregaPorRegion.get(o.region);
+      if (!actual || o.promedioDias > actual.promedioDias) {
+        peorDiasEntregaPorRegion.set(o.region, { oficina: o.oficina, promedioDias: o.promedioDias });
+      }
+    });
+
     // ============================================================
     // Regla 80/20: qué oficinas concentran el 80% del volumen total, y
     // qué oficinas concentran el 80% de las guías "no efectivas"
@@ -495,17 +505,24 @@ export default function ReporteConsolidadoModule({
       .sort((a, b) => b.cantidad - a.cantidad);
 
     // ============================================================
-    // Hallazgos automáticos — frases generadas a partir de los mismos
-    // datos de arriba, para no obligar a leer todas las tablas.
+    // Hallazgos automáticos — separados en "generales" (a nivel de todo
+    // el corte) y "por región" (un grupo de mensajes por cada región,
+    // Concesionarios incluida como su propia región).
     // ============================================================
-    const hallazgos: string[] = [];
+    const hallazgosGenerales: string[] = [];
+    const hallazgosPorRegionMap: Record<string, string[]> = {};
+    function agregarHallazgoRegion(region: string, mensaje: string) {
+      if (!hallazgosPorRegionMap[region]) hallazgosPorRegionMap[region] = [];
+      hallazgosPorRegionMap[region].push(mensaje);
+    }
+
     if (paretoVolumen.filas.length) {
-      hallazgos.push(
+      hallazgosGenerales.push(
         `El 80% del volumen total se concentra en ${paretoVolumen.filas.length} de ${paretoVolumen.totalOficinas} oficinas (${paretoVolumen.pctOficinas}%).`
       );
     }
     if (paretoNoEfectivas.filas.length) {
-      hallazgos.push(
+      hallazgosGenerales.push(
         `El 80% de las guías no efectivas (devoluciones + abiertas) se concentra en ${paretoNoEfectivas.filas.length} de ${paretoNoEfectivas.totalOficinas} oficinas (${paretoNoEfectivas.pctOficinas}%).`
       );
     }
@@ -526,76 +543,65 @@ export default function ReporteConsolidadoModule({
             delta > 0
               ? `La efectividad subió ${Math.abs(delta)} puntos en ${formatearPeriodo(ultimo.mes)} respecto al mes anterior.`
               : `La efectividad de ${formatearPeriodo(ultimo.mes)} está ${Math.abs(delta)} puntos por debajo del mes anterior — cifra preliminar, ya que aún hay guías abiertas en proceso que podrían elevar este porcentaje conforme se resuelvan.`;
-          hallazgos.push(mensaje);
+          hallazgosGenerales.push(mensaje);
         }
       }
     }
-    if (oficinasAtencion.length) {
-      const peor = oficinasAtencion[0];
-      hallazgos.push(
-        `La oficina con mayor volumen y efectividad baja es ${peor.oficina} (${peor.total.toLocaleString('es-MX')} guías, ${peor.efectividad}% de efectividad).`
-      );
-    }
     if (oficinasCriticas.length) {
       const totalCriticas = oficinasCriticas.reduce((s, o) => s + o.criticas, 0);
-      hallazgos.push(
+      hallazgosGenerales.push(
         `${totalCriticas.toLocaleString('es-MX')} guías están en seguimiento crítico (5+ días sin movimiento), concentradas principalmente en ${oficinasCriticas[0].oficina}.`
       );
     }
     if (pendientes30Mas > 0) {
-      hallazgos.push(`${pendientes30Mas.toLocaleString('es-MX')} guías llevan 30+ días sin movimiento y requieren cierre operativo.`);
+      hallazgosGenerales.push(`${pendientes30Mas.toLocaleString('es-MX')} guías llevan 30+ días sin movimiento y requieren cierre operativo.`);
     }
     if (retornosAbiertos > 0) {
-      hallazgos.push(`${retornosAbiertos.toLocaleString('es-MX')} retornos siguen abiertos (el paquete de la devolución aún no llega).`);
+      hallazgosGenerales.push(`${retornosAbiertos.toLocaleString('es-MX')} retornos siguen abiertos (el paquete de la devolución aún no llega).`);
     }
     if (topExcepcionesPorCliente.length) {
       const top = topExcepcionesPorCliente[0];
-      hallazgos.push(`El cliente con la excepción más concentrada es ${top.cliente}: "${top.excepcion}" (${top.cantidad.toLocaleString('es-MX')} guías).`);
+      hallazgosGenerales.push(`El cliente con la excepción más concentrada es ${top.cliente}: "${top.excepcion}" (${top.cantidad.toLocaleString('es-MX')} guías).`);
     }
+
+    // Por región: peor oficina por efectividad + peor oficina por días de
+    // entrega, cada una en el grupo de SU región (Concesionarios incluida).
     peorOficinaPorRegion.forEach((p) => {
-      hallazgos.push(
-        `${p.region}: la oficina con mayor oportunidad de mejora es ${p.oficina} (${p.total.toLocaleString('es-MX')} guías, ${p.efectividad}% de efectividad) — se recomienda compartir la situación de la plaza, informar las áreas de oportunidad, y definir un plan de acción para mejorar la efectividad.`
+      agregarHallazgoRegion(
+        p.region,
+        `La oficina con mayor oportunidad de mejora es ${p.oficina} (${p.total.toLocaleString('es-MX')} guías, ${p.efectividad}% de efectividad) — se recomienda compartir la situación de la plaza, informar las áreas de oportunidad, y definir un plan de acción para mejorar la efectividad.`
       );
     });
-    if (topOficinasDiasEntrega.length) {
-      const peor = topOficinasDiasEntrega[0];
-      hallazgos.push(
-        `La oficina con más días promedio para entregar (Recibido Oficina → Confirmación) es ${peor.oficina}: ${peor.promedioDias} días.`
+    peorDiasEntregaPorRegion.forEach((info, region) => {
+      agregarHallazgoRegion(
+        region,
+        `La oficina con más días promedio para entregar (Recibido Oficina → Confirmación) es ${info.oficina}: ${info.promedioDias} días.`
       );
-    }
-    if (topConcesionariosDiasEntrega.length) {
-      const peor = topConcesionariosDiasEntrega[0];
-      hallazgos.push(
-        `El concesionario con más días promedio para entregar es ${peor.oficina}: ${peor.promedioDias} días.`
-      );
-    }
+    });
 
     // ============================================================
     // Objetivo de efectividad COD: la mayoría de clientes con este
     // esquema piden entre 60-65%. Si la efectividad general no llega al
-    // mínimo de ese rango (60%), se pide un plan de acción, desglosado
-    // por región para ver dónde está el mayor déficit y cuánto falta.
+    // mínimo de ese rango (60%), se pide un plan de acción — el mensaje
+    // general va en "generales", y el déficit de cada región va en el
+    // grupo de esa región.
     // ============================================================
     const UMBRAL_EFECTIVIDAD_COD = 60;
     if (efectividad !== null && efectividad < UMBRAL_EFECTIVIDAD_COD) {
-      hallazgos.push(
+      hallazgosGenerales.push(
         `La efectividad general (${efectividad}%) está por debajo del rango que la mayoría de clientes COD solicita (60-65%) — se recomienda compartir un plan de acción para elevar el porcentaje.`
       );
-      const regionesBajoObjetivo = comparativoRegion
+      comparativoRegion
         .filter((r) => r.efectividad !== null && r.efectividad < UMBRAL_EFECTIVIDAD_COD)
-        .map((r) => ({
-          region: r.region,
-          efectividad: r.efectividad as number,
-          faltante: Number((UMBRAL_EFECTIVIDAD_COD - (r.efectividad as number)).toFixed(1)),
-        }))
-        .sort((a, b) => b.faltante - a.faltante);
-      regionesBajoObjetivo.slice(0, 5).forEach((r) => {
-        hallazgos.push(`Región ${r.region}: ${r.efectividad}% de efectividad — faltan ${r.faltante} puntos para llegar al 60%.`);
-      });
-      if (regionesBajoObjetivo.length > 5) {
-        hallazgos.push(`+ ${regionesBajoObjetivo.length - 5} región(es) más por debajo del objetivo de 60%.`);
-      }
+        .forEach((r) => {
+          const faltante = Number((UMBRAL_EFECTIVIDAD_COD - (r.efectividad as number)).toFixed(1));
+          agregarHallazgoRegion(r.region, `Efectividad: ${r.efectividad}% — faltan ${faltante} puntos para llegar al 60% que piden los clientes COD.`);
+        });
     }
+
+    const hallazgosPorRegion = Object.entries(hallazgosPorRegionMap)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([region, mensajes]) => ({ region, mensajes }));
 
     exportReporteSimplificadoPDF(
       {
@@ -628,7 +634,8 @@ export default function ReporteConsolidadoModule({
         paretoVolumen,
         paretoNoEfectivas,
         topExcepcionesPorCliente,
-        hallazgos,
+        hallazgosGenerales,
+        hallazgosPorRegion,
         retornosAbiertos,
         pendientes30Mas,
       },

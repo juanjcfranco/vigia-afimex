@@ -2803,8 +2803,13 @@ export interface ReporteSimplificadoData {
   topExcepcionesPorCliente: FilaExcepcionPorCliente[];
 
   // Hallazgos / desviaciones generados automáticamente a partir de los
-  // datos de arriba — frases breves, no un análisis exhaustivo.
-  hallazgos: string[];
+  // datos de arriba. Se dividen en dos:
+  // - Generales: tendencias/issues a nivel de todo el corte (no ligados a
+  //   una región en particular).
+  // - Por región: agrupados, un bloque por cada región (Concesionarios
+  //   incluida como su propia región) con sus propios hallazgos.
+  hallazgosGenerales: string[];
+  hallazgosPorRegion: Array<{ region: string; mensajes: string[] }>;
 
   retornosAbiertos: number;
   pendientes30Mas: number;
@@ -3152,9 +3157,21 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
     </table>`
     : '<div class="sin-datos">Sin excepciones registradas</div>';
 
-  const listaHallazgos = data.hallazgos.length
-    ? `<ul class="hallazgos-lista">${data.hallazgos.map((h) => `<li>${escapeHtml(h)}</li>`).join('')}</ul>`
-    : '<div class="sin-datos">Sin hallazgos relevantes detectados en este corte</div>';
+  const listaHallazgosGenerales = data.hallazgosGenerales.length
+    ? `<ul class="hallazgos-lista">${data.hallazgosGenerales.map((h) => `<li>${escapeHtml(h)}</li>`).join('')}</ul>`
+    : '<div class="sin-datos">Sin hallazgos generales relevantes en este corte</div>';
+
+  const bloqueHallazgosPorRegion = data.hallazgosPorRegion.length
+    ? data.hallazgosPorRegion
+        .map(
+          (grupo) => `
+      <div style="margin-top:8px;">
+        <div style="font-size:11px;font-weight:800;color:#1E3A8A;margin-bottom:2px;">${escapeHtml(grupo.region)}</div>
+        <ul class="hallazgos-lista" style="margin-bottom:0;">${grupo.mensajes.map((m) => `<li>${escapeHtml(m)}</li>`).join('')}</ul>
+      </div>`
+        )
+        .join('')
+    : '<div class="sin-datos">Sin hallazgos por región en este corte</div>';
 
   win.document.open();
   win.document.write(`
@@ -3205,7 +3222,12 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
 
       <div class="hallazgos-box">
         <div class="seccion-titulo" style="margin-top:0;">🔎 Principales Hallazgos / Tendencias</div>
-        ${listaHallazgos}
+        ${listaHallazgosGenerales}
+      </div>
+
+      <div class="hallazgos-box">
+        <div class="seccion-titulo" style="margin-top:0;">📍 Hallazgos por Región (incluye Concesionarios)</div>
+        ${bloqueHallazgosPorRegion}
       </div>
 
       <div class="dos-columnas">
