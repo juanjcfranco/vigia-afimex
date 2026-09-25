@@ -142,6 +142,25 @@ export default function ReporteConsolidadoModule({
     const abiertasLista = guiasOriginales.filter((g) => isAbiertaPorEstado(g));
     const abiertas = abiertasLista.length;
     const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
+    // Efectividad agregada de TODAS las oficinas juntas (excluye
+    // Concesionarios y Virtual) y de TODOS los concesionarios juntos —
+    // un solo número por grupo, sin desglosar cada plaza, para tener un
+    // punto de referencia rápido al lado de la efectividad general.
+    const guiasOriginalesOficinas = guiasOriginales.filter((g) => {
+      const region = obtenerRegion(g.oficina_destino);
+      return region !== 'CONCESIONARIOS' && region !== 'VIRTUAL';
+    });
+    const guiasOriginalesConcesionarios = guiasOriginales.filter((g) => obtenerRegion(g.oficina_destino) === 'CONCESIONARIOS');
+    const efectividadOficinas = calcularEfectividad(
+      guiasOriginalesOficinas.filter((g) => isEntregada(g.estado_guia)).length,
+      guiasOriginalesOficinas.filter((g) => g.es_devolucion).length,
+      guiasOriginalesOficinas.filter((g) => isAbiertaPorEstado(g)).length
+    );
+    const efectividadConcesionarios = calcularEfectividad(
+      guiasOriginalesConcesionarios.filter((g) => isEntregada(g.estado_guia)).length,
+      guiasOriginalesConcesionarios.filter((g) => g.es_devolucion).length,
+      guiasOriginalesConcesionarios.filter((g) => isAbiertaPorEstado(g)).length
+    );
     const temporalidadGeneral = temporalidadPorCampo(guias, () => 'TOTAL')[0] ?? null;
 
     const pendientes30Mas = abiertasLista.filter((g) => (g.dias_sin_movimiento ?? 0) >= 30).length;
@@ -605,11 +624,18 @@ export default function ReporteConsolidadoModule({
 
     // Por región: peor oficina por efectividad + peor oficina por días de
     // entrega, cada una en el grupo de SU región (Concesionarios incluida).
+    // Si esa oficina YA supera el umbral que piden los clientes COD (60%),
+    // el mensaje es más suave: sigue siendo la más rezagada DENTRO de su
+    // región (área de oportunidad frente a sus pares), pero no amerita un
+    // plan de acción urgente — a diferencia de una oficina que de verdad
+    // está por debajo del objetivo.
+    const UMBRAL_EFECTIVIDAD_COD = 60;
     peorOficinaPorRegion.forEach((p) => {
-      agregarHallazgoRegion(
-        p.region,
-        `La oficina con mayor oportunidad de mejora es ${p.oficina} (${p.total.toLocaleString('es-MX')} guías, ${p.efectividad}% de efectividad) — se recomienda compartir la situación de la plaza, informar las áreas de oportunidad, y definir un plan de acción para mejorar la efectividad.`
-      );
+      const superaObjetivo = p.efectividad !== null && p.efectividad >= UMBRAL_EFECTIVIDAD_COD;
+      const mensaje = superaObjetivo
+        ? `${p.oficina} es la oficina relativamente más rezagada dentro de la región (${p.total.toLocaleString('es-MX')} guías, ${p.efectividad}% de efectividad) — sí tiene área de oportunidad frente a sus pares, pero ya está por encima del 60% objetivo, no requiere plan de acción urgente.`
+        : `La oficina con mayor oportunidad de mejora es ${p.oficina} (${p.total.toLocaleString('es-MX')} guías, ${p.efectividad}% de efectividad) — se recomienda compartir la situación de la plaza, informar las áreas de oportunidad, y definir un plan de acción para mejorar la efectividad.`;
+      agregarHallazgoRegion(p.region, mensaje);
     });
     // Oficinas/concesionarios críticos por umbral fijo: se agregan además
     // del "peor por región" de arriba (no lo reemplazan), evitando mensaje
@@ -644,7 +670,6 @@ export default function ReporteConsolidadoModule({
     // general va en "generales", y el déficit de cada región va en el
     // grupo de esa región.
     // ============================================================
-    const UMBRAL_EFECTIVIDAD_COD = 60;
     if (efectividad !== null && efectividad < UMBRAL_EFECTIVIDAD_COD) {
       hallazgosGenerales.push(
         `La efectividad general (${efectividad}%) está por debajo del rango que la mayoría de clientes COD solicita (60-65%) — se recomienda compartir un plan de acción para elevar el porcentaje.`
@@ -672,6 +697,8 @@ export default function ReporteConsolidadoModule({
           devoluciones,
           abiertas,
           efectividad,
+          efectividadOficinas,
+          efectividadConcesionarios,
           pctDentroDe15Dias: temporalidadGeneral?.pctVerde ?? null,
         },
         oficinasAtencion,
@@ -758,6 +785,24 @@ export default function ReporteConsolidadoModule({
       (g) => !retornoEstaEntregado(g, g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined)
     ).length;
     const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
+    // Efectividad agregada de TODAS las oficinas juntas (excluye
+    // Concesionarios y Virtual) y de TODOS los concesionarios juntos —
+    // ver mismo cálculo/comentario en el bloque del Resumen más arriba.
+    const guiasOriginalesOficinas = guiasOriginales.filter((g) => {
+      const region = obtenerRegion(g.oficina_destino);
+      return region !== 'CONCESIONARIOS' && region !== 'VIRTUAL';
+    });
+    const guiasOriginalesConcesionarios = guiasOriginales.filter((g) => obtenerRegion(g.oficina_destino) === 'CONCESIONARIOS');
+    const efectividadOficinas = calcularEfectividad(
+      guiasOriginalesOficinas.filter((g) => isEntregada(g.estado_guia)).length,
+      guiasOriginalesOficinas.filter((g) => g.es_devolucion).length,
+      guiasOriginalesOficinas.filter((g) => isAbiertaPorEstado(g)).length
+    );
+    const efectividadConcesionarios = calcularEfectividad(
+      guiasOriginalesConcesionarios.filter((g) => isEntregada(g.estado_guia)).length,
+      guiasOriginalesConcesionarios.filter((g) => g.es_devolucion).length,
+      guiasOriginalesConcesionarios.filter((g) => isAbiertaPorEstado(g)).length
+    );
 
     // 2) KPIs de Temporalidad (resumen general del corte actual)
     const temporalidadGeneral = temporalidadPorCampo(guias, () => 'TOTAL')[0] ?? null;
@@ -805,6 +850,8 @@ export default function ReporteConsolidadoModule({
           abiertas,
           retornosAbiertos: retornosAbiertosCount,
           efectividad,
+          efectividadOficinas,
+          efectividadConcesionarios,
           predoc,
           documentadas,
           canceladas,

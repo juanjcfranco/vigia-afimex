@@ -2296,6 +2296,8 @@ export interface ReporteConsolidadoData {
     abiertas: number;
     retornosAbiertos: number;
     efectividad: number | null;
+    efectividadOficinas: number | null;
+    efectividadConcesionarios: number | null;
     predoc: number;
     documentadas: number;
     canceladas: number;
@@ -2467,6 +2469,24 @@ export function exportReporteConsolidadoPDF(data: ReporteConsolidadoData, ventan
       label: 'Efectividad',
       value: k.efectividad !== null ? `${k.efectividad}%` : '—',
       color: k.efectividad === null ? '#94A3B8' : k.efectividad >= 70 ? '#0B9B67' : k.efectividad >= 50 ? '#EA7C1A' : '#DC2626',
+    },
+    {
+      label: 'Efectividad Oficinas',
+      value: k.efectividadOficinas !== null ? `${k.efectividadOficinas}%` : '—',
+      color:
+        k.efectividadOficinas === null ? '#94A3B8' : k.efectividadOficinas >= 70 ? '#0B9B67' : k.efectividadOficinas >= 50 ? '#EA7C1A' : '#DC2626',
+    },
+    {
+      label: 'Efectividad Concesionarios',
+      value: k.efectividadConcesionarios !== null ? `${k.efectividadConcesionarios}%` : '—',
+      color:
+        k.efectividadConcesionarios === null
+          ? '#94A3B8'
+          : k.efectividadConcesionarios >= 70
+            ? '#0B9B67'
+            : k.efectividadConcesionarios >= 50
+              ? '#EA7C1A'
+              : '#DC2626',
     },
     { label: 'Pre-Documentadas', value: k.predoc.toLocaleString('es-MX'), color: '#0891B2' },
     { label: 'Documentadas', value: k.documentadas.toLocaleString('es-MX'), color: '#0891B2' },
@@ -2848,6 +2868,8 @@ export interface ReporteSimplificadoData {
     devoluciones: number;
     abiertas: number;
     efectividad: number | null;
+    efectividadOficinas: number | null;
+    efectividadConcesionarios: number | null;
     pctDentroDe15Dias: number | null;
   };
 
@@ -2950,6 +2972,16 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
       label: '% Dentro de 15 Días',
       value: k.pctDentroDe15Dias !== null ? `${k.pctDentroDe15Dias}%` : '—',
       color: colorEfectividadSimplificado(k.pctDentroDe15Dias),
+    },
+    {
+      label: 'Efectividad Oficinas',
+      value: k.efectividadOficinas !== null ? `${k.efectividadOficinas}%` : '—',
+      color: colorEfectividadSimplificado(k.efectividadOficinas),
+    },
+    {
+      label: 'Efectividad Concesionarios',
+      value: k.efectividadConcesionarios !== null ? `${k.efectividadConcesionarios}%` : '—',
+      color: colorEfectividadSimplificado(k.efectividadConcesionarios),
     },
   ]
     .map(
@@ -3289,7 +3321,7 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
         .header h1 { font-size: 19px; color: #1E3A8A; margin: 0 0 2px 0; }
         .header .subtitulo { font-size: 12px; color: #64748B; }
         .header .meta { font-size: 10px; color: #64748B; text-align: right; }
-        .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 10px; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
         .kpi-card { border: 1px solid #E2E8F0; border-radius: 6px; padding: 7px 6px; background: #F8FAFC; text-align: center; }
         .kpi-label { font-size: 8px; font-weight: 700; color: #64748B; margin-bottom: 2px; text-transform: uppercase; }
         .kpi-value { font-size: 15px; font-weight: 800; }
