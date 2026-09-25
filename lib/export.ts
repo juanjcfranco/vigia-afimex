@@ -974,6 +974,7 @@ function bloqueTemporalidadHtml(titulo: string, subtitulo: string, lista: FilaTe
             <th>Plataf.→1ra Ruta</th>
             <th>RecibOf→1ra Ruta</th>
             <th>Plataf.→Confirm.</th>
+            <th>RecibOf→Confirm.</th>
             <th>% ≤15d</th>
             <th>Total</th>
           </tr>
@@ -989,6 +990,7 @@ function bloqueTemporalidadHtml(titulo: string, subtitulo: string, lista: FilaTe
               <td>${fmtDias(f.plataformaRuta)}</td>
               <td>${fmtDias(f.recibofRuta)}</td>
               <td>${fmtDias(f.plataformaConfirmacion)}</td>
+              <td>${fmtDias(f.recibofConfirmacion)}</td>
               <td><span style="font-weight:800;color:${color};">${f.pctVerde !== null ? `${f.pctVerde}%` : '—'}</span> <span class="celda-vol">(${f.verde}/${f.verde + f.rojo})</span></td>
               <td>${f.total.toLocaleString('es-MX')}</td>
             </tr>`;
@@ -1035,6 +1037,7 @@ function bloqueRegionOficinaHtml(data: FilaRegionOficina[]): string {
           <td>${fmtDias(r.plataformaRuta)}</td>
           <td>${fmtDias(r.recibofRuta)}</td>
           <td>${fmtDias(r.plataformaConfirmacion)}</td>
+          <td>${fmtDias(r.recibofConfirmacion)}</td>
           <td>${filaPct15(r)}</td>
         </tr>`;
       const filasOficina = r.oficinas
@@ -1048,6 +1051,7 @@ function bloqueRegionOficinaHtml(data: FilaRegionOficina[]): string {
           <td>${fmtDias(of.plataformaRuta)}</td>
           <td>${fmtDias(of.recibofRuta)}</td>
           <td>${fmtDias(of.plataformaConfirmacion)}</td>
+          <td>${fmtDias(of.recibofConfirmacion)}</td>
           <td>${filaPct15(of)}</td>
         </tr>`
         )
@@ -1070,6 +1074,7 @@ function bloqueRegionOficinaHtml(data: FilaRegionOficina[]): string {
             <th>Plataf.→1ra Ruta</th>
             <th>RecibOf→1ra Ruta</th>
             <th>Plataf.→Confirm.</th>
+            <th>RecibOf→Confirm.</th>
             <th>% ≤15d</th>
           </tr>
         </thead>
@@ -2365,6 +2370,7 @@ function bloqueEfectividadTemporalidadPlanoHtml(
       <td>${fmtDias(f.plataformaRuta)}</td>
       <td>${fmtDias(f.recibofRuta)}</td>
       <td>${fmtDias(f.plataformaConfirmacion)}</td>
+      <td>${fmtDias(f.recibofConfirmacion)}</td>
       <td>${filaPct15(f)}</td>
     </tr>`
     )
@@ -2383,6 +2389,7 @@ function bloqueEfectividadTemporalidadPlanoHtml(
             <th>Plataf.→1ra Ruta</th>
             <th>RecibOf→1ra Ruta</th>
             <th>Plataf.→Confirm.</th>
+            <th>RecibOf→Confirm.</th>
             <th>% ≤15d</th>
           </tr>
         </thead>
@@ -2508,6 +2515,7 @@ export function exportReporteConsolidadoPDF(data: ReporteConsolidadoData, ventan
         { label: 'Plataforma→1ra Ruta', value: t.plataformaRuta !== null ? `${t.plataformaRuta}d` : '—', color: '#0B9B67' },
         { label: 'RecibOf→1ra Ruta', value: t.recibofRuta !== null ? `${t.recibofRuta}d` : '—', color: '#B45309' },
         { label: 'Plataforma→Confirmación', value: t.plataformaConfirmacion !== null ? `${t.plataformaConfirmacion}d` : '—', color: '#7C3AED' },
+        { label: 'RecibOf→Confirmación', value: t.recibofConfirmacion !== null ? `${t.recibofConfirmacion}d` : '—', color: '#B45309' },
         {
           label: '% Dentro de 15 Días',
           value: t.pctVerde !== null ? `${t.pctVerde}%` : '—',
@@ -2870,6 +2878,7 @@ export interface ReporteSimplificadoData {
     efectividad: number | null;
     efectividadOficinas: number | null;
     efectividadConcesionarios: number | null;
+    recibofConfirmacion: number | null;
     pctDentroDe15Dias: number | null;
   };
 
@@ -2982,6 +2991,11 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
       label: 'Efectividad Concesionarios',
       value: k.efectividadConcesionarios !== null ? `${k.efectividadConcesionarios}%` : '—',
       color: colorEfectividadSimplificado(k.efectividadConcesionarios),
+    },
+    {
+      label: 'RecibOf→Confirmación',
+      value: k.recibofConfirmacion !== null ? `${k.recibofConfirmacion}d` : '—',
+      color: '#B45309',
     },
   ]
     .map(
@@ -3321,7 +3335,7 @@ export function exportReporteSimplificadoPDF(data: ReporteSimplificadoData, vent
         .header h1 { font-size: 19px; color: #1E3A8A; margin: 0 0 2px 0; }
         .header .subtitulo { font-size: 12px; color: #64748B; }
         .header .meta { font-size: 10px; color: #64748B; text-align: right; }
-        .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
         .kpi-card { border: 1px solid #E2E8F0; border-radius: 6px; padding: 7px 6px; background: #F8FAFC; text-align: center; }
         .kpi-label { font-size: 8px; font-weight: 700; color: #64748B; margin-bottom: 2px; text-transform: uppercase; }
         .kpi-value { font-size: 15px; font-weight: 800; }

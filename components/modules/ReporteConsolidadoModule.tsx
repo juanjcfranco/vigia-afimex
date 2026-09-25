@@ -699,6 +699,7 @@ export default function ReporteConsolidadoModule({
           efectividad,
           efectividadOficinas,
           efectividadConcesionarios,
+          recibofConfirmacion: temporalidadGeneral?.recibofConfirmacion ?? null,
           pctDentroDe15Dias: temporalidadGeneral?.pctVerde ?? null,
         },
         oficinasAtencion,

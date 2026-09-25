@@ -344,6 +344,8 @@ export interface FilaTemporalidad {
   nRecibofRuta: number;
   plataformaConfirmacion: number | null;
   nPlataformaConfirmacion: number;
+  recibofConfirmacion: number | null;
+  nRecibofConfirmacion: number;
   verde: number;
   rojo: number;
   sinDato: number;
@@ -427,6 +429,7 @@ export function temporalidadDe(
     plataformaRuta: [] as number[],
     recibofRuta: [] as number[],
     plataformaConfirmacion: [] as number[],
+    recibofConfirmacion: [] as number[],
   };
   let verde = 0;
   let rojo = 0;
@@ -441,6 +444,13 @@ export function temporalidadDe(
     if (b !== null) acc.plataformaRuta.push(b);
     const c = diasEntreFechas(g.recibido_oficina, g.primera_ruta);
     if (c !== null) acc.recibofRuta.push(c);
+    // "RecibOf → Confirmación": mismo criterio de resolución que usa
+    // diasRecibidoOficinaHastaResolucion() para la columna de Guías/
+    // Abiertas — entregada o devolución usa F_Confirmación, todo lo demás
+    // (sigue abierta) mide contra HOY. Reutilizamos esa misma función para
+    // no duplicar el criterio en dos lugares.
+    const cConf = diasRecibidoOficinaHastaResolucion(g);
+    if (cConf !== null) acc.recibofConfirmacion.push(cConf);
     // "Plataforma → Confirmación": entregadas usan su F_Confirmación;
     // abiertas (sin contar devoluciones, que tienen su propia métrica vía
     // el retorno) se miden contra HOY — el reloj sigue corriendo mientras
@@ -492,6 +502,8 @@ export function temporalidadDe(
     nRecibofRuta: acc.recibofRuta.length,
     plataformaConfirmacion: promedio(acc.plataformaConfirmacion),
     nPlataformaConfirmacion: acc.plataformaConfirmacion.length,
+    recibofConfirmacion: promedio(acc.recibofConfirmacion),
+    nRecibofConfirmacion: acc.recibofConfirmacion.length,
     verde,
     rojo,
     sinDato,

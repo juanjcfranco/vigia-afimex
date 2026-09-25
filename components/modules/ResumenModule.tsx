@@ -554,7 +554,7 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
 
       <div>
         <div className="font-bold text-[13px] mb-2">Temporalidad (sobre Guías Procesadas)</div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           <KpiCard
             title="Documentación → Plataforma"
             value={resumenTemporalidad?.docPlataforma != null ? `${resumenTemporalidad.docPlataforma}d` : '—'}
@@ -578,6 +578,12 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
             value={resumenTemporalidad?.plataformaConfirmacion != null ? `${resumenTemporalidad.plataformaConfirmacion}d` : '—'}
             subtitle={`Promedio · Entregadas: F_Confirmación · Abiertas: hoy · ${(resumenTemporalidad?.nPlataformaConfirmacion ?? 0).toLocaleString('es-MX')} guía(s) con dato`}
             accentColor="#7C3AED"
+          />
+          <KpiCard
+            title="Recibido Oficina → Confirmación"
+            value={resumenTemporalidad?.recibofConfirmacion != null ? `${resumenTemporalidad.recibofConfirmacion}d` : '—'}
+            subtitle={`Promedio · Entregadas/Devoluciones: F_Confirmación · Abiertas: hoy · ${(resumenTemporalidad?.nRecibofConfirmacion ?? 0).toLocaleString('es-MX')} guía(s) con dato`}
+            accentColor="#B45309"
           />
           <KpiCard
             title="Promedio Vida (Plataf. → Entrega/Retorno)"
