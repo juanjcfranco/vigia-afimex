@@ -564,6 +564,21 @@ export default function ReporteConsolidadoModule({
       const top = topExcepcionesPorCliente[0];
       hallazgosGenerales.push(`El cliente con la excepción más concentrada es ${top.cliente}: "${top.excepcion}" (${top.cantidad.toLocaleString('es-MX')} guías).`);
     }
+    // "Quién tarda más en resolver" a nivel de TODA la red — antes solo
+    // existía el desglose por región (peorDiasEntregaPorRegion, más abajo);
+    // faltaba esta versión general en Principales Hallazgos.
+    if (topOficinasDiasEntrega.length) {
+      const peor = topOficinasDiasEntrega[0];
+      hallazgosGenerales.push(
+        `La oficina que más tarda en resolver (Recibido Oficina → Confirmación) es ${peor.oficina}: ${peor.promedioDias} días en promedio (${peor.totalGuias.toLocaleString('es-MX')} guías).`
+      );
+    }
+    if (topConcesionariosDiasEntrega.length) {
+      const peor = topConcesionariosDiasEntrega[0];
+      hallazgosGenerales.push(
+        `El concesionario que más tarda en resolver es ${peor.oficina}: ${peor.promedioDias} días en promedio (${peor.totalGuias.toLocaleString('es-MX')} guías).`
+      );
+    }
 
     if (oficinasCriticasPorUmbral.length) {
       const peor = oficinasCriticasPorUmbral[0];
