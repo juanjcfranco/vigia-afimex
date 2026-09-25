@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import {
   normalizarFila,
   construirSetDeRetornos,
+  construirMapaRetornoPorObservaciones,
   construirSetDeClientesConPatronDominante,
   detectarClienteYPeriodo,
   normalizarClave,
@@ -90,12 +91,16 @@ export default function UploadModal({ open, onClose, onUploaded }: UploadModalPr
       // el servidor — normalizarFila() es la misma función compartida).
       setEtapa('Procesando filas...');
       const retornoNumSet = construirSetDeRetornos(rows);
+      // Respaldo del vínculo Devolución↔Retorno vía Observaciones — ver
+      // construirMapaRetornoPorObservaciones() en business-logic.ts. Se usa
+      // cuando la columna Retorno no viene poblada en el export.
+      const mapaRetornoPorObservaciones = construirMapaRetornoPorObservaciones(rows);
       // Clientes donde "Cliente_Paga == Nombre_Destinatario" es su forma
       // normal de operar (ej. paqueterías que entregan a sus propias
       // agencias), no evidencia de retorno — ver la función para el detalle.
       const clientesConPatronDominante = construirSetDeClientesConPatronDominante(rows);
       const guiasNormalizadas = rows
-        .map((r) => normalizarFila(r, catalogoMap, retornoNumSet, clientesConPatronDominante))
+        .map((r) => normalizarFila(r, catalogoMap, retornoNumSet, clientesConPatronDominante, mapaRetornoPorObservaciones))
         .filter((g) => g.guia); // descarta filas sin número de guía
 
       const { cliente: clienteDetectado, periodo: periodoDetectado } = detectarClienteYPeriodo(

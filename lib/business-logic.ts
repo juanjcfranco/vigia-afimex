@@ -1586,10 +1586,50 @@ export function parseFechaExcel(v: unknown): string | null {
 }
 
 // ============================================================
+// Construye un mapa numero_guia_original -> numero_guia_retorno, leyendo
+// la columna Observaciones de las filas candidatas a retorno (cualquier
+// fila que NO esté ella misma en estado DEVOLUCION). El export de OPS casi
+// siempre anota ahí un texto tipo "DEVOLUCION GUIA: 56113065-TRES VISITAS",
+// donde el número es el folio de la guía original (columna Guia en el
+// archivo de devoluciones) y "TRES VISITAS"/"RECHAZO"/etc. es el motivo.
+//
+// Este vínculo es MÁS CONFIABLE que la columna Retorno cuando esta última
+// no viene poblada — validado en cortes reales de sep-2026: 99.9% (7,167
+// de 7,171) y 100% (3,543 de 3,543) de las devoluciones de esos cortes
+// cruzaron correctamente por esta vía, contra 0% por K_Devolucion (que es
+// un ID interno de base de datos, rango numérico distinto al de Guia, y
+// nunca ha cruzado en ningún archivo visto hasta ahora).
+//
+// Se excluyen explícitamente las filas que YA están en estado DEVOLUCION:
+// esa misma nota en una devolución identifica un regreso de OTRO periodo
+// anterior (ver esPosibleRetornoOtroPeriodo), no que esa fila sea en sí
+// misma un retorno físico.
+// ============================================================
+const REGEX_DEVOLUCION_GUIA = /DEVOLUCION\s+GUIA\s*:\s*(\d+)/i;
+
+export function construirMapaRetornoPorObservaciones(rows: FilaExcelCruda[]): Map<string, string> {
+  const map = new Map<string, string>();
+  rows.forEach((r) => {
+    const estado = String(r.Estado_Guia ?? '').trim();
+    if (isDevolucion(estado)) return;
+    const m = REGEX_DEVOLUCION_GUIA.exec(String(r.Observaciones ?? ''));
+    if (!m) return;
+    const guiaOriginal = m[1];
+    const guiaRetornoRaw = r.Guia;
+    if (guiaRetornoRaw === undefined || guiaRetornoRaw === '') return;
+    const guiaRetorno = String(guiaRetornoRaw).trim().replace(/\.0$/, '');
+    if (guiaOriginal && guiaRetorno) map.set(guiaOriginal, guiaRetorno);
+  });
+  return map;
+}
+
+// ============================================================
 // Construye el conjunto de números de guía que son "guías de retorno":
 // aquellos que aparecen en la columna Retorno de una fila que SÍ es una
-// devolución real (Estado_Guia = DEVOLUCION). Debe correrse sobre TODAS
-// las filas antes de normalizar individualmente.
+// devolución real (Estado_Guia = DEVOLUCION), MÁS los que se detectan vía
+// construirMapaRetornoPorObservaciones() (respaldo más confiable, ver esa
+// función para el detalle). Debe correrse sobre TODAS las filas antes de
+// normalizar individualmente.
 //
 // IMPORTANTE: antes esto se construía a partir de la columna Retorno de
 // CUALQUIER fila, sin verificar que esa fila fuera una devolución. Si el
@@ -1612,6 +1652,7 @@ export function construirSetDeRetornos(rows: FilaExcelCruda[]): Set<string> {
       if (num) set.add(num);
     }
   });
+  construirMapaRetornoPorObservaciones(rows).forEach((guiaRetorno) => set.add(guiaRetorno));
   return set;
 }
 
@@ -1744,7 +1785,8 @@ export function normalizarFila(
   r: FilaExcelCruda,
   catalogoMap: Record<string, string>,
   retornoNumSet: Set<string>,
-  clientesConPatronDominante: Set<string> = new Set()
+  clientesConPatronDominante: Set<string> = new Set(),
+  mapaRetornoPorObservaciones: Map<string, string> = new Map()
 ) {
   const guia = String(r.Guia ?? '').trim();
   const nombreRecibio = String(r.Nombre_Recibio ?? '').trim();
@@ -1814,11 +1856,15 @@ export function normalizarFila(
 
   // El campo Retorno (en la guía original/devolución) es la referencia
   // al número de guía de retorno asociado, no una guía separada en sí.
+  // Si esa columna no viene poblada (frecuente en varios cortes de OPS),
+  // se usa como respaldo el mapa construido vía Observaciones — ver
+  // construirMapaRetornoPorObservaciones() para el detalle de por qué es
+  // más confiable que la propia columna Retorno.
   const retornoGuiaRaw = r.Retorno;
   const retornoGuia =
     retornoGuiaRaw !== undefined && retornoGuiaRaw !== ''
       ? String(retornoGuiaRaw).trim().replace(/\.0$/, '')
-      : null;
+      : mapaRetornoPorObservaciones.get(guia) || null;
 
   return {
     guia,

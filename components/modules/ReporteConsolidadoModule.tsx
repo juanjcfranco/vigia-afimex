@@ -387,6 +387,46 @@ export default function ReporteConsolidadoModule({
       .filter((r): r is { region: string; oficina: string; total: number; efectividad: number | null } => r !== null);
 
     // ============================================================
+    // Crítico por UMBRAL FIJO, independiente del score de volumen — a
+    // diferencia de peorOficinaPorRegion (que solo elige UNA oficina por
+    // región, la de mayor score), esto detecta CUALQUIER oficina o
+    // concesionario con efectividad muy baja y volumen representativo,
+    // aunque otra plaza de la misma región tenga más volumen total. Sin
+    // este filtro, una plaza pequeña pero muy crítica (ej. Chihuahua con
+    // 34.7% de efectividad) puede quedar oculta detrás de una plaza más
+    // grande pero menos grave (ej. Ciudad Juárez con 56% de efectividad
+    // pero mayor volumen) — validado con datos reales de sep-2026.
+    // ============================================================
+    const UMBRAL_OFICINA_CRITICA = 35;
+    const UMBRAL_CONCESIONARIO_CRITICO = 40;
+    const VOLUMEN_REPRESENTATIVO = 100;
+
+    const oficinasCriticasPorUmbral = porOficina
+      .filter((o) => {
+        const region = obtenerRegion(o.key);
+        return (
+          region !== 'CONCESIONARIOS' &&
+          region !== 'VIRTUAL' &&
+          o.efectividad !== null &&
+          o.efectividad < UMBRAL_OFICINA_CRITICA &&
+          o.total >= VOLUMEN_REPRESENTATIVO
+        );
+      })
+      .map((o) => ({ region: obtenerRegion(o.key), oficina: o.key, total: o.total, efectividad: o.efectividad as number }))
+      .sort((a, b) => a.efectividad - b.efectividad);
+
+    const concesionariosCriticosPorUmbral = porOficina
+      .filter(
+        (o) =>
+          obtenerRegion(o.key) === 'CONCESIONARIOS' &&
+          o.efectividad !== null &&
+          o.efectividad < UMBRAL_CONCESIONARIO_CRITICO &&
+          o.total >= VOLUMEN_REPRESENTATIVO
+      )
+      .map((o) => ({ oficina: o.key, total: o.total, efectividad: o.efectividad as number }))
+      .sort((a, b) => a.efectividad - b.efectividad);
+
+    // ============================================================
     // Top 5 oficinas / Top 5 concesionarios con MÁS días promedio en
     // "resolver" (Recibido Oficina → resolución) — solo guías
     // ORIGINALES (no retornos). Usa el mismo criterio de resolución que
@@ -525,6 +565,29 @@ export default function ReporteConsolidadoModule({
       hallazgosGenerales.push(`El cliente con la excepción más concentrada es ${top.cliente}: "${top.excepcion}" (${top.cantidad.toLocaleString('es-MX')} guías).`);
     }
 
+    if (oficinasCriticasPorUmbral.length) {
+      const peor = oficinasCriticasPorUmbral[0];
+      const faltaEntregar = Number((100 - peor.efectividad).toFixed(1));
+      hallazgosGenerales.push(
+        `🚨 ${peor.oficina} sigue en situación crítica: ${peor.efectividad}% de efectividad (${peor.total.toLocaleString('es-MX')} guías) — la más baja de la red entre las oficinas con volumen representativo (${faltaEntregar}% de sus guías no se entrega).`
+      );
+      if (oficinasCriticasPorUmbral.length > 1) {
+        const resto = oficinasCriticasPorUmbral
+          .slice(1)
+          .map((o) => `${o.oficina} (${o.efectividad}%, ${o.total.toLocaleString('es-MX')} guías)`)
+          .join(', ');
+        hallazgosGenerales.push(`También por debajo de ${UMBRAL_OFICINA_CRITICA}% con volumen representativo: ${resto}.`);
+      }
+    }
+    if (concesionariosCriticosPorUmbral.length) {
+      const lista = concesionariosCriticosPorUmbral
+        .map((c) => `${c.oficina} (${c.efectividad}%, ${c.total.toLocaleString('es-MX')} guías)`)
+        .join(', ');
+      hallazgosGenerales.push(
+        `⚠️ ${concesionariosCriticosPorUmbral.length} concesionario(s) están por debajo de ${UMBRAL_CONCESIONARIO_CRITICO}% con volumen que impacta el indicador general: ${lista}.`
+      );
+    }
+
     // Por región: peor oficina por efectividad + peor oficina por días de
     // entrega, cada una en el grupo de SU región (Concesionarios incluida).
     peorOficinaPorRegion.forEach((p) => {
@@ -533,6 +596,25 @@ export default function ReporteConsolidadoModule({
         `La oficina con mayor oportunidad de mejora es ${p.oficina} (${p.total.toLocaleString('es-MX')} guías, ${p.efectividad}% de efectividad) — se recomienda compartir la situación de la plaza, informar las áreas de oportunidad, y definir un plan de acción para mejorar la efectividad.`
       );
     });
+    // Oficinas/concesionarios críticos por umbral fijo: se agregan además
+    // del "peor por región" de arriba (no lo reemplazan), evitando mensaje
+    // duplicado si coinciden en la misma oficina.
+    oficinasCriticasPorUmbral.forEach((o) => {
+      const yaMencionada = peorOficinaPorRegion.some((p) => p.region === o.region && p.oficina === o.oficina);
+      if (yaMencionada) return;
+      agregarHallazgoRegion(
+        o.region,
+        `${o.oficina} (${o.total.toLocaleString('es-MX')} guías, ${o.efectividad}% de efectividad) sigue crítica de forma persistente — con volumen representativo, no debe perderse de vista aunque otras oficinas de la región tengan más volumen total.`
+      );
+    });
+    if (concesionariosCriticosPorUmbral.length) {
+      concesionariosCriticosPorUmbral.forEach((c) => {
+        agregarHallazgoRegion(
+          'CONCESIONARIOS',
+          `${c.oficina} (${c.total.toLocaleString('es-MX')} guías, ${c.efectividad}%) está por debajo del ${UMBRAL_CONCESIONARIO_CRITICO}% con volumen que impacta el indicador — requiere atención, no solo el que tenga más volumen total.`
+        );
+      });
+    }
     peorDiasEntregaPorRegion.forEach((info, region) => {
       agregarHallazgoRegion(
         region,
