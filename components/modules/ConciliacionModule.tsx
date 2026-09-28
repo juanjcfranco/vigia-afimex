@@ -40,6 +40,7 @@ export default function ConciliacionModule({ guias: _guiasIgnoradas }: { guias: 
   const [cargando, setCargando] = useState(true);
   const [cargandoGuias, setCargandoGuias] = useState(true);
   const [progresoGuias, setProgresoGuias] = useState<number>(0);
+  const [errorGuias, setErrorGuias] = useState<string | null>(null);
   const [modalAbierto, setModalAbierto] = useState(false);
   const [filtroCliente, setFiltroCliente] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'' | 'PAGADA' | 'PENDIENTE' | 'DIFERENCIA'>('');
@@ -61,17 +62,41 @@ export default function ConciliacionModule({ guias: _guiasIgnoradas }: { guias: 
   // cod>0 se aplican aquí porque no hay parámetro de servidor para eso.
   function cargarGuiasParaConciliar() {
     setCargandoGuias(true);
+    setErrorGuias(null);
     setProgresoGuias(0);
     const PAGE_SIZE = 1000;
+    const MAX_REINTENTOS = 3;
     let acumuladas: Guia[] = [];
     let offset = 0;
     let terminado = false;
 
+    // Pide una página con reintentos — si Supabase/Vercel devuelve un
+    // error transitorio (rate limit, timeout, hiccup de red) en alguna
+    // de las muchas páginas que hay que pedir para traer TODAS las guías
+    // Entregadas de TODAS las cargas, antes esto se interpretaba en
+    // silencio como "ya no hay más datos" (json.guias venía undefined →
+    // lote = [] → length < PAGE_SIZE → se daba por terminado) y el total
+    // cargado variaba de una corrida a otra sin ningún aviso. Ahora, si
+    // una página falla, se reintenta unas veces antes de rendirse.
+    async function pedirPagina(intento = 1): Promise<Guia[]> {
+      const res = await fetch(`/api/guias?estado=ENTREGADA&offset=${offset}&limit=${PAGE_SIZE}`);
+      if (!res.ok) {
+        if (intento < MAX_REINTENTOS) {
+          await new Promise((r) => setTimeout(r, 500 * intento));
+          return pedirPagina(intento + 1);
+        }
+        throw new Error(`El servidor respondió con error (${res.status}) al pedir guías en offset ${offset}, tras ${MAX_REINTENTOS} intentos.`);
+      }
+      const json = await res.json();
+      if (json.error) {
+        throw new Error(`Error al pedir guías en offset ${offset}: ${json.error}`);
+      }
+      return json.guias || [];
+    }
+
     async function siguientePagina() {
       if (terminado) return;
-      const res = await fetch(`/api/guias?estado=ENTREGADA&offset=${offset}&limit=${PAGE_SIZE}`);
-      const json = await res.json();
-      const lote: Guia[] = json.guias || [];
+      const lote = await pedirPagina();
       acumuladas = acumuladas.concat(lote);
       setProgresoGuias(acumuladas.length);
       offset += PAGE_SIZE;
@@ -83,7 +108,10 @@ export default function ConciliacionModule({ guias: _guiasIgnoradas }: { guias: 
       }
       await siguientePagina();
     }
-    siguientePagina().catch(() => setCargandoGuias(false));
+    siguientePagina().catch((e) => {
+      setErrorGuias(e instanceof Error ? e.message : 'Error al cargar las guías para conciliar.');
+      setCargandoGuias(false);
+    });
   }
 
   useEffect(() => {
@@ -208,6 +236,36 @@ export default function ConciliacionModule({ guias: _guiasIgnoradas }: { guias: 
 
   if (cargando) {
     return <div className="p-5 text-[13px] text-[var(--vg-text2)]">Cargando conciliaciones...</div>;
+  }
+
+  if (cargandoGuias) {
+    return (
+      <div className="p-5 text-[13px] text-[var(--vg-text2)]">
+        Cargando guías para conciliar... ({progresoGuias.toLocaleString('es-MX')} hasta ahora)
+      </div>
+    );
+  }
+
+  if (errorGuias) {
+    return (
+      <div className="p-5">
+        <div className="bg-[#FEF2F2] border border-[#FCA5A5] rounded-lg p-4 text-[12.5px] text-[#DC2626] space-y-2">
+          <div className="font-bold">⚠️ No se pudieron cargar todas las guías para conciliar</div>
+          <div>{errorGuias}</div>
+          <div className="text-[11.5px]">
+            Se alcanzaron a traer {progresoGuias.toLocaleString('es-MX')} guías antes del error — los números de
+            este módulo NO son confiables hasta que se resuelva. Intenta de nuevo; si el error persiste, puede ser un
+            límite temporal de Supabase o Vercel.
+          </div>
+          <button
+            onClick={cargarGuiasParaConciliar}
+            className="text-[12px] font-bold text-white bg-[var(--vg-blue)] px-3 py-1.5 rounded-md"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
