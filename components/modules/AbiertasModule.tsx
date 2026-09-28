@@ -313,6 +313,8 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
         return g.guia;
       case 'cliente':
         return g.cliente;
+      case 'cod':
+        return g.cod;
       case 'estado':
         return g.estado_guia;
       case 'origen':
@@ -348,6 +350,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
     { header: 'Tipo', value: (g: Guia) => esRetornoAmplio(g) ? 'Retorno' : 'Original' },
     { header: 'Guía', value: (g: Guia) => g.guia },
     { header: 'Cliente', value: (g: Guia) => g.cliente || '' },
+    { header: 'COD', value: (g: Guia) => g.cod ?? '' },
     { header: 'Estado', value: (g: Guia) => g.estado_guia || '' },
     { header: 'Origen', value: (g: Guia) => g.of_origen || '' },
     { header: 'Oficina Destino', value: (g: Guia) => g.oficina_destino || '' },
@@ -710,6 +713,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Tipo" sortKey="tipo" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Guía" sortKey="guia" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Cliente" sortKey="cliente" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <SortableTh label="COD" sortKey="cod" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Estado" sortKey="estado" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Origen" sortKey="origen" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Oficina Destino" sortKey="oficina" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
@@ -761,6 +765,9 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
                   </td>
                   <td className="font-mono font-semibold">{g.guia}</td>
                   <td>{g.cliente || '—'}</td>
+                  <td className="text-right font-mono">
+                    {g.cod !== null ? g.cod.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }) : '—'}
+                  </td>
                   <td>{g.estado_guia}</td>
                   <td>{g.of_origen || '—'}</td>
                   <td>{g.oficina_destino || '—'}</td>
@@ -823,7 +830,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
               })}
               {!filas.length && (
                 <tr>
-                  <td colSpan={25} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={26} className="text-center text-[var(--vg-text3)] py-6">
                     No hay guías abiertas con este filtro
                   </td>
                 </tr>
