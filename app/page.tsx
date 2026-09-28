@@ -24,6 +24,7 @@ import GuiasModule from '@/components/modules/GuiasModule';
 import ReporteConsolidadoModule from '@/components/modules/ReporteConsolidadoModule';
 import HistorialModule from '@/components/modules/HistorialModule';
 import IndemnizacionesModule from '@/components/modules/IndemnizacionesModule';
+import ConciliacionModule from '@/components/modules/ConciliacionModule';
 
 export default function Home() {
   const {
@@ -135,6 +136,7 @@ export default function Home() {
           {tab === 'facturacion' && <FacturacionModule guias={guiasFiltradas} />}
           {tab === 'abiertas' && <AbiertasModule guias={guiasFiltradas} />}
           {tab === 'indemnizaciones' && <IndemnizacionesModule guias={guiasFiltradas} />}
+          {tab === 'conciliacion' && <ConciliacionModule guias={guiasFiltradas} />}
           {tab === 'predoc' && <PredocModule guias={guiasFiltradas} />}
           {tab === 'alertas' && <AlertasModule guias={guiasFiltradas} />}
           {tab === 'guias' && <GuiasModule guias={guiasFiltradas} />}

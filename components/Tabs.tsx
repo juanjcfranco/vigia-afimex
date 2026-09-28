@@ -11,6 +11,7 @@ export const TABS = [
   { id: 'facturacion', label: '💵 Facturación' },
   { id: 'abiertas', label: '📂 Abiertas' },
   { id: 'indemnizaciones', label: '💰 Indemnizaciones' },
+  { id: 'conciliacion', label: '💳 Conciliación' },
   { id: 'predoc', label: '🔵 Pre-Documentadas' },
   { id: 'alertas', label: '📧 Alertas' },
   { id: 'guias', label: '🔍 Guías' },

@@ -165,6 +165,24 @@ export interface Indemnizacion {
   actualizado_en: string;
 }
 
+// Conciliaciones de COD — presencia de una guía en esta tabla significa
+// que ya se pagó por completo (el usuario no maneja pagos parciales; ver
+// supabase_migracion_13_conciliaciones.sql). Se cruza contra `Guia.guia`.
+export interface Conciliacion {
+  id: string;
+  guia: string;
+  cliente: string | null;
+  oficina_destino: string | null;
+  fecha_entrega: string | null;
+  guia_cliente: string | null;
+  cip: string | null;
+  cod: number | null;
+  semana_pago: number | null;
+  creado_por: string | null;
+  creado_en: string;
+  actualizado_en: string;
+}
+
 export type AccionTipo =
   | 'REPROGRAMAR'
   | 'DEVOLVER'
