@@ -9,6 +9,10 @@ export interface Guia {
   oficina_destino: string | null;
   entidad_destinatario: string | null;
   ciudad_destinatario: string | null;
+  // Código postal del destinatario — se lee de la columna CP_Destino del
+  // Excel (no CP_Destinatario, que también existe pero no es la fuente
+  // preferida; confirmado por el usuario, sep-2026).
+  cp_destinatario: string | null;
 
   estado_guia: string | null;
   tipo_entrega: string | null;

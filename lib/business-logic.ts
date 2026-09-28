@@ -451,15 +451,19 @@ export function temporalidadDe(
     // no duplicar el criterio en dos lugares.
     const cConf = diasRecibidoOficinaHastaResolucion(g);
     if (cConf !== null) acc.recibofConfirmacion.push(cConf);
-    // "Plataforma → Confirmación": entregadas usan su F_Confirmación;
-    // abiertas (sin contar devoluciones, que tienen su propia métrica vía
-    // el retorno) se miden contra HOY — el reloj sigue corriendo mientras
-    // no se resuelven, igual que el resto de las métricas de este archivo.
+    // "Plataforma → Confirmación": mismo criterio de resolución que usa
+    // "Vida" (fechaFinDevolucion) para devoluciones — entregadas usan su
+    // F_Confirmación, devoluciones usan la entrega de su retorno vinculado
+    // (u hoy si aún no tiene retorno), y todo lo demás (sigue abierta) se
+    // mide contra HOY. Antes las devoluciones se excluían por completo
+    // (quedaban en null) — eso hacía que esta columna saliera vacía en
+    // cualquier grupo (región/cliente) dominado por devoluciones, aunque
+    // sí hubiera fecha de plataforma y de confirmación disponibles.
     let fechaConfirmacionOAbierta: string | null;
     if (isEntregada(g.estado_guia)) {
       fechaConfirmacionOAbierta = g.f_confirmacion;
     } else if (g.es_devolucion) {
-      fechaConfirmacionOAbierta = null;
+      fechaConfirmacionOAbierta = fechaFinDevolucion(g, retornoPorGuia, hoyIso);
     } else {
       fechaConfirmacionOAbierta = hoyIso;
     }
@@ -1062,6 +1066,15 @@ const EXCEPCIONES_ATRIBUIBLES_CLIENTE = new Set([
   'FALTA CALLE',
   'NUMERO INEXISTENTE',
   'FALTA NUMERO',
+  // Confirmado por el usuario (sep-2026): no son atribuibles a la
+  // operación — dependen del destinatario/domicilio proporcionado, no de
+  // una falla operativa de AFIMEX.
+  'DESCONOCIDO EN EL DOMICILIO',
+  'DOMICILIO DESHABITADO',
+  'FUERA DE HORARIO DE RECIBO',
+  'CERRADO',
+  'CIUDAD INCORRECTA',
+  'COD ELEVADO',
 ]);
 
 const EXCEPCIONES_FACTOR_EXTERNO = new Set(['MAL CLIMA', 'EMERGENCIA']);
@@ -1093,6 +1106,79 @@ export function topPorCampo<T>(
   });
   return Object.entries(conteo)
     .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, top);
+}
+
+// ============================================================
+// Top N ciudades que MÁS tardan en resolver (Recibido Oficina →
+// Confirmación, mismo criterio que "Top Oficinas — Días para Entregar"
+// vía diasRecibidoOficinaHastaResolucion), con el código postal más
+// frecuente de esa ciudad como referencia. Se acota a guías ORIGINALES
+// (esGuiaOriginal) con al menos `minGuias` guías para no dejar que una
+// ciudad con 1-2 guías atípicas domine el ranking.
+// ============================================================
+export function topCiudadesPorDiasEntrega(
+  guias: Guia[],
+  top: number = 5,
+  minGuias: number = 5
+): Array<{ ciudad: string; cp: string | null; promedioDias: number; totalGuias: number }> {
+  const grupos: Record<string, { cps: Record<string, number>; dias: number[] }> = {};
+  guias
+    .filter((g) => esGuiaOriginal(g))
+    .forEach((g) => {
+      const ciudad = (g.ciudad_destinatario || '').trim();
+      if (!ciudad) return;
+      const dias = diasRecibidoOficinaHastaResolucion(g);
+      if (dias === null) return;
+      if (!grupos[ciudad]) grupos[ciudad] = { cps: {}, dias: [] };
+      grupos[ciudad].dias.push(dias);
+      const cp = (g.cp_destinatario || '').trim();
+      if (cp) grupos[ciudad].cps[cp] = (grupos[ciudad].cps[cp] || 0) + 1;
+    });
+
+  return Object.entries(grupos)
+    .map(([ciudad, { cps, dias }]) => {
+      const cpMasFrecuente = Object.entries(cps).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      return {
+        ciudad,
+        cp: cpMasFrecuente,
+        promedioDias: Number((dias.reduce((s, d) => s + d, 0) / dias.length).toFixed(1)),
+        totalGuias: dias.length,
+      };
+    })
+    .filter((f) => f.totalGuias >= minGuias)
+    .sort((a, b) => b.promedioDias - a.promedioDias)
+    .slice(0, top);
+}
+
+// ============================================================
+// Top N ciudades con más EXCEPCIONES atribuibles al cliente (ver
+// categoriaExcepcion) — solo la última excepción de cada guía cuenta
+// (igual que el resto de los conteos de excepciones de la app), para no
+// contar varias veces la misma guía si acumuló excepciones intermedias.
+// ============================================================
+export function topCiudadesPorRechazosCliente(
+  guias: Guia[],
+  top: number = 5
+): Array<{ ciudad: string; count: number }> {
+  // Mismo universo base que calcularResumenExcepciones: excluye predoc,
+  // documentada, cancelada y en ruta — para no contar ciudades a partir
+  // de guías que ni siquiera deberían considerarse "con excepción".
+  const relevantes = guias.filter(
+    (g) => !g.es_predoc && !g.es_documentada && !isCancelada(g.estado_guia) && !isEnRuta(g.estado_guia) && getExcepciones(g).length > 0
+  );
+  const conteo: Record<string, number> = {};
+  relevantes.forEach((g) => {
+    const ciudad = (g.ciudad_destinatario || '').trim();
+    if (!ciudad) return;
+    const excs = getExcepciones(g);
+    const ultima = excs[excs.length - 1];
+    if (categoriaExcepcion(baseExcepcion(ultima)) !== 'cliente') return;
+    conteo[ciudad] = (conteo[ciudad] || 0) + 1;
+  });
+  return Object.entries(conteo)
+    .map(([key, count]) => ({ ciudad: key, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, top);
 }
@@ -1519,6 +1605,9 @@ export interface FilaExcelCruda {
   Oficina_Destino?: string;
   Estado_Destinatario?: string;
   Ciudad_Destinatario?: string;
+  // Hay dos columnas de CP en el export (CP_Destinatario y CP_Destino) —
+  // se usa CP_Destino específicamente (confirmado por el usuario, sep-2026).
+  CP_Destino?: string | number;
   F_Historia?: string;
   F_Documentacion?: string;
   F_Entrega?: string;
@@ -1886,6 +1975,14 @@ export function normalizarFila(
     oficina_destino: String(r.Oficina_Destino ?? '').trim() || null,
     entidad_destinatario: String(r.Estado_Destinatario ?? '').trim() || null,
     ciudad_destinatario: String(r.Ciudad_Destinatario ?? '').trim() || null,
+    // Prioriza CP_Destino (confirmado por el usuario, sep-2026); si no
+    // viene, usa CP_Destinatario u otras variantes como respaldo.
+    cp_destinatario:
+      String(
+        r.CP_Destino ??
+          campoInsensible(r, 'CP_Destinatario', 'CP Destinatario', 'Codigo Postal Destinatario', 'C.P. Destinatario') ??
+          ''
+      ).trim() || null,
     estado_guia: estado || null,
     tipo_entrega: String(r.Tipo_Entrega ?? '').trim() || null,
     tipo_guia: String(r.Tipo_Guia ?? '').trim() || null,

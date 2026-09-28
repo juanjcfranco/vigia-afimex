@@ -32,6 +32,7 @@ export default function Home() {
     cargaActiva,
     cargaActivaId,
     setCargaActivaId,
+    eliminarCarga,
     guiasFiltradas,
     guiasFiltradasSinPeriodo,
     loading,
@@ -142,7 +143,7 @@ export default function Home() {
           {tab === 'guias' && <GuiasModule guias={guiasFiltradas} />}
           {tab === 'reporteConsolidado' && <ReporteConsolidadoModule guias={guiasFiltradas} guiasTendencias={guiasFiltradasSinPeriodo} />}
           {tab === 'historial' && (
-            <HistorialModule cargas={cargas} cargaActivaId={cargaActivaId} onSeleccionar={setCargaActivaId} />
+            <HistorialModule cargas={cargas} cargaActivaId={cargaActivaId} onSeleccionar={setCargaActivaId} onEliminar={eliminarCarga} />
           )}
         </>
       )}
