@@ -28,9 +28,18 @@ function fmtMoney(v: number | null): string {
   return v.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 }
 
-export default function ConciliacionModule({ guias }: { guias: Guia[] }) {
+// Nota: la prop `guias` que llega de page.tsx solo refleja la carga
+// ACTIVA seleccionada en Historial — insuficiente para conciliación, ya
+// que un archivo de pagos normalmente cubre varias semanas/cargas a la
+// vez. Este módulo trae su PROPIO universo de guías, paginando across
+// TODAS las cargas (sin filtrar por carga_id), para que el cruce de COD
+// no dependa de cuál carga tengas activa en ese momento.
+export default function ConciliacionModule({ guias: _guiasIgnoradas }: { guias: Guia[] }) {
   const [conciliaciones, setConciliaciones] = useState<Conciliacion[]>([]);
+  const [guiasCod, setGuiasCod] = useState<Guia[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [cargandoGuias, setCargandoGuias] = useState(true);
+  const [progresoGuias, setProgresoGuias] = useState<number>(0);
   const [modalAbierto, setModalAbierto] = useState(false);
   const [filtroCliente, setFiltroCliente] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'' | 'PAGADA' | 'PENDIENTE' | 'DIFERENCIA'>('');
@@ -44,7 +53,43 @@ export default function ConciliacionModule({ guias }: { guias: Guia[] }) {
       .finally(() => setCargando(false));
   }
 
-  useEffect(cargar, []);
+  // Trae TODAS las guías Entregadas (de todas las cargas, sin filtro de
+  // carga_id) paginando en bloques de 1000 — igual que cargarGuias() en
+  // useVigiaData.ts, pero sin acotar a una sola carga. El filtro
+  // estado=ENTREGADA ya se aplica del lado del servidor para no traer de
+  // más; esGuiaOriginal (excluye retornos/predoc/documentada/cancelada) y
+  // cod>0 se aplican aquí porque no hay parámetro de servidor para eso.
+  function cargarGuiasParaConciliar() {
+    setCargandoGuias(true);
+    setProgresoGuias(0);
+    const PAGE_SIZE = 1000;
+    let acumuladas: Guia[] = [];
+    let offset = 0;
+    let terminado = false;
+
+    async function siguientePagina() {
+      if (terminado) return;
+      const res = await fetch(`/api/guias?estado=ENTREGADA&offset=${offset}&limit=${PAGE_SIZE}`);
+      const json = await res.json();
+      const lote: Guia[] = json.guias || [];
+      acumuladas = acumuladas.concat(lote);
+      setProgresoGuias(acumuladas.length);
+      offset += PAGE_SIZE;
+      if (lote.length < PAGE_SIZE) {
+        terminado = true;
+        setGuiasCod(acumuladas.filter((g) => esGuiaOriginal(g) && g.cod !== null && g.cod > 0));
+        setCargandoGuias(false);
+        return;
+      }
+      await siguientePagina();
+    }
+    siguientePagina().catch(() => setCargandoGuias(false));
+  }
+
+  useEffect(() => {
+    cargar();
+    cargarGuiasParaConciliar();
+  }, []);
 
   const conciliacionPorGuia = useMemo(() => {
     const m = new Map<string, Conciliacion>();
@@ -58,7 +103,18 @@ export default function ConciliacionModule({ guias }: { guias: Guia[] }) {
   // sumar aquí, aunque por algún error de captura traigan un valor en la
   // columna COD).
   const filas: FilaConciliacion[] = useMemo(() => {
-    return guias
+    // Deduplicar por número de guía: si la misma guía quedó cargada en
+    // varias cargas (Excel subido más de una vez, cargas con rangos de
+    // fecha traslapados, etc.), en Conciliación debe existir UNA sola vez
+    // — es una realidad física única, sin importar cuántas veces se haya
+    // importado. Se conserva la primera aparición encontrada.
+    const vistas = new Set<string>();
+    const guiasUnicas = guiasCod.filter((g) => {
+      if (vistas.has(g.guia)) return false;
+      vistas.add(g.guia);
+      return true;
+    });
+    return guiasUnicas
       .filter((g) => esGuiaOriginal(g) && isEntregada(g.estado_guia) && g.cod !== null && g.cod > 0)
       .map((g) => {
         const c = conciliacionPorGuia.get(g.guia);
@@ -79,7 +135,7 @@ export default function ConciliacionModule({ guias }: { guias: Guia[] }) {
           diferenciaMonto,
         };
       });
-  }, [guias, conciliacionPorGuia]);
+  }, [guiasCod, conciliacionPorGuia]);
 
   const clientes = useMemo(() => [...new Set(filas.map((f) => f.cliente).filter(Boolean))].sort() as string[], [filas]);
   const semanas = useMemo(
