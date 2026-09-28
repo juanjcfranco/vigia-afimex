@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, Conciliacion } from '@/lib/types';
+import { esGuiaOriginal, isEntregada } from '@/lib/business-logic';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
 import ConciliacionModal from '@/components/ConciliacionModal';
@@ -51,13 +52,14 @@ export default function ConciliacionModule({ guias }: { guias: Guia[] }) {
     return m;
   }, [conciliaciones]);
 
-  // Universo de conciliación: cualquier guía con COD > 0. No se restringe
-  // a un estado específico (ENTREGADA, etc.) porque el archivo de
-  // conciliación puede referirse a guías que en VIGIA quedaron en otro
-  // estado por captura tardía — mejor no ocultar un pago real.
+  // Universo de conciliación: SOLO guías ORIGINALES entregadas (el COD se
+  // cobra al entregar; los retornos, predoc/documentada/cancelada y las
+  // que no sean guías originales — ver esGuiaOriginal() — nunca deben
+  // sumar aquí, aunque por algún error de captura traigan un valor en la
+  // columna COD).
   const filas: FilaConciliacion[] = useMemo(() => {
     return guias
-      .filter((g) => g.cod !== null && g.cod > 0)
+      .filter((g) => esGuiaOriginal(g) && isEntregada(g.estado_guia) && g.cod !== null && g.cod > 0)
       .map((g) => {
         const c = conciliacionPorGuia.get(g.guia);
         const pagado = !!c;
