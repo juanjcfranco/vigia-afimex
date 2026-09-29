@@ -100,6 +100,10 @@ export default function ConciliacionModule({
     if (cargaId) params.set('carga_id', cargaId);
     if (periodosParam) params.set('periodos', periodosParam);
     if (dia) params.set('dia', dia);
+    // El endpoint espera "clientes" (plural, array) — ver p_clientes en
+    // conciliacion_resumen(). filtroCliente aquí es un solo valor (select
+    // simple, no multi-select), se manda como lista de 1 elemento.
+    if (filtroCliente) params.set('clientes', filtroCliente);
     fetch(`/api/conciliaciones/resumen?${params.toString()}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((j) => {
@@ -107,7 +111,7 @@ export default function ConciliacionModule({
         setResumen(j.resumen);
       })
       .catch((e) => setErrorResumen(e instanceof Error ? e.message : 'Error al cargar el resumen'));
-  }, [cargaId, periodosParam, dia]);
+  }, [cargaId, periodosParam, dia, filtroCliente]);
 
   const cargarOpciones = useCallback(() => {
     const params = new URLSearchParams();
