@@ -914,12 +914,29 @@ export interface InformeLogisticoData {
     guiasPagadas: number;
     guiasPendientes: number;
     pctConciliado: number | null;
+    error: string | null;
   } | null;
   // Relación detallada de guías actualmente abiertas (no solo el conteo
   // agregado de abiertasPorEstado/abiertasPorEntidad) — top 50 por más
   // días sin movimiento, para que el PDF no se vuelva inmanejable con
   // miles de filas. totalAbiertas (arriba) ya trae el total real.
-  guiasAbiertasDetalle: Array<{ guia: string; cliente: string | null; oficinaDestino: string | null; diasSinMovimiento: number | null }>;
+  guiasAbiertasDetalle: Array<{
+    guia: string;
+    cliente: string | null;
+    entidad: string | null;
+    oficinaDestino: string | null;
+    estadoGuia: string | null;
+    diasSinMovimiento: number | null;
+  }>;
+  // Relación detallada de RETORNOS abiertos (el paquete de vuelta todavía
+  // no llega) — mismo criterio que kpis.retornosAbiertos, a nivel de fila.
+  retornosAbiertosDetalle: Array<{
+    guia: string;
+    cliente: string | null;
+    entidad: string | null;
+    oficinaDestino: string | null;
+    estadoGuia: string | null;
+  }>;
   // Indemnizaciones cuyas guías caen dentro del período/carga actual del
   // informe (cruce contra la tabla `indemnizaciones`, por número de guía).
   indemnizacionesPeriodo: Array<{
@@ -1428,7 +1445,7 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
         @media print {
           body { padding: 10mm; }
-          @page { size: portrait; margin: 12mm; }
+          @page { size: landscape; margin: 12mm; }
           .secciones { break-inside: avoid; }
         }
       </style>
@@ -1460,7 +1477,7 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
         <div class="seccion">
           <div class="seccion-titulo">Conciliación de COD</div>
           ${
-            data.conciliacion
+            data.conciliacion && !data.conciliacion.error
               ? `<table>
                   <thead><tr><th></th><th>Monto</th><th>Guías</th></tr></thead>
                   <tbody>
@@ -1470,7 +1487,7 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
                   </tbody>
                 </table>
                 <div style="font-size:11px;color:#64748B;margin-top:6px;">% Conciliado: <b style="color:${data.conciliacion.pctConciliado !== null && data.conciliacion.pctConciliado >= 70 ? '#0B9B67' : data.conciliacion.pctConciliado !== null && data.conciliacion.pctConciliado >= 40 ? '#EA7C1A' : '#DC2626'};">${data.conciliacion.pctConciliado !== null ? `${data.conciliacion.pctConciliado}%` : '—'}</b></div>`
-              : `<div style="font-size:12px;color:#94A3B8;">No se pudo cargar la información de conciliación.</div>`
+              : `<div style="font-size:12px;color:#DC2626;">⚠️ No se pudo cargar la información de conciliación${data.conciliacion?.error ? `: ${escapeHtml(data.conciliacion.error)}` : ''}.</div>`
           }
         </div>
       </div>
@@ -1632,7 +1649,7 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
         ${
           data.guiasAbiertasDetalle.length
             ? `<table>
-                <thead><tr><th>Guía</th><th>Cliente</th><th>Oficina Destino</th><th>Días sin Movimiento</th></tr></thead>
+                <thead><tr><th>Guía</th><th>Cliente</th><th>Entidad</th><th>Oficina Destino</th><th>Estado</th><th>Días sin Movimiento</th></tr></thead>
                 <tbody>
                   ${data.guiasAbiertasDetalle
                     .map(
@@ -1640,7 +1657,9 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
                     <tr>
                       <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
                       <td>${escapeHtml(g.cliente || '—')}</td>
+                      <td>${escapeHtml(g.entidad || '—')}</td>
                       <td>${escapeHtml(g.oficinaDestino || '—')}</td>
+                      <td>${escapeHtml(g.estadoGuia || '—')}</td>
                       <td style="color:${g.diasSinMovimiento !== null && g.diasSinMovimiento >= 5 ? '#DC2626' : g.diasSinMovimiento !== null && g.diasSinMovimiento >= 3 ? '#EA7C1A' : '#0B9B67'};font-weight:700;">${g.diasSinMovimiento !== null ? `${g.diasSinMovimiento}d` : '—'}</td>
                     </tr>`
                     )
@@ -1648,6 +1667,31 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
                 </tbody>
               </table>`
             : `<div style="font-size:12px;color:#94A3B8;">No hay guías abiertas en este corte.</div>`
+        }
+      </div>
+
+      <div class="seccion" style="margin-bottom:18px;">
+        <div class="seccion-titulo">Relación de Retornos Abiertos ${data.retornosAbiertosDetalle.length ? `<span style="font-weight:400;color:#94A3B8;">(${data.retornosAbiertosDetalle.length.toLocaleString('es-MX')})</span>` : ''}</div>
+        ${
+          data.retornosAbiertosDetalle.length
+            ? `<table>
+                <thead><tr><th>Guía Retorno</th><th>Cliente</th><th>Entidad</th><th>Oficina Destino</th><th>Estado</th></tr></thead>
+                <tbody>
+                  ${data.retornosAbiertosDetalle
+                    .map(
+                      (g) => `
+                    <tr>
+                      <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
+                      <td>${escapeHtml(g.cliente || '—')}</td>
+                      <td>${escapeHtml(g.entidad || '—')}</td>
+                      <td>${escapeHtml(g.oficinaDestino || '—')}</td>
+                      <td>${escapeHtml(g.estadoGuia || '—')}</td>
+                    </tr>`
+                    )
+                    .join('')}
+                </tbody>
+              </table>`
+            : `<div style="font-size:12px;color:#94A3B8;">No hay retornos abiertos en este corte.</div>`
         }
       </div>
 

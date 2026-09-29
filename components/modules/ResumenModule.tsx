@@ -443,9 +443,31 @@ export default function ResumenModule({
       .map((g) => ({
         guia: g.guia,
         cliente: g.cliente,
+        entidad: g.entidad_destinatario,
         oficinaDestino: g.oficina_destino,
+        estadoGuia: g.estado_guia,
         diasSinMovimiento: g.dias_sin_movimiento,
       }));
+
+    // Relación detallada de RETORNOS abiertos — mismo criterio que el KPI
+    // retornosAbiertos de arriba (devoluciones cuyo paquete de retorno
+    // vinculado no ha sido entregado), pero a nivel de fila individual.
+    // Se muestra el folio y los datos del RETORNO en sí (no de la
+    // devolución original) — es la guía física que sigue en tránsito.
+    const devolucionesConRetornoInforme = guiasOriginales.filter((g) => g.es_devolucion && g.retorno_guia);
+    const retornosAbiertosDetalle = devolucionesConRetornoInforme
+      .filter((g) => !retornoEstaEntregado(g, g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined))
+      .map((g) => {
+        const retorno = g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined;
+        return {
+          guia: g.retorno_guia || g.guia,
+          cliente: g.cliente,
+          entidad: retorno?.entidad_destinatario ?? g.entidad_destinatario,
+          oficinaDestino: retorno?.oficina_destino ?? g.oficina_destino,
+          estadoGuia: retorno?.estado_guia ?? g.retorno_estado,
+        };
+      })
+      .slice(0, 50);
 
     // Conciliación de COD e Indemnizaciones — viven en tablas aparte de
     // Supabase (no vienen en el prop `guias`), se piden acotadas al mismo
@@ -459,7 +481,11 @@ export default function ResumenModule({
 
     const [conciliacion, indemnizacionesPeriodo] = await Promise.all([
       fetch(`/api/conciliaciones/resumen?${paramsConciliacion.toString()}`, { cache: 'no-store' })
-        .then((r) => r.json())
+        .then(async (r) => {
+          const j = await r.json();
+          if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+          return j;
+        })
         .then((j) =>
           j.resumen
             ? {
@@ -469,10 +495,22 @@ export default function ResumenModule({
                 guiasPagadas: j.resumen.guias_pagadas,
                 guiasPendientes: j.resumen.guias_pendientes,
                 pctConciliado: j.resumen.cod_total > 0 ? Math.round((j.resumen.cod_pagado / j.resumen.cod_total) * 1000) / 10 : null,
+                error: null as string | null,
               }
             : null
         )
-        .catch(() => null),
+        // Se muestra el mensaje de error REAL en el informe (en vez de
+        // silenciarlo) — así, si algo falla, se ve exactamente qué pasó
+        // en lugar de solo "no se pudo cargar" sin más contexto.
+        .catch((e) => ({
+          codTotal: 0,
+          codPagado: 0,
+          codPendiente: 0,
+          guiasPagadas: 0,
+          guiasPendientes: 0,
+          pctConciliado: null,
+          error: e instanceof Error ? e.message : 'Error desconocido',
+        })),
       fetch('/api/indemnizaciones', { cache: 'no-store' })
         .then((r) => r.json())
         .then((j) =>
@@ -551,6 +589,7 @@ export default function ResumenModule({
       topCiudadesRechazosCliente: topCiudadesPorRechazosCliente(guias, 5),
       conciliacion,
       guiasAbiertasDetalle,
+      retornosAbiertosDetalle,
       indemnizacionesPeriodo,
     }, ventana);
   }
