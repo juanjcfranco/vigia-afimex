@@ -55,7 +55,7 @@ function fmtMoney(v: number | null | undefined): string {
 
 const PAGE_SIZE = 200;
 
-export default function ConciliacionModule() {
+export default function ConciliacionModule({ cargaId }: { cargaId: string | null }) {
   const [resumen, setResumen] = useState<ResumenConciliacion | null>(null);
   const [errorResumen, setErrorResumen] = useState<string | null>(null);
 
@@ -76,29 +76,34 @@ export default function ConciliacionModule() {
 
   const cargarResumen = useCallback(() => {
     setErrorResumen(null);
-    fetch('/api/conciliaciones/resumen')
+    const params = new URLSearchParams();
+    if (cargaId) params.set('carga_id', cargaId);
+    fetch(`/api/conciliaciones/resumen?${params.toString()}`)
       .then((r) => r.json())
       .then((j) => {
         if (j.error) throw new Error(j.error);
         setResumen(j.resumen);
       })
       .catch((e) => setErrorResumen(e instanceof Error ? e.message : 'Error al cargar el resumen'));
-  }, []);
+  }, [cargaId]);
 
   const cargarOpciones = useCallback(() => {
-    fetch('/api/conciliaciones/opciones')
+    const params = new URLSearchParams();
+    if (cargaId) params.set('carga_id', cargaId);
+    fetch(`/api/conciliaciones/opciones?${params.toString()}`)
       .then((r) => r.json())
       .then((j) => {
         setClientes(j.clientes || []);
         setSemanas(j.semanas || []);
       })
       .catch(() => {});
-  }, []);
+  }, [cargaId]);
 
   const cargarDetalle = useCallback(() => {
     setCargandoDetalle(true);
     setErrorDetalle(null);
     const params = new URLSearchParams();
+    if (cargaId) params.set('carga_id', cargaId);
     if (filtroCliente) params.set('cliente', filtroCliente);
     if (filtroEstado) params.set('estatus', filtroEstado);
     if (filtroSemana) params.set('semana', filtroSemana);
@@ -113,7 +118,7 @@ export default function ConciliacionModule() {
       })
       .catch((e) => setErrorDetalle(e instanceof Error ? e.message : 'Error al cargar el detalle'))
       .finally(() => setCargandoDetalle(false));
-  }, [filtroCliente, filtroEstado, filtroSemana, pagina]);
+  }, [cargaId, filtroCliente, filtroEstado, filtroSemana, pagina]);
 
   useEffect(cargarResumen, [cargarResumen]);
   useEffect(cargarOpciones, [cargarOpciones]);
@@ -158,6 +163,7 @@ export default function ConciliacionModule() {
       // evitar un bucle infinito ante una respuesta inesperada.
       for (let i = 0; i < 200; i++) {
         const params = new URLSearchParams();
+        if (cargaId) params.set('carga_id', cargaId);
         if (filtroCliente) params.set('cliente', filtroCliente);
         if (filtroEstado) params.set('estatus', filtroEstado);
         if (filtroSemana) params.set('semana', filtroSemana);

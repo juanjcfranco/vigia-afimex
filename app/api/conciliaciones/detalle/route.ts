@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
   const semana = semanaParam ? Number(semanaParam) : null;
   const limit = Math.min(Number(searchParams.get('limit') || '200') || 200, 1000);
   const offset = Math.max(0, Number(searchParams.get('offset') || '0') || 0);
+  const cargaId = searchParams.get('carga_id') || null;
 
   const { data, error } = await db.rpc('conciliacion_detalle', {
     p_cliente: cliente,
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
     p_semana: semana,
     p_limit: limit,
     p_offset: offset,
+    p_carga_id: cargaId,
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
