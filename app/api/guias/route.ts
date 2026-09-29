@@ -32,6 +32,18 @@ export async function GET(req: NextRequest) {
   const cliente = searchParams.get('cliente');
   const estado = searchParams.get('estado');
   const guiasParam = searchParams.get('guias'); // búsqueda masiva: lista separada por comas
+  // soloOriginales: excluye retornos (es_retorno / es_posible_retorno_otro_periodo)
+  // y predoc/documentada — mismo criterio que esGuiaOriginal() en
+  // business-logic.ts, aplicado del lado del servidor. Se usa para no traer
+  // decenas de miles de filas (ej. retornos que también quedan ENTREGADA)
+  // que de todas formas se iban a descartar del lado del cliente — eso
+  // multiplicaba innecesariamente el número de páginas a pedir y hacía
+  // más probable toparse con un error transitorio a mitad de la carga
+  // (ver Conciliación: guías Entregadas ORIGINALES, no todas las Entregadas).
+  const soloOriginales = searchParams.get('solo_originales') === '1';
+  // codMayorACero: solo guías con COD > 0 — igual de aplicable a
+  // Conciliación, donde una guía sin COD no participa en absoluto.
+  const codMayorACero = searchParams.get('cod_mayor_a_cero') === '1';
 
   const offset = Math.max(0, Number(searchParams.get('offset') || '0') || 0);
   const limitParam = searchParams.get('limit');
@@ -43,6 +55,14 @@ export async function GET(req: NextRequest) {
   if (entidad) query = query.eq('entidad_destinatario', entidad);
   if (cliente) query = query.eq('cliente', cliente);
   if (estado) query = query.eq('estado_guia', estado);
+  if (soloOriginales) {
+    query = query
+      .eq('es_retorno', false)
+      .eq('es_posible_retorno_otro_periodo', false)
+      .eq('es_predoc', false)
+      .eq('es_documentada', false);
+  }
+  if (codMayorACero) query = query.gt('cod', 0);
   if (guiasParam) {
     const lista = guiasParam
       .split(/[\s,;\n]+/)

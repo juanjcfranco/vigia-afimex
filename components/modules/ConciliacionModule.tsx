@@ -79,7 +79,9 @@ export default function ConciliacionModule({ guias: _guiasIgnoradas }: { guias: 
     // cargado variaba de una corrida a otra sin ningún aviso. Ahora, si
     // una página falla, se reintenta unas veces antes de rendirse.
     async function pedirPagina(intento = 1): Promise<Guia[]> {
-      const res = await fetch(`/api/guias?estado=ENTREGADA&offset=${offset}&limit=${PAGE_SIZE}`);
+      const res = await fetch(
+        `/api/guias?estado=ENTREGADA&solo_originales=1&cod_mayor_a_cero=1&offset=${offset}&limit=${PAGE_SIZE}`
+      );
       if (!res.ok) {
         if (intento < MAX_REINTENTOS) {
           await new Promise((r) => setTimeout(r, 500 * intento));
