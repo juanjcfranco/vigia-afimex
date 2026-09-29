@@ -137,7 +137,7 @@ export default function Home() {
           {tab === 'facturacion' && <FacturacionModule guias={guiasFiltradas} />}
           {tab === 'abiertas' && <AbiertasModule guias={guiasFiltradas} />}
           {tab === 'indemnizaciones' && <IndemnizacionesModule guias={guiasFiltradas} />}
-          {tab === 'conciliacion' && <ConciliacionModule cargaId={cargaActivaId} />}
+          {tab === 'conciliacion' && <ConciliacionModule cargaId={cargaActivaId} periodos={filtroPeriodos} dia={filtroDia} />}
           {tab === 'predoc' && <PredocModule guias={guiasFiltradas} />}
           {tab === 'alertas' && <AlertasModule guias={guiasFiltradas} />}
           {tab === 'guias' && <GuiasModule guias={guiasFiltradas} />}

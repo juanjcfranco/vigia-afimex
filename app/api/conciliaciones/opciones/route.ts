@@ -12,7 +12,14 @@ export async function GET(req: NextRequest) {
   const db = supabaseAdmin();
   const { searchParams } = new URL(req.url);
   const cargaId = searchParams.get('carga_id') || null;
-  const { data, error } = await db.rpc('conciliacion_opciones_filtro', { p_carga_id: cargaId });
+  const periodosParam = searchParams.get('periodos');
+  const periodos = periodosParam ? periodosParam.split(',').filter(Boolean) : null;
+  const dia = searchParams.get('dia') || null;
+  const { data, error } = await db.rpc('conciliacion_opciones_filtro', {
+    p_carga_id: cargaId,
+    p_periodos: periodos,
+    p_dia: dia,
+  });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const fila = Array.isArray(data) ? data[0] : data;
   return NextResponse.json({

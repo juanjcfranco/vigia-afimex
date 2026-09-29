@@ -19,6 +19,10 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(Number(searchParams.get('limit') || '200') || 200, 1000);
   const offset = Math.max(0, Number(searchParams.get('offset') || '0') || 0);
   const cargaId = searchParams.get('carga_id') || null;
+  const periodosParam = searchParams.get('periodos');
+  const periodos = periodosParam ? periodosParam.split(',').filter(Boolean) : null;
+  const dia = searchParams.get('dia') || null;
+  const guia = searchParams.get('guia') || null;
 
   const { data, error } = await db.rpc('conciliacion_detalle', {
     p_cliente: cliente,
@@ -27,6 +31,9 @@ export async function GET(req: NextRequest) {
     p_limit: limit,
     p_offset: offset,
     p_carga_id: cargaId,
+    p_periodos: periodos,
+    p_dia: dia,
+    p_guia: guia,
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

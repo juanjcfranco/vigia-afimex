@@ -56,7 +56,15 @@ function fmtMoney(v: number | null | undefined): string {
 
 const PAGE_SIZE = 200;
 
-export default function ConciliacionModule({ cargaId }: { cargaId: string | null }) {
+export default function ConciliacionModule({
+  cargaId,
+  periodos,
+  dia,
+}: {
+  cargaId: string | null;
+  periodos: string[];
+  dia: string | null;
+}) {
   const [resumen, setResumen] = useState<ResumenConciliacion | null>(null);
   const [errorResumen, setErrorResumen] = useState<string | null>(null);
 
@@ -73,12 +81,25 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
   const [filtroCliente, setFiltroCliente] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'' | 'PAGADA' | 'PENDIENTE' | 'DIFERENCIA'>('');
   const [filtroSemana, setFiltroSemana] = useState('');
+  const [filtroGuia, setFiltroGuia] = useState('');
+  const [filtroGuiaDebounced, setFiltroGuiaDebounced] = useState('');
+
+  // Debounce de 400ms para no disparar una petición por cada tecla
+  // mientras se escribe el número de guía a buscar.
+  useEffect(() => {
+    const t = setTimeout(() => setFiltroGuiaDebounced(filtroGuia.trim()), 400);
+    return () => clearTimeout(t);
+  }, [filtroGuia]);
   const [exportando, setExportando] = useState(false);
+
+  const periodosParam = periodos.join(',');
 
   const cargarResumen = useCallback(() => {
     setErrorResumen(null);
     const params = new URLSearchParams();
     if (cargaId) params.set('carga_id', cargaId);
+    if (periodosParam) params.set('periodos', periodosParam);
+    if (dia) params.set('dia', dia);
     fetch(`/api/conciliaciones/resumen?${params.toString()}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((j) => {
@@ -86,11 +107,13 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
         setResumen(j.resumen);
       })
       .catch((e) => setErrorResumen(e instanceof Error ? e.message : 'Error al cargar el resumen'));
-  }, [cargaId]);
+  }, [cargaId, periodosParam, dia]);
 
   const cargarOpciones = useCallback(() => {
     const params = new URLSearchParams();
     if (cargaId) params.set('carga_id', cargaId);
+    if (periodosParam) params.set('periodos', periodosParam);
+    if (dia) params.set('dia', dia);
     fetch(`/api/conciliaciones/opciones?${params.toString()}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((j) => {
@@ -98,16 +121,19 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
         setSemanas(j.semanas || []);
       })
       .catch(() => {});
-  }, [cargaId]);
+  }, [cargaId, periodosParam, dia]);
 
   const cargarDetalle = useCallback(() => {
     setCargandoDetalle(true);
     setErrorDetalle(null);
     const params = new URLSearchParams();
     if (cargaId) params.set('carga_id', cargaId);
+    if (periodosParam) params.set('periodos', periodosParam);
+    if (dia) params.set('dia', dia);
     if (filtroCliente) params.set('cliente', filtroCliente);
     if (filtroEstado) params.set('estatus', filtroEstado);
     if (filtroSemana) params.set('semana', filtroSemana);
+    if (filtroGuiaDebounced) params.set('guia', filtroGuiaDebounced);
     params.set('limit', String(PAGE_SIZE));
     params.set('offset', String(pagina * PAGE_SIZE));
     fetch(`/api/conciliaciones/detalle?${params.toString()}`, { cache: 'no-store' })
@@ -119,7 +145,7 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
       })
       .catch((e) => setErrorDetalle(e instanceof Error ? e.message : 'Error al cargar el detalle'))
       .finally(() => setCargandoDetalle(false));
-  }, [cargaId, filtroCliente, filtroEstado, filtroSemana, pagina]);
+  }, [cargaId, periodosParam, dia, filtroCliente, filtroEstado, filtroSemana, filtroGuiaDebounced, pagina]);
 
   useEffect(cargarResumen, [cargarResumen]);
   useEffect(cargarOpciones, [cargarOpciones]);
@@ -128,7 +154,7 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
   // Cambiar cualquier filtro regresa a la primera página.
   useEffect(() => {
     setPagina(0);
-  }, [filtroCliente, filtroEstado, filtroSemana]);
+  }, [filtroCliente, filtroEstado, filtroSemana, filtroGuiaDebounced]);
 
   function recargarTodo() {
     cargarResumen();
@@ -166,9 +192,12 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
       for (let i = 0; i < 200; i++) {
         const params = new URLSearchParams();
         if (cargaId) params.set('carga_id', cargaId);
+        if (periodosParam) params.set('periodos', periodosParam);
+        if (dia) params.set('dia', dia);
         if (filtroCliente) params.set('cliente', filtroCliente);
         if (filtroEstado) params.set('estatus', filtroEstado);
         if (filtroSemana) params.set('semana', filtroSemana);
+        if (filtroGuiaDebounced) params.set('guia', filtroGuiaDebounced);
         params.set('limit', String(LIMIT_EXPORT));
         params.set('offset', String(offset));
         const res = await fetch(`/api/conciliaciones/detalle?${params.toString()}`, { cache: 'no-store' });
@@ -258,6 +287,13 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
       <div className="bg-white border border-[var(--vg-border)] rounded-lg p-3 space-y-3">
         <div className="flex items-center gap-2.5 flex-wrap">
           <span className="text-[12px] font-semibold text-[var(--vg-text2)]">🔍 Filtrar:</span>
+          <input
+            type="text"
+            value={filtroGuia}
+            onChange={(e) => setFiltroGuia(e.target.value)}
+            placeholder="Buscar guía..."
+            className="text-[12px] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white w-[150px]"
+          />
           <select
             value={filtroCliente}
             onChange={(e) => setFiltroCliente(e.target.value)}
