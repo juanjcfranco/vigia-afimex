@@ -128,7 +128,13 @@ export default function Home() {
       {!loading && !sinDatos && (
         <>
           {tab === 'resumen' && (
-            <ResumenModule guias={guiasFiltradas} cargaId={cargaActivaId} periodos={filtroPeriodos} dia={filtroDia} />
+            <ResumenModule
+              guias={guiasFiltradas}
+              guiasTodas={guiasFiltradasSinPeriodo}
+              cargaId={cargaActivaId}
+              periodos={filtroPeriodos}
+              dia={filtroDia}
+            />
           )}
           {tab === 'efectividad' && <EfectividadModule guias={guiasFiltradas} guiasTendencias={guiasFiltradasSinPeriodo} />}
           {tab === 'excepciones' && <ExcepcionesModule guias={guiasFiltradas} />}
