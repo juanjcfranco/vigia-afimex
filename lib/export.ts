@@ -916,6 +916,9 @@ export interface InformeLogisticoData {
     pctConciliado: number | null;
     error: string | null;
   } | null;
+  // Guías puntuales pendientes de conciliar (COD no pagado), dentro del
+  // universo ya filtrado del informe.
+  conciliacionPendienteDetalle: Array<{ guia: string; cliente: string | null; oficinaDestino: string | null; cod: number }>;
   // Relación detallada de guías actualmente abiertas (no solo el conteo
   // agregado de abiertasPorEstado/abiertasPorEntidad) — top 50 por más
   // días sin movimiento, para que el PDF no se vuelva inmanejable con
@@ -1491,6 +1494,30 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
           }
         </div>
       </div>
+
+      ${
+        data.conciliacionPendienteDetalle.length
+          ? `<div class="seccion" style="margin-bottom:18px;">
+              <div class="seccion-titulo">Guías Pendientes de Conciliar <span style="font-weight:400;color:#94A3B8;">(${data.conciliacionPendienteDetalle.length.toLocaleString('es-MX')})</span></div>
+              <table>
+                <thead><tr><th>Guía</th><th>Cliente</th><th>Oficina Destino</th><th>COD</th></tr></thead>
+                <tbody>
+                  ${data.conciliacionPendienteDetalle
+                    .map(
+                      (g) => `
+                    <tr>
+                      <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
+                      <td>${escapeHtml(g.cliente || '—')}</td>
+                      <td>${escapeHtml(g.oficinaDestino || '—')}</td>
+                      <td style="color:#DC2626;font-weight:700;">${g.cod.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</td>
+                    </tr>`
+                    )
+                    .join('')}
+                </tbody>
+              </table>
+            </div>`
+          : ''
+      }
 
       <div class="secciones">
         <div class="seccion" style="grid-column: span 2;">

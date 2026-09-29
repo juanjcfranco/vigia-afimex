@@ -497,7 +497,7 @@ export default function ResumenModule({
       ...guiasOriginales.filter((g) => g.retorno_guia).map((g) => g.retorno_guia as string),
     ]);
 
-    const [conciliacion, indemnizacionesPeriodo] = await Promise.all([
+    const [conciliacion, conciliacionPendienteDetalle, indemnizacionesPeriodo] = await Promise.all([
       fetch('/api/conciliaciones/resumen-por-guias', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -534,6 +534,27 @@ export default function ResumenModule({
           pctConciliado: null,
           error: e instanceof Error ? e.message : 'Error desconocido',
         })),
+      // Detalle de conciliación — mismo patrón de "lista exacta de guías"
+      // que el resumen; se filtra a solo las pendientes aquí mismo (del
+      // lado de React), sin duplicar ese criterio en SQL.
+      fetch('/api/conciliaciones/detalle-por-guias', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guias: guiasConCod }),
+        cache: 'no-store',
+      })
+        .then((r) => r.json())
+        .then((j) =>
+          (j.filas || [])
+            .filter((f: { pagado: boolean }) => !f.pagado)
+            .map((f: { guia: string; cliente: string | null; oficina_destino: string | null; cod: number }) => ({
+              guia: f.guia,
+              cliente: f.cliente,
+              oficinaDestino: f.oficina_destino,
+              cod: f.cod,
+            }))
+        )
+        .catch(() => [] as InformeLogisticoData['conciliacionPendienteDetalle']),
       fetch('/api/indemnizaciones', { cache: 'no-store' })
         .then((r) => r.json())
         .then((j) =>
@@ -611,6 +632,7 @@ export default function ResumenModule({
       topCiudadesDiasEntrega: topCiudadesPorDiasEntrega(guias, 5),
       topCiudadesRechazosCliente: topCiudadesPorRechazosCliente(guias, 5),
       conciliacion,
+      conciliacionPendienteDetalle,
       guiasAbiertasDetalle,
       retornosAbiertosDetalle,
       indemnizacionesPeriodo,
