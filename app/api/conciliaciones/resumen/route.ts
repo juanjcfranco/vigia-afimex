@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic'; // nunca cachear: debe reflejar SIEMPRE la carga_id actual
 
 // Resumen de conciliación calculado directo en Postgres (función
 // conciliacion_resumen(), ver supabase_migracion_19_conciliacion_carga_id.sql).

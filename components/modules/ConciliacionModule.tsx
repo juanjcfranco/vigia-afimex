@@ -46,6 +46,7 @@ interface FilaDetalle {
   cip: string | null;
   pagado: boolean;
   diferencia: number | null;
+  f_confirmacion: string | null;
 }
 
 function fmtMoney(v: number | null | undefined): string {
@@ -78,7 +79,7 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
     setErrorResumen(null);
     const params = new URLSearchParams();
     if (cargaId) params.set('carga_id', cargaId);
-    fetch(`/api/conciliaciones/resumen?${params.toString()}`)
+    fetch(`/api/conciliaciones/resumen?${params.toString()}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((j) => {
         if (j.error) throw new Error(j.error);
@@ -90,7 +91,7 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
   const cargarOpciones = useCallback(() => {
     const params = new URLSearchParams();
     if (cargaId) params.set('carga_id', cargaId);
-    fetch(`/api/conciliaciones/opciones?${params.toString()}`)
+    fetch(`/api/conciliaciones/opciones?${params.toString()}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((j) => {
         setClientes(j.clientes || []);
@@ -109,7 +110,7 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
     if (filtroSemana) params.set('semana', filtroSemana);
     params.set('limit', String(PAGE_SIZE));
     params.set('offset', String(pagina * PAGE_SIZE));
-    fetch(`/api/conciliaciones/detalle?${params.toString()}`)
+    fetch(`/api/conciliaciones/detalle?${params.toString()}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((j) => {
         if (j.error) throw new Error(j.error);
@@ -140,6 +141,7 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
     { header: 'Cliente', value: (f: FilaDetalle) => f.cliente || '' },
     { header: 'Oficina Destino', value: (f: FilaDetalle) => f.oficina_destino || '' },
     { header: 'Estado', value: (f: FilaDetalle) => f.estado_guia || '' },
+    { header: 'F_Confirmacion', value: (f: FilaDetalle) => f.f_confirmacion || '' },
     { header: 'COD (VIGIA)', value: (f: FilaDetalle) => f.cod },
     { header: 'Estatus Conciliación', value: (f: FilaDetalle) => (f.pagado ? 'PAGADA' : 'PENDIENTE') },
     { header: 'COD Conciliado', value: (f: FilaDetalle) => f.cod_conciliado ?? '' },
@@ -169,7 +171,7 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
         if (filtroSemana) params.set('semana', filtroSemana);
         params.set('limit', String(LIMIT_EXPORT));
         params.set('offset', String(offset));
-        const res = await fetch(`/api/conciliaciones/detalle?${params.toString()}`);
+        const res = await fetch(`/api/conciliaciones/detalle?${params.toString()}`, { cache: 'no-store' });
         const json = await res.json();
         if (json.error) throw new Error(json.error);
         const lote: FilaDetalle[] = json.filas || [];
@@ -334,6 +336,7 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
                 <th className="text-left px-3 py-2 font-semibold">Guía</th>
                 <th className="text-left px-3 py-2 font-semibold">Cliente</th>
                 <th className="text-left px-3 py-2 font-semibold">Oficina Destino</th>
+                <th className="text-left px-3 py-2 font-semibold">F_Confirmación</th>
                 <th className="text-left px-3 py-2 font-semibold">COD (VIGIA)</th>
                 <th className="text-left px-3 py-2 font-semibold">Estatus</th>
                 <th className="text-left px-3 py-2 font-semibold">COD Conciliado</th>
@@ -344,14 +347,14 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
             <tbody>
               {cargandoDetalle && (
                 <tr>
-                  <td colSpan={8} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={9} className="text-center text-[var(--vg-text3)] py-6">
                     Cargando...
                   </td>
                 </tr>
               )}
               {!cargandoDetalle && filas.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={9} className="text-center text-[var(--vg-text3)] py-6">
                     No hay guías con COD que coincidan con los filtros.
                   </td>
                 </tr>
@@ -362,6 +365,7 @@ export default function ConciliacionModule({ cargaId }: { cargaId: string | null
                     <td className="px-3 py-1.5 font-mono font-semibold">{f.guia}</td>
                     <td className="px-3 py-1.5">{f.cliente || '—'}</td>
                     <td className="px-3 py-1.5">{f.oficina_destino || '—'}</td>
+                    <td className="px-3 py-1.5">{f.f_confirmacion || '—'}</td>
                     <td className="px-3 py-1.5 text-right font-mono">{fmtMoney(f.cod)}</td>
                     <td className="px-3 py-1.5">
                       <span

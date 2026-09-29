@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic'; // nunca cachear: debe reflejar SIEMPRE la carga_id actual
 
 // Opciones para los <select> de filtro (clientes, semanas de pago),
 // calculadas en Postgres — evita traer el detalle completo solo para
