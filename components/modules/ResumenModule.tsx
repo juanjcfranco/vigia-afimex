@@ -132,9 +132,28 @@ export default function ResumenModule({
     // llega (retorno_estado distinto de ENTREGADA). No son "guías abiertas"
     // (esas son guías originales en tránsito) — son un bucket aparte, pero
     // sí cuentan como pendiente/no efectivo para el cálculo de efectividad.
-    // (Es el mismo número que guiasRetornoPendientes, calculado aquí antes
-    // para poder usarlo en calcularEfectividad.)
-    const retornosAbiertos = devolucionesConRetorno.length - guiasRetornoEntregadas;
+    // Además del criterio de "no entregado", el RETORNO mismo también debe
+    // caer dentro del período/día filtrado en la barra superior — sin
+    // esto, un retorno documentado en OTRO mes se contaba igual, dando un
+    // número mayor al que se ve en cualquier otro módulo filtrado por mes
+    // (ej. Abiertas). retornoPorGuia usa el set SIN filtrar (guiasTodas)
+    // a propósito para poder resolver el estado del retorno sin importar
+    // en qué oficina/filtro esté — pero para CONTAR si debe entrar en este
+    // corte, sí hay que aplicar el filtro de fecha explícitamente aquí.
+    const retornoCaeEnFiltroKpi = (retorno: Guia | undefined) => {
+      if (!retorno) return true;
+      if (periodos && periodos.length) {
+        const mes = (retorno.f_documentacion || '').slice(0, 7);
+        if (!periodos.includes(mes)) return false;
+      }
+      if (dia && (!retorno.f_documentacion || retorno.f_documentacion > dia)) return false;
+      return true;
+    };
+    const retornosAbiertos = devolucionesConRetorno.filter(
+      (g) =>
+        !retornoEstaEntregado(g, g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined) &&
+        retornoCaeEnFiltroKpi(g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined)
+    ).length;
 
     const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
 
@@ -168,7 +187,7 @@ export default function ResumenModule({
       efectividad,
       tiempoEntrega,
     };
-  }, [guias, retornoPorGuia, guiasOriginales]);
+  }, [guias, retornoPorGuia, guiasOriginales, periodos, dia]);
 
   // Temporalidad general del corte, sobre Guías Procesadas (guiasOriginales)
   // para cuadrar con la métrica principal de volumen. Usa temporalidadPorCampo
@@ -455,8 +474,23 @@ export default function ResumenModule({
     // Se muestra el folio y los datos del RETORNO en sí (no de la
     // devolución original) — es la guía física que sigue en tránsito.
     const devolucionesConRetornoInforme = guiasOriginales.filter((g) => g.es_devolucion && g.retorno_guia);
+    // Mismo filtro de período/día que aplica el resto de la app (ver
+    // guiasFiltradas en useVigiaData.ts), pero sobre la fecha del RETORNO
+    // mismo — no solo sobre la devolución original. Sin esto, un retorno
+    // documentado en un mes distinto al de su devolución se contaba igual,
+    // inflando el número frente a cualquier otro módulo filtrado por mes.
+    const retornoCaeEnFiltro = (retorno: Guia | undefined) => {
+      if (!retorno) return true; // sin fila física de retorno: no se puede evaluar por fecha, se deja pasar
+      if (periodos && periodos.length) {
+        const mes = (retorno.f_documentacion || '').slice(0, 7);
+        if (!periodos.includes(mes)) return false;
+      }
+      if (dia && (!retorno.f_documentacion || retorno.f_documentacion > dia)) return false;
+      return true;
+    };
     const retornosAbiertosDetalle = devolucionesConRetornoInforme
       .filter((g) => !retornoEstaEntregado(g, g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined))
+      .filter((g) => retornoCaeEnFiltro(g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined))
       .map((g) => {
         const retorno = g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined;
         return {
@@ -470,17 +504,24 @@ export default function ResumenModule({
       .slice(0, 50);
 
     // Conciliación de COD e Indemnizaciones — viven en tablas aparte de
-    // Supabase (no vienen en el prop `guias`), se piden acotadas al mismo
-    // período/carga que el resto del informe.
-    const paramsConciliacion = new URLSearchParams();
-    if (cargaId) paramsConciliacion.set('carga_id', cargaId);
-    if (periodos && periodos.length) paramsConciliacion.set('periodos', periodos.join(','));
-    if (dia) paramsConciliacion.set('dia', dia);
+    // Supabase (no vienen en el prop `guias`). Para conciliación se manda
+    // la lista EXACTA de números de guía que ya cumplen los mismos
+    // criterios que el resto del informe (original, entregada, cod>0) —
+    // `guias` ya viene filtrada por TODOS los filtros activos de la barra
+    // superior (cliente, oficina, entidad, período, día), así que no hay
+    // que reimplementar cada uno por separado en SQL (eso ya causó
+    // desfases: primero faltó período/día, luego faltó cliente).
+    const guiasConCod = guiasOriginales.filter((g) => isEntregada(g.estado_guia) && g.cod !== null && g.cod > 0).map((g) => g.guia);
 
     const guiasDelPeriodo = new Set(guias.map((g) => g.guia));
 
     const [conciliacion, indemnizacionesPeriodo] = await Promise.all([
-      fetch(`/api/conciliaciones/resumen?${paramsConciliacion.toString()}`, { cache: 'no-store' })
+      fetch('/api/conciliaciones/resumen-por-guias', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guias: guiasConCod }),
+        cache: 'no-store',
+      })
         .then(async (r) => {
           const j = await r.json();
           if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
