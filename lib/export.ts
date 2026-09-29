@@ -904,6 +904,32 @@ export interface InformeLogisticoData {
   // Top 5 ciudades con más rechazos ATRIBUIBLES A CLIENTE (ver
   // categoriaExcepcion) — no el total de excepciones, solo esa categoría.
   topCiudadesRechazosCliente: Array<{ ciudad: string; count: number }>;
+  // Conciliación de COD (cruce contra la tabla `conciliaciones`), acotada
+  // al mismo período/carga que el resto del informe. null si el fetch
+  // falló — el informe se sigue generando sin esta sección en ese caso.
+  conciliacion: {
+    codTotal: number;
+    codPagado: number;
+    codPendiente: number;
+    guiasPagadas: number;
+    guiasPendientes: number;
+    pctConciliado: number | null;
+  } | null;
+  // Relación detallada de guías actualmente abiertas (no solo el conteo
+  // agregado de abiertasPorEstado/abiertasPorEntidad) — top 50 por más
+  // días sin movimiento, para que el PDF no se vuelva inmanejable con
+  // miles de filas. totalAbiertas (arriba) ya trae el total real.
+  guiasAbiertasDetalle: Array<{ guia: string; cliente: string | null; oficinaDestino: string | null; diasSinMovimiento: number | null }>;
+  // Indemnizaciones cuyas guías caen dentro del período/carga actual del
+  // informe (cruce contra la tabla `indemnizaciones`, por número de guía).
+  indemnizacionesPeriodo: Array<{
+    folio: string;
+    guias: string[];
+    cliente: string | null;
+    importe: number | null;
+    estado: string;
+    tipoIncidencia: string | null;
+  }>;
 }
 
 function colorEfectividadInforme(valor: number | null): string {
@@ -1419,6 +1445,37 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
       <div class="kpi-grid">${kpiCards}</div>
 
       <div class="secciones">
+        <div class="seccion">
+          <div class="seccion-titulo">Resumen por Estatus</div>
+          <table>
+            <thead><tr><th>Estatus</th><th>Guías</th></tr></thead>
+            <tbody>
+              <tr><td class="celda-fuerte" style="color:#0B9B67;">Entregadas</td><td>${k.entregadas.toLocaleString('es-MX')}</td></tr>
+              <tr><td class="celda-fuerte" style="color:#DC2626;">Devoluciones</td><td>${k.devoluciones.toLocaleString('es-MX')}</td></tr>
+              <tr><td class="celda-fuerte" style="color:#EA7C1A;">Abiertas</td><td>${k.abiertas.toLocaleString('es-MX')}</td></tr>
+              <tr><td class="celda-fuerte" style="color:#7C3AED;">Retornos Abiertos</td><td>${k.retornosAbiertos.toLocaleString('es-MX')}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo">Conciliación de COD</div>
+          ${
+            data.conciliacion
+              ? `<table>
+                  <thead><tr><th></th><th>Monto</th><th>Guías</th></tr></thead>
+                  <tbody>
+                    <tr><td class="celda-fuerte" style="color:#0B9B67;">Conciliado</td><td>${data.conciliacion.codPagado.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</td><td>${data.conciliacion.guiasPagadas.toLocaleString('es-MX')}</td></tr>
+                    <tr><td class="celda-fuerte" style="color:#DC2626;">Pendiente</td><td>${data.conciliacion.codPendiente.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</td><td>${data.conciliacion.guiasPendientes.toLocaleString('es-MX')}</td></tr>
+                    <tr><td class="celda-fuerte">Total COD</td><td>${data.conciliacion.codTotal.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</td><td>${(data.conciliacion.guiasPagadas + data.conciliacion.guiasPendientes).toLocaleString('es-MX')}</td></tr>
+                  </tbody>
+                </table>
+                <div style="font-size:11px;color:#64748B;margin-top:6px;">% Conciliado: <b style="color:${data.conciliacion.pctConciliado !== null && data.conciliacion.pctConciliado >= 70 ? '#0B9B67' : data.conciliacion.pctConciliado !== null && data.conciliacion.pctConciliado >= 40 ? '#EA7C1A' : '#DC2626'};">${data.conciliacion.pctConciliado !== null ? `${data.conciliacion.pctConciliado}%` : '—'}</b></div>`
+              : `<div style="font-size:12px;color:#94A3B8;">No se pudo cargar la información de conciliación.</div>`
+          }
+        </div>
+      </div>
+
+      <div class="secciones">
         <div class="seccion" style="grid-column: span 2;">
           <div class="seccion-titulo">Efectividad por Entidad</div>
           ${barraEfectividadHtml(data.efectividadPorEntidad)}
@@ -1568,6 +1625,56 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
           <div class="seccion-titulo">Top 5 Ciudades por Volumen</div>
           ${barraHtml(data.topCiudades, data.totalGuias, '#0891B2')}
         </div>
+      </div>
+
+      <div class="seccion" style="margin-bottom:18px;">
+        <div class="seccion-titulo">Relación de Guías Abiertas ${data.totalAbiertas > data.guiasAbiertasDetalle.length ? `<span style="font-weight:400;color:#94A3B8;">(top ${data.guiasAbiertasDetalle.length} de ${data.totalAbiertas.toLocaleString('es-MX')} por más días sin movimiento)</span>` : ''}</div>
+        ${
+          data.guiasAbiertasDetalle.length
+            ? `<table>
+                <thead><tr><th>Guía</th><th>Cliente</th><th>Oficina Destino</th><th>Días sin Movimiento</th></tr></thead>
+                <tbody>
+                  ${data.guiasAbiertasDetalle
+                    .map(
+                      (g) => `
+                    <tr>
+                      <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
+                      <td>${escapeHtml(g.cliente || '—')}</td>
+                      <td>${escapeHtml(g.oficinaDestino || '—')}</td>
+                      <td style="color:${g.diasSinMovimiento !== null && g.diasSinMovimiento >= 5 ? '#DC2626' : g.diasSinMovimiento !== null && g.diasSinMovimiento >= 3 ? '#EA7C1A' : '#0B9B67'};font-weight:700;">${g.diasSinMovimiento !== null ? `${g.diasSinMovimiento}d` : '—'}</td>
+                    </tr>`
+                    )
+                    .join('')}
+                </tbody>
+              </table>`
+            : `<div style="font-size:12px;color:#94A3B8;">No hay guías abiertas en este corte.</div>`
+        }
+      </div>
+
+      <div class="seccion" style="margin-bottom:18px;">
+        <div class="seccion-titulo">Indemnizaciones del Período <span style="font-weight:400;color:#94A3B8;">(${data.indemnizacionesPeriodo.length.toLocaleString('es-MX')})</span></div>
+        ${
+          data.indemnizacionesPeriodo.length
+            ? `<table>
+                <thead><tr><th>Folio</th><th>Guía(s)</th><th>Cliente</th><th>Tipo</th><th>Estado</th><th>Importe</th></tr></thead>
+                <tbody>
+                  ${data.indemnizacionesPeriodo
+                    .map(
+                      (i) => `
+                    <tr>
+                      <td class="celda-fuerte">${escapeHtml(i.folio)}</td>
+                      <td>${escapeHtml(i.guias.join(', '))}</td>
+                      <td>${escapeHtml(i.cliente || '—')}</td>
+                      <td>${escapeHtml(i.tipoIncidencia || '—')}</td>
+                      <td>${escapeHtml(i.estado)}</td>
+                      <td>${i.importe !== null ? i.importe.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }) : '—'}</td>
+                    </tr>`
+                    )
+                    .join('')}
+                </tbody>
+              </table>`
+            : `<div style="font-size:12px;color:#94A3B8;">No hay indemnizaciones registradas para las guías de este período.</div>`
+        }
       </div>
 
       <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>

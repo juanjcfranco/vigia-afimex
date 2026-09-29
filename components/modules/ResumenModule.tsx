@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
 import { isEntregada, isAbiertaPorEstado, isCancelada, esGuiaOriginal, esRetornoAmplio, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo, topPorCampo, categoriaExcepcion, diasEntreFechas, temporalidadPorCampo, topCiudadesPorDiasEntrega, topCiudadesPorRechazosCliente } from '@/lib/business-logic';
-import { exportInformeLogisticoPDF } from '@/lib/export';
+import { exportInformeLogisticoPDF, InformeLogisticoData } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
 import KpiCard from '@/components/KpiCard';
 import { useSortableTable } from '@/lib/useSortableTable';
@@ -34,7 +34,19 @@ function colorParaEstado(nombre: string): string {
   return '#94A3B8';
 }
 
-export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; guiasTodas?: Guia[] }) {
+export default function ResumenModule({
+  guias,
+  guiasTodas,
+  cargaId,
+  periodos,
+  dia,
+}: {
+  guias: Guia[];
+  guiasTodas?: Guia[];
+  cargaId?: string | null;
+  periodos?: string[];
+  dia?: string | null;
+}) {
   // Mapa de guía → fila física del retorno, construido con el set COMPLETO
   // (sin el filtro de oficina/entidad/etc. aplicado), no con `guias` ya
   // filtradas — igual que en el módulo Devoluciones. El retorno de una
@@ -314,10 +326,15 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     ventana.document.write(
       '<html><body style="font-family:Arial,sans-serif;padding:60px;color:#1E3A8A;text-align:center;"><h2>Generando Informe Logístico…</h2><p style="color:#64748B;">Esto puede tardar unos segundos si el corte tiene muchas guías.</p></body></html>'
     );
-    setTimeout(() => generarYEscribirInformeLogistico(ventana), 0);
+    setTimeout(() => {
+      generarYEscribirInformeLogistico(ventana).catch((e) => {
+        console.error('Error al generar el Informe Logístico:', e);
+        ventana.document.write('<p style="color:#DC2626;font-family:Arial;padding:20px;">Ocurrió un error al generar el informe. Cierra esta ventana e intenta de nuevo.</p>');
+      });
+    }, 0);
   }
 
-  function generarYEscribirInformeLogistico(ventana: Window) {
+  async function generarYEscribirInformeLogistico(ventana: Window) {
     // Para el informe usamos un top 10 (más completo que el resumen de
     // 5 que se ve en pantalla), calculado fresco aquí mismo con las
     // mismas funciones compartidas del resto del sistema.
@@ -415,6 +432,64 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
     // Guías abiertas por entidad — todas, sin tope.
     const abiertasPorEntidadInforme = topPorCampo(guiasAbiertas, (g) => g.entidad_destinatario, 9999);
 
+    // Relación detallada de guías abiertas — top 50 por más días sin
+    // movimiento (dias_sin_movimiento ya viene calculado desde el import,
+    // ver normalizarFila() en business-logic.ts). El PDF se volvería
+    // inmanejable con miles de filas, por eso el tope — totalAbiertas ya
+    // trae el conteo real completo.
+    const guiasAbiertasDetalle = [...guiasAbiertas]
+      .sort((a, b) => (b.dias_sin_movimiento ?? 0) - (a.dias_sin_movimiento ?? 0))
+      .slice(0, 50)
+      .map((g) => ({
+        guia: g.guia,
+        cliente: g.cliente,
+        oficinaDestino: g.oficina_destino,
+        diasSinMovimiento: g.dias_sin_movimiento,
+      }));
+
+    // Conciliación de COD e Indemnizaciones — viven en tablas aparte de
+    // Supabase (no vienen en el prop `guias`), se piden acotadas al mismo
+    // período/carga que el resto del informe.
+    const paramsConciliacion = new URLSearchParams();
+    if (cargaId) paramsConciliacion.set('carga_id', cargaId);
+    if (periodos && periodos.length) paramsConciliacion.set('periodos', periodos.join(','));
+    if (dia) paramsConciliacion.set('dia', dia);
+
+    const guiasDelPeriodo = new Set(guias.map((g) => g.guia));
+
+    const [conciliacion, indemnizacionesPeriodo] = await Promise.all([
+      fetch(`/api/conciliaciones/resumen?${paramsConciliacion.toString()}`, { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((j) =>
+          j.resumen
+            ? {
+                codTotal: j.resumen.cod_total,
+                codPagado: j.resumen.cod_pagado,
+                codPendiente: j.resumen.cod_pendiente,
+                guiasPagadas: j.resumen.guias_pagadas,
+                guiasPendientes: j.resumen.guias_pendientes,
+                pctConciliado: j.resumen.cod_total > 0 ? Math.round((j.resumen.cod_pagado / j.resumen.cod_total) * 1000) / 10 : null,
+              }
+            : null
+        )
+        .catch(() => null),
+      fetch('/api/indemnizaciones', { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((j) =>
+          (j.indemnizaciones || [])
+            .filter((ind: { guias: string[] }) => ind.guias.some((g) => guiasDelPeriodo.has(g)))
+            .map((ind: { folio: string; guias: string[]; cliente: string | null; importe: number | null; estado: string; tipo_incidencia: string | null }) => ({
+              folio: ind.folio,
+              guias: ind.guias,
+              cliente: ind.cliente,
+              importe: ind.importe,
+              estado: ind.estado,
+              tipoIncidencia: ind.tipo_incidencia,
+            }))
+        )
+        .catch(() => [] as InformeLogisticoData['indemnizacionesPeriodo']),
+    ]);
+
     const clientesDistintos = [...new Set(guias.map((g) => g.cliente).filter(Boolean))] as string[];
     const cliente =
       clientesDistintos.length === 1
@@ -474,6 +549,9 @@ export default function ResumenModule({ guias, guiasTodas }: { guias: Guia[]; gu
       temporalidadGeneral: resumenTemporalidad,
       topCiudadesDiasEntrega: topCiudadesPorDiasEntrega(guias, 5),
       topCiudadesRechazosCliente: topCiudadesPorRechazosCliente(guias, 5),
+      conciliacion,
+      guiasAbiertasDetalle,
+      indemnizacionesPeriodo,
     }, ventana);
   }
 

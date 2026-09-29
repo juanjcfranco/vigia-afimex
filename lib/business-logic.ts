@@ -1994,9 +1994,16 @@ export function normalizarFila(
     // ambas variantes igual que se hace con "Estado retorno".
     f_confirmacion: parseFechaExcel(campoInsensible(r, 'F_Confirmacion', 'F_Confirmación')),
     fpe: parseFechaExcel(r.FPE),
-    fecha_plataforma: parseFechaExcel(r['Fecha Plataforma']),
-    primera_ruta: parseFechaExcel(r['Primera Ruta']),
-    recibido_oficina: parseFechaExcel(r['Recibido Oficina']),
+    // Estas 3 fechas usan campoInsensible (no acceso directo) porque el
+    // nombre exacto de la columna ha variado entre archivos (ej. mayúsculas
+    // distintas, con/sin espacios) — un acceso directo r['Recibido Oficina']
+    // falla en silencio (da undefined, sin error) si el archivo trae el
+    // encabezado escrito diferente, dejando TODA la columna vacía sin aviso.
+    fecha_plataforma: parseFechaExcel(campoInsensible(r, 'Fecha Plataforma', 'FECHA PLATAFORMA', 'Fecha_Plataforma')),
+    primera_ruta: parseFechaExcel(campoInsensible(r, 'Primera Ruta', 'PRIMERA RUTA', 'Primera_Ruta')),
+    recibido_oficina: parseFechaExcel(
+      campoInsensible(r, 'Recibido Oficina', 'RECIBIDO OFICINA', 'Recibido_Oficina', 'Recibido en Oficina', 'Fecha Recibido Oficina')
+    ),
     nombre_recibio: nombreRecibio || null,
     nombre_destinatario: nombreDestinatario || null,
     d_tipo_domicilio: String(r.D_Tipo_Domicilio ?? '').trim() || null,
