@@ -132,28 +132,13 @@ export default function ResumenModule({
     // llega (retorno_estado distinto de ENTREGADA). No son "guías abiertas"
     // (esas son guías originales en tránsito) — son un bucket aparte, pero
     // sí cuentan como pendiente/no efectivo para el cálculo de efectividad.
-    // Además del criterio de "no entregado", el RETORNO mismo también debe
-    // caer dentro del período/día filtrado en la barra superior — sin
-    // esto, un retorno documentado en OTRO mes se contaba igual, dando un
-    // número mayor al que se ve en cualquier otro módulo filtrado por mes
-    // (ej. Abiertas). retornoPorGuia usa el set SIN filtrar (guiasTodas)
-    // a propósito para poder resolver el estado del retorno sin importar
-    // en qué oficina/filtro esté — pero para CONTAR si debe entrar en este
-    // corte, sí hay que aplicar el filtro de fecha explícitamente aquí.
-    const retornoCaeEnFiltroKpi = (retorno: Guia | undefined) => {
-      if (!retorno) return true;
-      if (periodos && periodos.length) {
-        const mes = (retorno.f_documentacion || '').slice(0, 7);
-        if (!periodos.includes(mes)) return false;
-      }
-      if (dia && (!retorno.f_documentacion || retorno.f_documentacion > dia)) return false;
-      return true;
-    };
-    const retornosAbiertos = devolucionesConRetorno.filter(
-      (g) =>
-        !retornoEstaEntregado(g, g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined) &&
-        retornoCaeEnFiltroKpi(g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined)
-    ).length;
+    // El criterio de pertenencia al período es el de la GUÍA ORIGINAL (la
+    // devolución), no el del retorno — una devolución de agosto sigue
+    // siendo "de agosto" aunque su retorno se resuelva o documente en
+    // septiembre. `devolucionesConRetorno` ya viene de `guiasOriginales`
+    // (= `guias`, ya filtrado por período), así que no hace falta (ni es
+    // correcto) filtrar también por la fecha del retorno.
+    const retornosAbiertos = devolucionesConRetorno.length - guiasRetornoEntregadas;
 
     const efectividad = calcularEfectividad(entregadas, devoluciones, abiertas);
 
@@ -187,7 +172,7 @@ export default function ResumenModule({
       efectividad,
       tiempoEntrega,
     };
-  }, [guias, retornoPorGuia, guiasOriginales, periodos, dia]);
+  }, [guias, retornoPorGuia, guiasOriginales]);
 
   // Temporalidad general del corte, sobre Guías Procesadas (guiasOriginales)
   // para cuadrar con la métrica principal de volumen. Usa temporalidadPorCampo
@@ -473,24 +458,13 @@ export default function ResumenModule({
     // vinculado no ha sido entregado), pero a nivel de fila individual.
     // Se muestra el folio y los datos del RETORNO en sí (no de la
     // devolución original) — es la guía física que sigue en tránsito.
+    // El criterio de pertenencia al período es el de la guía ORIGINAL
+    // (devolucionesConRetornoInforme ya viene filtrada por período) — no
+    // se filtra también por la fecha del retorno, ver el mismo comentario
+    // en el cálculo de kpis.retornosAbiertos más arriba.
     const devolucionesConRetornoInforme = guiasOriginales.filter((g) => g.es_devolucion && g.retorno_guia);
-    // Mismo filtro de período/día que aplica el resto de la app (ver
-    // guiasFiltradas en useVigiaData.ts), pero sobre la fecha del RETORNO
-    // mismo — no solo sobre la devolución original. Sin esto, un retorno
-    // documentado en un mes distinto al de su devolución se contaba igual,
-    // inflando el número frente a cualquier otro módulo filtrado por mes.
-    const retornoCaeEnFiltro = (retorno: Guia | undefined) => {
-      if (!retorno) return true; // sin fila física de retorno: no se puede evaluar por fecha, se deja pasar
-      if (periodos && periodos.length) {
-        const mes = (retorno.f_documentacion || '').slice(0, 7);
-        if (!periodos.includes(mes)) return false;
-      }
-      if (dia && (!retorno.f_documentacion || retorno.f_documentacion > dia)) return false;
-      return true;
-    };
     const retornosAbiertosDetalle = devolucionesConRetornoInforme
       .filter((g) => !retornoEstaEntregado(g, g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined))
-      .filter((g) => retornoCaeEnFiltro(g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined))
       .map((g) => {
         const retorno = g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined;
         return {
@@ -513,7 +487,15 @@ export default function ResumenModule({
     // desfases: primero faltó período/día, luego faltó cliente).
     const guiasConCod = guiasOriginales.filter((g) => isEntregada(g.estado_guia) && g.cod !== null && g.cod > 0).map((g) => g.guia);
 
-    const guiasDelPeriodo = new Set(guias.map((g) => g.guia));
+    // Incluye tanto los números de guía originales del período como los
+    // de RETORNO ligados a ellas (aunque el retorno esté documentado en
+    // otro mes) — una indemnización puede estar registrada contra el
+    // folio del retorno, no del original, y debe seguir apareciendo en
+    // el informe del mes al que pertenece la guía original.
+    const guiasDelPeriodo = new Set([
+      ...guias.map((g) => g.guia),
+      ...guiasOriginales.filter((g) => g.retorno_guia).map((g) => g.retorno_guia as string),
+    ]);
 
     const [conciliacion, indemnizacionesPeriodo] = await Promise.all([
       fetch('/api/conciliaciones/resumen-por-guias', {
