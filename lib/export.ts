@@ -890,13 +890,20 @@ export interface InformeLogisticoData {
   totalExcepcionesCliente: number;
   excepcionesOperacion: Array<{ key: string; count: number }>;
   totalExcepcionesOperacion: number;
-  // Temporalidad por Región (agregado ago-2026) — nivel región únicamente
-  // para no hacer el informe demasiado extenso.
-  temporalidadPorRegion: FilaTemporalidad[];
+  // Temporalidad por Entidad (Estado de México) — reemplaza la versión
+  // por Región (interna de AFIMEX): al ser un reporte para cliente, tiene
+  // más sentido mostrarlo por geografía real del destinatario.
+  temporalidadPorEntidad: FilaTemporalidad[];
   // Temporalidad por Cliente — tabla independiente.
   temporalidadPorCliente: FilaTemporalidad[];
   // Resumen general de temporalidad, para los KPIs del inicio.
   temporalidadGeneral: Omit<FilaTemporalidad, 'key'> | null;
+  // Top 5 ciudades que más tardan en resolver (Recibido Oficina →
+  // Confirmación), con el CP más frecuente de cada una como referencia.
+  topCiudadesDiasEntrega: Array<{ ciudad: string; cp: string | null; promedioDias: number; totalGuias: number }>;
+  // Top 5 ciudades con más rechazos ATRIBUIBLES A CLIENTE (ver
+  // categoriaExcepcion) — no el total de excepciones, solo esa categoría.
+  topCiudadesRechazosCliente: Array<{ ciudad: string; count: number }>;
 }
 
 function colorEfectividadInforme(valor: number | null): string {
@@ -1430,9 +1437,10 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
       </div>
 
       ${bloqueTemporalidadHtml(
-        'Temporalidad por Región',
+        'Temporalidad por Entidad',
         'Días promedio por etapa · % dentro de 15 días desde Plataforma hasta entrega/devolución (abiertas se miden contra hoy)',
-        data.temporalidadPorRegion
+        data.temporalidadPorEntidad,
+        'Entidad'
       )}
       ${bloqueTemporalidadHtml(
         'Temporalidad por Cliente',
@@ -1440,6 +1448,40 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
         data.temporalidadPorCliente,
         'Cliente'
       )}
+
+      <div class="secciones">
+        <div class="seccion">
+          <div class="seccion-titulo">Top 5 Ciudades — Días para Entregar</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:8px;">Recibido Oficina → Confirmación · CP más frecuente de cada ciudad</div>
+          <table>
+            <thead>
+              <tr><th>Ciudad</th><th>CP</th><th>Prom. Días</th><th>Guías</th></tr>
+            </thead>
+            <tbody>
+              ${data.topCiudadesDiasEntrega
+                .map(
+                  (c) => `
+                <tr>
+                  <td class="celda-fuerte">${escapeHtml(c.ciudad)}</td>
+                  <td>${c.cp ? escapeHtml(c.cp) : '—'}</td>
+                  <td style="font-weight:800;color:#DC2626;">${c.promedioDias}d</td>
+                  <td>${c.totalGuias.toLocaleString('es-MX')}</td>
+                </tr>`
+                )
+                .join('') || '<tr><td colspan="4" style="text-align:center;color:#94A3B8;">Sin datos suficientes</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+        <div class="seccion">
+          <div class="seccion-titulo">Top 5 Ciudades — Rechazos Atribuibles a Cliente</div>
+          <div style="font-size:10px;color:#94A3B8;margin-bottom:8px;">Excepciones por decisión o circunstancia del destinatario</div>
+          ${barraHtml(
+            data.topCiudadesRechazosCliente.map((c) => ({ key: c.ciudad, count: c.count })),
+            data.topCiudadesRechazosCliente.reduce((s, c) => s + c.count, 0),
+            '#B45309'
+          )}
+        </div>
+      </div>
 
       <div class="secciones">
         <div class="seccion">
