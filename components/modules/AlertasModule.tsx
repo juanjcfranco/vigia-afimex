@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina, ACCION_COLORS, AlertaGuiaEvento } from '@/lib/types';
-import { isAbierta, isAbiertaPorEstado, accionEfectiva, calcularSemaforoGuia } from '@/lib/business-logic';
+import { isAbierta, isAbiertaPorEstado, esRetornoAbiertoPorEstado, accionEfectiva, calcularSemaforoGuia } from '@/lib/business-logic';
 import AlertaPreviewModal from '@/components/AlertaPreviewModal';
 import SemaforoAlertaModal from '@/components/SemaforoAlertaModal';
 import { useSortableTable } from '@/lib/useSortableTable';
@@ -57,7 +57,7 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
   const guiasPorNivelSemaforo = useMemo(() => {
     const grupos: Record<string, Guia[]> = { AMARILLO: [], NARANJA: [], ROJO: [] };
     guias.forEach((g) => {
-      if (!isAbiertaPorEstado(g)) return;
+      if (!(g.es_retorno ? esRetornoAbiertoPorEstado(g) : isAbiertaPorEstado(g))) return;
       const semaforo = calcularSemaforoGuia(g.dias_sin_movimiento);
       if (semaforo.nivel !== 'VERDE') grupos[semaforo.nivel].push(g);
     });

@@ -7,6 +7,7 @@ import {
   isAbiertaPorEstado,
   esGuiaOriginal,
   esRetornoAmplio,
+  esRetornoAbiertoPorEstado,
   calcularEfectividad,
   obtenerRegion,
   obtenerCiclo,
@@ -284,7 +285,7 @@ export default function ReporteConsolidadoModule({
     // mismo criterio que topAbiertasPorOficina) y su Ciclo dominante.
     // Distinto de oficinasCriticas, que es sobre guías ORIGINALES.
     // ============================================================
-    const retornosAbiertosListaSimplificado = guias.filter((g) => isAbiertaPorEstado(g) && esRetornoAmplio(g));
+    const retornosAbiertosListaSimplificado = guias.filter((g) => esRetornoAmplio(g) && (g.es_retorno ? esRetornoAbiertoPorEstado(g) : isAbiertaPorEstado(g)));
     const acumRetornosCriticos: Record<string, { retornosAbiertos: number; criticos: number; porCiclo: Record<string, number> }> = {};
     retornosAbiertosListaSimplificado.forEach((g) => {
       const of = g.oficina_destino || 'SIN OFICINA';
@@ -820,7 +821,7 @@ export default function ReporteConsolidadoModule({
     const porCliente = efectividadYTemporalidadPorCampo(guias, 'cliente');
 
     // 6) y 7) Resumen de Guías Abiertas / Retornos Abiertos, por Región/Oficina/Estado
-    const retornosAbiertosLista = guias.filter((g) => isAbiertaPorEstado(g) && esRetornoAmplio(g));
+    const retornosAbiertosLista = guias.filter((g) => esRetornoAmplio(g) && (g.es_retorno ? esRetornoAbiertoPorEstado(g) : isAbiertaPorEstado(g)));
     const resumenGuiasAbiertas = agruparPorRegionOficinaEstado(abiertasLista);
     const resumenRetornosAbiertos = agruparPorRegionOficinaEstado(retornosAbiertosLista);
 
@@ -931,7 +932,7 @@ export default function ReporteConsolidadoModule({
   }
 
   async function exportarExcelRetornosAbiertos() {
-    const retornosLista = guias.filter((g) => isAbiertaPorEstado(g) && esRetornoAmplio(g));
+    const retornosLista = guias.filter((g) => esRetornoAmplio(g) && (g.es_retorno ? esRetornoAbiertoPorEstado(g) : isAbiertaPorEstado(g)));
     const seguimientoPorGuia = await construirSeguimientoPorGuia();
     exportToExcel(
       retornosLista,

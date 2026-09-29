@@ -5,6 +5,7 @@ import { Guia, Carga } from '@/lib/types';
 import {
   isEntregada,
   isAbiertaPorEstado,
+  esRetornoAbiertoPorEstado,
   isCancelada,
   esGuiaOriginal,
   esRetornoAmplio,
@@ -119,7 +120,7 @@ export default function CierreModal({ open, onClose, guias, cargaActiva }: Cierr
     // sean originales o retornos, porque el objetivo de este resumen es
     // "dónde están las guías paradas ahora mismo", no el cálculo de
     // efectividad.
-    const todasAbiertas = guias.filter((g) => isAbiertaPorEstado(g));
+    const todasAbiertas = guias.filter((g) => (g.es_retorno ? esRetornoAbiertoPorEstado(g) : isAbiertaPorEstado(g)));
     const abiertasOriginales = todasAbiertas.filter((g) => !esRetornoAmplio(g)).length;
     const abiertasRetornos = todasAbiertas.filter((g) => esRetornoAmplio(g)).length;
     const abiertasPorOficina = topPorCampo(todasAbiertas, (g) => g.oficina_destino, 10);

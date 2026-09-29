@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, ContactoOficina, AlertaGuiaEvento } from '@/lib/types';
-import { isAbiertaPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio, ultimaExcepcion, accionEfectiva, calcularSemaforoGuia, calcularEtiquetaSeguimiento, diasRecibidoOficinaHastaResolucion, agruparPorRegionOficinaEstado, agruparPorCiclo, formatearPeriodo } from '@/lib/business-logic';
+import { isAbiertaPorEstado, esRetornoAbiertoPorEstado, topPorCampo, obtenerCiclo, obtenerRegion, ORDEN_CICLOS, esRetornoAmplio, ultimaExcepcion, accionEfectiva, calcularSemaforoGuia, calcularEtiquetaSeguimiento, diasRecibidoOficinaHastaResolucion, agruparPorRegionOficinaEstado, agruparPorCiclo, formatearPeriodo } from '@/lib/business-logic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import BulkSearch from '@/components/BulkSearch';
 import { SelectorMultiple } from '@/components/FilterBar';
@@ -137,7 +137,12 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
   const base = useMemo(
     () =>
       guias.filter((g) => {
-        if (!isAbiertaPorEstado(g)) return false;
+        // Para la fila física de un retorno (es_retorno=true), "Documentada"
+        // SÍ cuenta como abierto — ver comentario en
+        // esRetornoAbiertoPorEstado(). Para todo lo demás (guías originales),
+        // se mantiene el criterio de siempre.
+        const abierta = g.es_retorno ? esRetornoAbiertoPorEstado(g) : isAbiertaPorEstado(g);
+        if (!abierta) return false;
         if (filtroRegionLocal && obtenerRegion(g.oficina_destino) !== filtroRegionLocal) return false;
         if (filtroOficinaLocal && g.oficina_destino !== filtroOficinaLocal) return false;
         if (filtroTipoLocal === 'original' && esRetornoAmplio(g)) return false;

@@ -97,6 +97,20 @@ export function isAbiertaPorEstado(
   return true;
 }
 
+// Igual que isAbiertaPorEstado(), pero para la fila FÍSICA de un RETORNO
+// (es_retorno=true) — para retornos, "Documentada" NO significa "aún no
+// inicia su movimiento" (como sí significa para una guía original): el
+// paquete de retorno ya está físicamente en poder de la empresa, solo que
+// documentado por web en vez de recibido en planta. El cliente confirmó
+// que "Documentada" cuenta como retorno abierto, no como excluido — ver
+// también retornoEstaEntregado(), que ya solo compara contra "ENTREGADA"
+// para el KPI de Retornos Abiertos.
+export function esRetornoAbiertoPorEstado(g: Pick<Guia, 'estado_guia'>): boolean {
+  if (isEntregada(g.estado_guia)) return false;
+  if (isCancelada(g.estado_guia)) return false;
+  return true;
+}
+
 // Una guía cuenta como "entrega efectiva" solo si está ENTREGADA y NO es,
 // de ninguna forma, un retorno: ni explícito (es_retorno) ni un posible
 // retorno de otro periodo (mismo Cliente_Paga y Nombre_Destinatario).
