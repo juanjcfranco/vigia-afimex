@@ -1656,33 +1656,6 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
         }
       </div>
 
-      ${
-        data.conciliacionDiferenciaDetalle.length
-          ? `<div class="seccion" style="margin-bottom:18px;">
-              <div class="seccion-titulo">Guías Conciliadas con Diferencia de Monto <span style="font-weight:400;color:#94A3B8;">(${data.conciliacionDiferenciaDetalle.length.toLocaleString('es-MX')})</span></div>
-              <div class="aclaracion">SÍ aparecen en el archivo de conciliación, pero el monto pagado no coincide con el COD de VIGIA — por eso "Conciliado" puede salir menor a "Total COD" aunque 0 guías estén pendientes.</div>
-              <table>
-                <thead><tr><th>Guía</th><th>Cliente</th><th>Oficina Destino</th><th>COD VIGIA</th><th>COD Conciliado</th><th>Diferencia</th></tr></thead>
-                <tbody>
-                  ${data.conciliacionDiferenciaDetalle
-                    .map(
-                      (g) => `
-                    <tr>
-                      <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
-                      <td>${escapeHtml(g.cliente || '—')}</td>
-                      <td>${escapeHtml(g.oficinaDestino || '—')}</td>
-                      <td>${g.cod.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</td>
-                      <td>${g.codConciliado.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</td>
-                      <td style="color:#B45309;font-weight:700;">${g.diferencia.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</td>
-                    </tr>`
-                    )
-                    .join('')}
-                </tbody>
-              </table>
-            </div>`
-          : ''
-      }
-
       <div class="secciones">
         <div class="seccion" style="grid-column: span 2;">
           <div class="seccion-titulo">Efectividad por Entidad</div>
