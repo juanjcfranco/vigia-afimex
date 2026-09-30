@@ -1530,8 +1530,11 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
               // no aporta nada — se muestra la Oficina Destino en su lugar,
               // que sí es información nueva por guía. Si cubre varios
               // clientes, se mantiene la columna Cliente (ahí sí es útil).
-              const clientesDistintos = new Set(data.conciliacionPendienteDetalle.map((g) => g.cliente || '—'));
-              const esUnSoloCliente = clientesDistintos.size <= 1;
+              // Se usa el cliente del informe completo (data.cliente), no
+              // el de la lista de pendientes — con pocas guías pendientes,
+              // podían coincidir todas en un mismo cliente por casualidad
+              // aunque el informe fuera de "Varios clientes".
+              const esUnSoloCliente = !data.cliente.startsWith('Varios clientes');
               const etiquetaCol2 = esUnSoloCliente ? 'Oficina Destino' : 'Cliente';
               return `<div class="seccion" style="margin-bottom:18px;">
               <div class="seccion-titulo">Guías Pendientes de Conciliar <span style="font-weight:400;color:#94A3B8;">(${data.conciliacionPendienteDetalle.length.toLocaleString('es-MX')})</span></div>
