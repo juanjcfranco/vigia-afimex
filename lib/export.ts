@@ -919,6 +919,17 @@ export interface InformeLogisticoData {
   // Guías puntuales pendientes de conciliar (COD no pagado), dentro del
   // universo ya filtrado del informe.
   conciliacionPendienteDetalle: Array<{ guia: string; cliente: string | null; oficinaDestino: string | null; cod: number }>;
+  // Guías SÍ conciliadas, pero cuyo monto pagado no coincide con el COD
+  // que VIGIA tiene registrado — explica por qué "Conciliado" puede salir
+  // menor a "Total COD" aunque 0 guías aparezcan como pendientes.
+  conciliacionDiferenciaDetalle: Array<{
+    guia: string;
+    cliente: string | null;
+    oficinaDestino: string | null;
+    cod: number;
+    codConciliado: number;
+    diferencia: number;
+  }>;
   // Relación detallada de guías actualmente abiertas (no solo el conteo
   // agregado de abiertasPorEstado/abiertasPorEntidad) — top 50 por más
   // días sin movimiento, para que el PDF no se vuelva inmanejable con
@@ -933,6 +944,7 @@ export interface InformeLogisticoData {
   }>;
   // Relación detallada de RETORNOS abiertos (el paquete de vuelta todavía
   // no llega) — mismo criterio que kpis.retornosAbiertos, a nivel de fila.
+  // Excluye a los clientes de retornosAbiertosResumenClientesGrandes.
   retornosAbiertosDetalle: Array<{
     guia: string;
     cliente: string | null;
@@ -940,6 +952,9 @@ export interface InformeLogisticoData {
     oficinaDestino: string | null;
     estadoGuia: string | null;
   }>;
+  // Para clientes de volumen muy alto, solo el total — el desglose folio
+  // por folio haría el informe inmanejable.
+  retornosAbiertosResumenClientesGrandes: Array<{ cliente: string; cantidad: number }>;
   // Indemnizaciones cuyas guías caen dentro del período/carga actual del
   // informe (cruce contra la tabla `indemnizaciones`, por número de guía).
   indemnizacionesPeriodo: Array<{
@@ -1353,6 +1368,19 @@ function tablaTendenciaHtml(datos: PuntoTendencia[], series: string[], sufijo = 
 // datos (para que el clic responda de inmediato con un "Generando…" en
 // vez de congelar la pantalla mientras se hace todo el cálculo pesado),
 // se reutiliza esa ventana en vez de abrir una nueva.
+// Reparte una lista en N columnas equilibradas (por bloques, no
+// intercalado) — usado para tablas largas de una sola columna de datos
+// (ej. guías pendientes de conciliar) que se vuelven muy altas en
+// vertical si se muestran como una sola tabla larga.
+function repartirEnColumnas<T>(lista: T[], nColumnas: number): T[][] {
+  const porColumna = Math.ceil(lista.length / nColumnas);
+  const columnas: T[][] = [];
+  for (let i = 0; i < nColumnas; i++) {
+    columnas.push(lista.slice(i * porColumna, (i + 1) * porColumna));
+  }
+  return columnas.filter((c) => c.length > 0);
+}
+
 export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExistente?: Window | null) {
   const fecha = new Date().toLocaleString('es-MX');
   const win = ventanaExistente ?? window.open('', '_blank');
@@ -1499,17 +1527,50 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
         data.conciliacionPendienteDetalle.length
           ? `<div class="seccion" style="margin-bottom:18px;">
               <div class="seccion-titulo">Guías Pendientes de Conciliar <span style="font-weight:400;color:#94A3B8;">(${data.conciliacionPendienteDetalle.length.toLocaleString('es-MX')})</span></div>
+              <div style="display:flex;gap:12px;align-items:flex-start;">
+                ${repartirEnColumnas(data.conciliacionPendienteDetalle, 3)
+                  .map(
+                    (columna) => `
+                  <table style="flex:1;font-size:10.5px;">
+                    <thead><tr><th>Guía</th><th>Cliente</th><th>COD</th></tr></thead>
+                    <tbody>
+                      ${columna
+                        .map(
+                          (g) => `
+                        <tr>
+                          <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
+                          <td>${escapeHtml(g.cliente || '—')}</td>
+                          <td style="color:#DC2626;font-weight:700;">${g.cod.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</td>
+                        </tr>`
+                        )
+                        .join('')}
+                    </tbody>
+                  </table>`
+                  )
+                  .join('')}
+              </div>
+            </div>`
+          : ''
+      }
+
+      ${
+        data.conciliacionDiferenciaDetalle.length
+          ? `<div class="seccion" style="margin-bottom:18px;">
+              <div class="seccion-titulo">Guías Conciliadas con Diferencia de Monto <span style="font-weight:400;color:#94A3B8;">(${data.conciliacionDiferenciaDetalle.length.toLocaleString('es-MX')})</span></div>
+              <div class="aclaracion">SÍ aparecen en el archivo de conciliación, pero el monto pagado no coincide con el COD de VIGIA — por eso "Conciliado" puede salir menor a "Total COD" aunque 0 guías estén pendientes.</div>
               <table>
-                <thead><tr><th>Guía</th><th>Cliente</th><th>Oficina Destino</th><th>COD</th></tr></thead>
+                <thead><tr><th>Guía</th><th>Cliente</th><th>Oficina Destino</th><th>COD VIGIA</th><th>COD Conciliado</th><th>Diferencia</th></tr></thead>
                 <tbody>
-                  ${data.conciliacionPendienteDetalle
+                  ${data.conciliacionDiferenciaDetalle
                     .map(
                       (g) => `
                     <tr>
                       <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
                       <td>${escapeHtml(g.cliente || '—')}</td>
                       <td>${escapeHtml(g.oficinaDestino || '—')}</td>
-                      <td style="color:#DC2626;font-weight:700;">${g.cod.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</td>
+                      <td>${g.cod.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</td>
+                      <td>${g.codConciliado.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</td>
+                      <td style="color:#B45309;font-weight:700;">${g.diferencia.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</td>
                     </tr>`
                     )
                     .join('')}
@@ -1700,6 +1761,21 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
       <div class="seccion" style="margin-bottom:18px;">
         <div class="seccion-titulo">Relación de Retornos Abiertos ${data.retornosAbiertosDetalle.length ? `<span style="font-weight:400;color:#94A3B8;">(${data.retornosAbiertosDetalle.length.toLocaleString('es-MX')})</span>` : ''}</div>
         ${
+          data.retornosAbiertosResumenClientesGrandes.length
+            ? `<div style="display:flex;gap:14px;margin-bottom:10px;flex-wrap:wrap;">
+                ${data.retornosAbiertosResumenClientesGrandes
+                  .map(
+                    (r) => `
+                  <div style="background:#FEF3E2;border:1px solid #FDBA74;border-radius:6px;padding:6px 12px;font-size:12px;">
+                    <b>${escapeHtml(r.cliente)}</b>: ${r.cantidad.toLocaleString('es-MX')} retornos abiertos
+                    <span style="color:#94A3B8;">(volumen alto — sin desglose)</span>
+                  </div>`
+                  )
+                  .join('')}
+              </div>`
+            : ''
+        }
+        ${
           data.retornosAbiertosDetalle.length
             ? `<table>
                 <thead><tr><th>Guía Retorno</th><th>Cliente</th><th>Entidad</th><th>Oficina Destino</th><th>Estado</th></tr></thead>
@@ -1718,7 +1794,9 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
                     .join('')}
                 </tbody>
               </table>`
-            : `<div style="font-size:12px;color:#94A3B8;">No hay retornos abiertos en este corte.</div>`
+            : !data.retornosAbiertosResumenClientesGrandes.length
+              ? `<div style="font-size:12px;color:#94A3B8;">No hay retornos abiertos en este corte.</div>`
+              : ''
         }
       </div>
 

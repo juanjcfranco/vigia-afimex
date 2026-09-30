@@ -462,8 +462,13 @@ export default function ResumenModule({
     // (devolucionesConRetornoInforme ya viene filtrada por período) — no
     // se filtra también por la fecha del retorno, ver el mismo comentario
     // en el cálculo de kpis.retornosAbiertos más arriba.
+    //
+    // Para ciertos clientes de volumen muy alto (UPS, MENVELO), el
+    // desglose folio por folio hace el informe inmanejable — para esos
+    // se muestra solo el total, como una fila de resumen aparte.
+    const CLIENTES_RETORNO_SOLO_TOTAL = ['UNITED PARCEL SERVICE DE MEXICO', 'MENVELO'];
     const devolucionesConRetornoInforme = guiasOriginales.filter((g) => g.es_devolucion && g.retorno_guia);
-    const retornosAbiertosDetalle = devolucionesConRetornoInforme
+    const retornosAbiertosCompleto = devolucionesConRetornoInforme
       .filter((g) => !retornoEstaEntregado(g, g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined))
       .map((g) => {
         const retorno = g.retorno_guia ? retornoPorGuia.get(g.retorno_guia) : undefined;
@@ -474,7 +479,13 @@ export default function ResumenModule({
           oficinaDestino: retorno?.oficina_destino ?? g.oficina_destino,
           estadoGuia: retorno?.estado_guia ?? g.retorno_estado,
         };
-      })
+      });
+    const retornosAbiertosResumenClientesGrandes = CLIENTES_RETORNO_SOLO_TOTAL.map((cliente) => ({
+      cliente,
+      cantidad: retornosAbiertosCompleto.filter((r) => r.cliente === cliente).length,
+    })).filter((r) => r.cantidad > 0);
+    const retornosAbiertosDetalle = retornosAbiertosCompleto
+      .filter((r) => !r.cliente || !CLIENTES_RETORNO_SOLO_TOTAL.includes(r.cliente))
       .slice(0, 50);
 
     // Conciliación de COD e Indemnizaciones — viven en tablas aparte de
@@ -497,7 +508,7 @@ export default function ResumenModule({
       ...guiasOriginales.filter((g) => g.retorno_guia).map((g) => g.retorno_guia as string),
     ]);
 
-    const [conciliacion, conciliacionPendienteDetalle, indemnizacionesPeriodo] = await Promise.all([
+    const [conciliacion, conciliacionDetallePendienteYDiferencia, indemnizacionesPeriodo] = await Promise.all([
       fetch('/api/conciliaciones/resumen-por-guias', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -535,8 +546,9 @@ export default function ResumenModule({
           error: e instanceof Error ? e.message : 'Error desconocido',
         })),
       // Detalle de conciliación — mismo patrón de "lista exacta de guías"
-      // que el resumen; se filtra a solo las pendientes aquí mismo (del
-      // lado de React), sin duplicar ese criterio en SQL.
+      // que el resumen; se derivan tanto pendientes como con-diferencia de
+      // la MISMA respuesta (un solo fetch), filtrando aquí mismo del lado
+      // de React sin duplicar ningún criterio en SQL.
       fetch('/api/conciliaciones/detalle-por-guias', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -544,17 +556,33 @@ export default function ResumenModule({
         cache: 'no-store',
       })
         .then((r) => r.json())
-        .then((j) =>
-          (j.filas || [])
-            .filter((f: { pagado: boolean }) => !f.pagado)
-            .map((f: { guia: string; cliente: string | null; oficina_destino: string | null; cod: number }) => ({
+        .then((j) => {
+          const filas: { guia: string; cliente: string | null; oficina_destino: string | null; cod: number; cod_conciliado: number | null; pagado: boolean }[] =
+            j.filas || [];
+          const pendientes = filas
+            .filter((f) => !f.pagado)
+            .map((f) => ({ guia: f.guia, cliente: f.cliente, oficinaDestino: f.oficina_destino, cod: f.cod }));
+          // "Con diferencia": SÍ están en el archivo de conciliación
+          // (pagado=true), pero el monto pagado (cod_conciliado) no
+          // coincide con el COD que VIGIA tiene registrado para esa guía
+          // — por eso "Conciliado" puede salir menor a "Total COD" aunque
+          // 0 guías aparezcan como pendientes.
+          const diferencia = filas
+            .filter((f) => f.pagado && f.cod_conciliado !== null && Math.round((f.cod - f.cod_conciliado) * 100) !== 0)
+            .map((f) => ({
               guia: f.guia,
               cliente: f.cliente,
               oficinaDestino: f.oficina_destino,
               cod: f.cod,
-            }))
-        )
-        .catch(() => [] as InformeLogisticoData['conciliacionPendienteDetalle']),
+              codConciliado: f.cod_conciliado as number,
+              diferencia: Number((f.cod - (f.cod_conciliado as number)).toFixed(2)),
+            }));
+          return { pendientes, diferencia };
+        })
+        .catch(() => ({
+          pendientes: [] as InformeLogisticoData['conciliacionPendienteDetalle'],
+          diferencia: [] as InformeLogisticoData['conciliacionDiferenciaDetalle'],
+        })),
       fetch('/api/indemnizaciones', { cache: 'no-store' })
         .then((r) => r.json())
         .then((j) =>
@@ -632,9 +660,11 @@ export default function ResumenModule({
       topCiudadesDiasEntrega: topCiudadesPorDiasEntrega(guias, 5),
       topCiudadesRechazosCliente: topCiudadesPorRechazosCliente(guias, 5),
       conciliacion,
-      conciliacionPendienteDetalle,
+      conciliacionPendienteDetalle: conciliacionDetallePendienteYDiferencia.pendientes,
+      conciliacionDiferenciaDetalle: conciliacionDetallePendienteYDiferencia.diferencia,
       guiasAbiertasDetalle,
       retornosAbiertosDetalle,
+      retornosAbiertosResumenClientesGrandes,
       indemnizacionesPeriodo,
     }, ventana);
   }
