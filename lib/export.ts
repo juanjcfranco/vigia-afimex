@@ -1553,6 +1553,100 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
           : ''
       }
 
+      <div class="seccion" style="margin-bottom:18px;">
+        <div class="seccion-titulo">Relación de Guías Abiertas ${data.totalAbiertas > data.guiasAbiertasDetalle.length ? `<span style="font-weight:400;color:#94A3B8;">(top ${data.guiasAbiertasDetalle.length} de ${data.totalAbiertas.toLocaleString('es-MX')} por más días sin movimiento)</span>` : ''}</div>
+        ${
+          data.guiasAbiertasDetalle.length
+            ? `<table>
+                <thead><tr><th>Guía</th><th>Cliente</th><th>Entidad</th><th>Oficina Destino</th><th>Estado</th><th>Días sin Movimiento</th></tr></thead>
+                <tbody>
+                  ${data.guiasAbiertasDetalle
+                    .map(
+                      (g) => `
+                    <tr>
+                      <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
+                      <td>${escapeHtml(g.cliente || '—')}</td>
+                      <td>${escapeHtml(g.entidad || '—')}</td>
+                      <td>${escapeHtml(g.oficinaDestino || '—')}</td>
+                      <td>${escapeHtml(g.estadoGuia || '—')}</td>
+                      <td style="color:${g.diasSinMovimiento !== null && g.diasSinMovimiento >= 5 ? '#DC2626' : g.diasSinMovimiento !== null && g.diasSinMovimiento >= 3 ? '#EA7C1A' : '#0B9B67'};font-weight:700;">${g.diasSinMovimiento !== null ? `${g.diasSinMovimiento}d` : '—'}</td>
+                    </tr>`
+                    )
+                    .join('')}
+                </tbody>
+              </table>`
+            : `<div style="font-size:12px;color:#94A3B8;">No hay guías abiertas en este corte.</div>`
+        }
+      </div>
+
+      <div class="seccion" style="margin-bottom:18px;">
+        <div class="seccion-titulo">Relación de Retornos Abiertos ${data.retornosAbiertosDetalle.length ? `<span style="font-weight:400;color:#94A3B8;">(${data.retornosAbiertosDetalle.length.toLocaleString('es-MX')})</span>` : ''}</div>
+        ${
+          data.retornosAbiertosResumenClientesGrandes.length
+            ? `<div style="display:flex;gap:14px;margin-bottom:10px;flex-wrap:wrap;">
+                ${data.retornosAbiertosResumenClientesGrandes
+                  .map(
+                    (r) => `
+                  <div style="background:#FEF3E2;border:1px solid #FDBA74;border-radius:6px;padding:6px 12px;font-size:12px;">
+                    <b>${escapeHtml(r.cliente)}</b>: ${r.cantidad.toLocaleString('es-MX')} retornos abiertos
+                    <span style="color:#94A3B8;">(volumen alto — sin desglose)</span>
+                  </div>`
+                  )
+                  .join('')}
+              </div>`
+            : ''
+        }
+        ${
+          data.retornosAbiertosDetalle.length
+            ? `<table>
+                <thead><tr><th>Guía Retorno</th><th>Cliente</th><th>Entidad</th><th>Oficina Destino</th><th>Estado</th></tr></thead>
+                <tbody>
+                  ${data.retornosAbiertosDetalle
+                    .map(
+                      (g) => `
+                    <tr>
+                      <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
+                      <td>${escapeHtml(g.cliente || '—')}</td>
+                      <td>${escapeHtml(g.entidad || '—')}</td>
+                      <td>${escapeHtml(g.oficinaDestino || '—')}</td>
+                      <td>${escapeHtml(g.estadoGuia || '—')}</td>
+                    </tr>`
+                    )
+                    .join('')}
+                </tbody>
+              </table>`
+            : !data.retornosAbiertosResumenClientesGrandes.length
+              ? `<div style="font-size:12px;color:#94A3B8;">No hay retornos abiertos en este corte.</div>`
+              : ''
+        }
+      </div>
+
+      <div class="seccion" style="margin-bottom:18px;">
+        <div class="seccion-titulo">Indemnizaciones del Período <span style="font-weight:400;color:#94A3B8;">(${data.indemnizacionesPeriodo.length.toLocaleString('es-MX')})</span></div>
+        ${
+          data.indemnizacionesPeriodo.length
+            ? `<table>
+                <thead><tr><th>Folio</th><th>Guía(s)</th><th>Cliente</th><th>Tipo</th><th>Estado</th><th>Importe</th></tr></thead>
+                <tbody>
+                  ${data.indemnizacionesPeriodo
+                    .map(
+                      (i) => `
+                    <tr>
+                      <td class="celda-fuerte">${escapeHtml(i.folio)}</td>
+                      <td>${escapeHtml(i.guias.join(', '))}</td>
+                      <td>${escapeHtml(i.cliente || '—')}</td>
+                      <td>${escapeHtml(i.tipoIncidencia || '—')}</td>
+                      <td>${escapeHtml(i.estado)}</td>
+                      <td>${i.importe !== null ? i.importe.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }) : '—'}</td>
+                    </tr>`
+                    )
+                    .join('')}
+                </tbody>
+              </table>`
+            : `<div style="font-size:12px;color:#94A3B8;">No hay indemnizaciones registradas para las guías de este período.</div>`
+        }
+      </div>
+
       ${
         data.conciliacionDiferenciaDetalle.length
           ? `<div class="seccion" style="margin-bottom:18px;">
@@ -1732,99 +1826,6 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
         </div>
       </div>
 
-      <div class="seccion" style="margin-bottom:18px;">
-        <div class="seccion-titulo">Relación de Guías Abiertas ${data.totalAbiertas > data.guiasAbiertasDetalle.length ? `<span style="font-weight:400;color:#94A3B8;">(top ${data.guiasAbiertasDetalle.length} de ${data.totalAbiertas.toLocaleString('es-MX')} por más días sin movimiento)</span>` : ''}</div>
-        ${
-          data.guiasAbiertasDetalle.length
-            ? `<table>
-                <thead><tr><th>Guía</th><th>Cliente</th><th>Entidad</th><th>Oficina Destino</th><th>Estado</th><th>Días sin Movimiento</th></tr></thead>
-                <tbody>
-                  ${data.guiasAbiertasDetalle
-                    .map(
-                      (g) => `
-                    <tr>
-                      <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
-                      <td>${escapeHtml(g.cliente || '—')}</td>
-                      <td>${escapeHtml(g.entidad || '—')}</td>
-                      <td>${escapeHtml(g.oficinaDestino || '—')}</td>
-                      <td>${escapeHtml(g.estadoGuia || '—')}</td>
-                      <td style="color:${g.diasSinMovimiento !== null && g.diasSinMovimiento >= 5 ? '#DC2626' : g.diasSinMovimiento !== null && g.diasSinMovimiento >= 3 ? '#EA7C1A' : '#0B9B67'};font-weight:700;">${g.diasSinMovimiento !== null ? `${g.diasSinMovimiento}d` : '—'}</td>
-                    </tr>`
-                    )
-                    .join('')}
-                </tbody>
-              </table>`
-            : `<div style="font-size:12px;color:#94A3B8;">No hay guías abiertas en este corte.</div>`
-        }
-      </div>
-
-      <div class="seccion" style="margin-bottom:18px;">
-        <div class="seccion-titulo">Relación de Retornos Abiertos ${data.retornosAbiertosDetalle.length ? `<span style="font-weight:400;color:#94A3B8;">(${data.retornosAbiertosDetalle.length.toLocaleString('es-MX')})</span>` : ''}</div>
-        ${
-          data.retornosAbiertosResumenClientesGrandes.length
-            ? `<div style="display:flex;gap:14px;margin-bottom:10px;flex-wrap:wrap;">
-                ${data.retornosAbiertosResumenClientesGrandes
-                  .map(
-                    (r) => `
-                  <div style="background:#FEF3E2;border:1px solid #FDBA74;border-radius:6px;padding:6px 12px;font-size:12px;">
-                    <b>${escapeHtml(r.cliente)}</b>: ${r.cantidad.toLocaleString('es-MX')} retornos abiertos
-                    <span style="color:#94A3B8;">(volumen alto — sin desglose)</span>
-                  </div>`
-                  )
-                  .join('')}
-              </div>`
-            : ''
-        }
-        ${
-          data.retornosAbiertosDetalle.length
-            ? `<table>
-                <thead><tr><th>Guía Retorno</th><th>Cliente</th><th>Entidad</th><th>Oficina Destino</th><th>Estado</th></tr></thead>
-                <tbody>
-                  ${data.retornosAbiertosDetalle
-                    .map(
-                      (g) => `
-                    <tr>
-                      <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
-                      <td>${escapeHtml(g.cliente || '—')}</td>
-                      <td>${escapeHtml(g.entidad || '—')}</td>
-                      <td>${escapeHtml(g.oficinaDestino || '—')}</td>
-                      <td>${escapeHtml(g.estadoGuia || '—')}</td>
-                    </tr>`
-                    )
-                    .join('')}
-                </tbody>
-              </table>`
-            : !data.retornosAbiertosResumenClientesGrandes.length
-              ? `<div style="font-size:12px;color:#94A3B8;">No hay retornos abiertos en este corte.</div>`
-              : ''
-        }
-      </div>
-
-      <div class="seccion" style="margin-bottom:18px;">
-        <div class="seccion-titulo">Indemnizaciones del Período <span style="font-weight:400;color:#94A3B8;">(${data.indemnizacionesPeriodo.length.toLocaleString('es-MX')})</span></div>
-        ${
-          data.indemnizacionesPeriodo.length
-            ? `<table>
-                <thead><tr><th>Folio</th><th>Guía(s)</th><th>Cliente</th><th>Tipo</th><th>Estado</th><th>Importe</th></tr></thead>
-                <tbody>
-                  ${data.indemnizacionesPeriodo
-                    .map(
-                      (i) => `
-                    <tr>
-                      <td class="celda-fuerte">${escapeHtml(i.folio)}</td>
-                      <td>${escapeHtml(i.guias.join(', '))}</td>
-                      <td>${escapeHtml(i.cliente || '—')}</td>
-                      <td>${escapeHtml(i.tipoIncidencia || '—')}</td>
-                      <td>${escapeHtml(i.estado)}</td>
-                      <td>${i.importe !== null ? i.importe.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }) : '—'}</td>
-                    </tr>`
-                    )
-                    .join('')}
-                </tbody>
-              </table>`
-            : `<div style="font-size:12px;color:#94A3B8;">No hay indemnizaciones registradas para las guías de este período.</div>`
-        }
-      </div>
 
       <div class="footer">VIGÍA — Panel de Control Operativo · AFIMEX</div>
 
