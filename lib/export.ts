@@ -901,6 +901,9 @@ export interface InformeLogisticoData {
   // Top 5 ciudades que más tardan en resolver (Recibido Oficina →
   // Confirmación), con el CP más frecuente de cada una como referencia.
   topCiudadesDiasEntrega: Array<{ ciudad: string; cp: string | null; promedioDias: number; totalGuias: number }>;
+  // Top 10 CÓDIGOS POSTALES (no ciudades) con más días para entregar —
+  // más granular, se muestra en columnas para no ocupar tanto espacio.
+  topCodigosPostalesDiasEntrega: Array<{ cp: string; ciudad: string | null; promedioDias: number; totalGuias: number }>;
   // Top 5 ciudades con más rechazos ATRIBUIBLES A CLIENTE (ver
   // categoriaExcepcion) — no el total de excepciones, solo esa categoría.
   topCiudadesRechazosCliente: Array<{ ciudad: string; count: number }>;
@@ -1723,6 +1726,38 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
           )}
         </div>
       </div>
+
+      ${
+        data.topCodigosPostalesDiasEntrega.length
+          ? `<div class="seccion" style="margin-bottom:18px;">
+              <div class="seccion-titulo">Top 10 Códigos Postales — Días para Entregar</div>
+              <div style="font-size:10px;color:#94A3B8;margin-bottom:8px;">Recibido Oficina → Confirmación · ciudad más frecuente de cada CP</div>
+              <div style="display:flex;gap:12px;align-items:flex-start;">
+                ${repartirEnColumnas(data.topCodigosPostalesDiasEntrega, 2)
+                  .map(
+                    (columna) => `
+                  <table style="flex:1;font-size:11px;">
+                    <thead><tr><th>CP</th><th>Ciudad</th><th>Prom. Días</th><th>Guías</th></tr></thead>
+                    <tbody>
+                      ${columna
+                        .map(
+                          (c) => `
+                        <tr>
+                          <td class="celda-fuerte">${escapeHtml(c.cp)}</td>
+                          <td>${escapeHtml(c.ciudad || '—')}</td>
+                          <td style="font-weight:800;color:#DC2626;">${c.promedioDias}d</td>
+                          <td>${c.totalGuias.toLocaleString('es-MX')}</td>
+                        </tr>`
+                        )
+                        .join('')}
+                    </tbody>
+                  </table>`
+                  )
+                  .join('')}
+              </div>
+            </div>`
+          : ''
+      }
 
       <div class="secciones">
         <div class="seccion">

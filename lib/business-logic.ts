@@ -1166,6 +1166,44 @@ export function topCiudadesPorDiasEntrega(
     .slice(0, top);
 }
 
+// Igual que topCiudadesPorDiasEntrega(), pero agrupado por CÓDIGO POSTAL
+// (CP_Destino) en vez de por ciudad — más granular, ya que una misma
+// ciudad puede tener varias colonias/CP con tiempos de entrega muy
+// distintos entre sí.
+export function topCodigosPostalesPorDiasEntrega(
+  guias: Guia[],
+  top: number = 10,
+  minGuias: number = 5
+): Array<{ cp: string; ciudad: string | null; promedioDias: number; totalGuias: number }> {
+  const grupos: Record<string, { ciudades: Record<string, number>; dias: number[] }> = {};
+  guias
+    .filter((g) => esGuiaOriginal(g))
+    .forEach((g) => {
+      const cp = (g.cp_destinatario || '').trim();
+      if (!cp) return;
+      const dias = diasRecibidoOficinaHastaResolucion(g);
+      if (dias === null) return;
+      if (!grupos[cp]) grupos[cp] = { ciudades: {}, dias: [] };
+      grupos[cp].dias.push(dias);
+      const ciudad = (g.ciudad_destinatario || '').trim();
+      if (ciudad) grupos[cp].ciudades[ciudad] = (grupos[cp].ciudades[ciudad] || 0) + 1;
+    });
+
+  return Object.entries(grupos)
+    .map(([cp, { ciudades, dias }]) => {
+      const ciudadMasFrecuente = Object.entries(ciudades).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      return {
+        cp,
+        ciudad: ciudadMasFrecuente,
+        promedioDias: Number((dias.reduce((s, d) => s + d, 0) / dias.length).toFixed(1)),
+        totalGuias: dias.length,
+      };
+    })
+    .filter((f) => f.totalGuias >= minGuias)
+    .sort((a, b) => b.promedioDias - a.promedioDias)
+    .slice(0, top);
+}
+
 // ============================================================
 // Top N ciudades con más EXCEPCIONES atribuibles al cliente (ver
 // categoriaExcepcion) — solo la última excepción de cada guía cuenta

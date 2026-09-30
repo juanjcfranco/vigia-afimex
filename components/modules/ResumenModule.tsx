@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
-import { isEntregada, isAbiertaPorEstado, isCancelada, esGuiaOriginal, esRetornoAmplio, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo, topPorCampo, categoriaExcepcion, diasEntreFechas, temporalidadPorCampo, topCiudadesPorDiasEntrega, topCiudadesPorRechazosCliente } from '@/lib/business-logic';
+import { isEntregada, isAbiertaPorEstado, isCancelada, esGuiaOriginal, esRetornoAmplio, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo, topPorCampo, categoriaExcepcion, diasEntreFechas, temporalidadPorCampo, topCiudadesPorDiasEntrega, topCodigosPostalesPorDiasEntrega, topCiudadesPorRechazosCliente } from '@/lib/business-logic';
 import { exportInformeLogisticoPDF, InformeLogisticoData } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
 import KpiCard from '@/components/KpiCard';
@@ -658,6 +658,7 @@ export default function ResumenModule({
       temporalidadPorCliente: temporalidadPorCampo(guias, 'cliente'),
       temporalidadGeneral: resumenTemporalidad,
       topCiudadesDiasEntrega: topCiudadesPorDiasEntrega(guias, 5),
+      topCodigosPostalesDiasEntrega: topCodigosPostalesPorDiasEntrega(guias, 10),
       topCiudadesRechazosCliente: topCiudadesPorRechazosCliente(guias, 5),
       conciliacion,
       conciliacionPendienteDetalle: conciliacionDetallePendienteYDiferencia.pendientes,
