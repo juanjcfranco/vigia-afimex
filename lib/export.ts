@@ -1525,21 +1525,29 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
 
       ${
         data.conciliacionPendienteDetalle.length
-          ? `<div class="seccion" style="margin-bottom:18px;">
+          ? (() => {
+              // Si el informe es de un solo cliente, repetirlo en cada fila
+              // no aporta nada — se muestra la Oficina Destino en su lugar,
+              // que sí es información nueva por guía. Si cubre varios
+              // clientes, se mantiene la columna Cliente (ahí sí es útil).
+              const clientesDistintos = new Set(data.conciliacionPendienteDetalle.map((g) => g.cliente || '—'));
+              const esUnSoloCliente = clientesDistintos.size <= 1;
+              const etiquetaCol2 = esUnSoloCliente ? 'Oficina Destino' : 'Cliente';
+              return `<div class="seccion" style="margin-bottom:18px;">
               <div class="seccion-titulo">Guías Pendientes de Conciliar <span style="font-weight:400;color:#94A3B8;">(${data.conciliacionPendienteDetalle.length.toLocaleString('es-MX')})</span></div>
               <div style="display:flex;gap:12px;align-items:flex-start;">
                 ${repartirEnColumnas(data.conciliacionPendienteDetalle, 3)
                   .map(
                     (columna) => `
                   <table style="flex:1;font-size:10.5px;">
-                    <thead><tr><th>Guía</th><th>Cliente</th><th>COD</th></tr></thead>
+                    <thead><tr><th>Guía</th><th>${etiquetaCol2}</th><th>COD</th></tr></thead>
                     <tbody>
                       ${columna
                         .map(
                           (g) => `
                         <tr>
                           <td class="celda-fuerte">${escapeHtml(g.guia)}</td>
-                          <td>${escapeHtml(g.cliente || '—')}</td>
+                          <td>${escapeHtml((esUnSoloCliente ? g.oficinaDestino : g.cliente) || '—')}</td>
                           <td style="color:#DC2626;font-weight:700;">${g.cod.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</td>
                         </tr>`
                         )
@@ -1549,7 +1557,8 @@ export function exportInformeLogisticoPDF(data: InformeLogisticoData, ventanaExi
                   )
                   .join('')}
               </div>
-            </div>`
+            </div>`;
+            })()
           : ''
       }
 
