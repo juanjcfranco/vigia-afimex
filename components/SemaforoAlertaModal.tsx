@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { Guia, ContactoOficina, AlertaGuiaEvento } from '@/lib/types';
-import { calcularSemaforoGuia, nivelPorSecuenciaAlertas, INFO_NIVEL_ALERTA, buildMailtoUrl } from '@/lib/business-logic';
+import { calcularSemaforoGuia, nivelPorSecuenciaAlertas, INFO_NIVEL_ALERTA, textoResponsablePorCiclo, buildMailtoUrl } from '@/lib/business-logic';
 
 // Texto de acción SIMPLIFICADO para el cuerpo del correo — INFO_NIVEL_ALERTA.accion
 // trae el detalle completo (usado en tooltips/badges dentro de la app), pero en el
@@ -86,24 +86,26 @@ export default function SemaforoAlertaModal({
     const cc = contacto?.email_cc || '';
     const cliente = lista[0]?.cliente || '';
 
-    const fechaGenerado = new Date().toLocaleString('es-MX', {
-      weekday: 'long',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    // Se arma por partes (en vez de toLocaleString completo) para
+    // controlar exactamente las comas: "viernes, 02/10/2026, 05:09 p.m."
+    const ahora = new Date();
+    const diaSemana = new Intl.DateTimeFormat('es-MX', { weekday: 'long' }).format(ahora);
+    const fechaCorta = new Intl.DateTimeFormat('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(ahora);
+    const horaFormateada = new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true }).format(ahora);
+    const fechaGenerado = `${diaSemana}, ${fechaCorta}, ${horaFormateada}`;
 
     const lineas = lista.map((g, i) => {
       // Nivel de esta notificación = secuencia real (historial), no el
       // color calculado por días — ver comentario arriba del componente.
       const alertasPrevias = alertasPreviasPorGuia.get(g.guia) || 0;
       const nivelSecuencia = nivelPorSecuenciaAlertas(alertasPrevias);
-      const info = INFO_NIVEL_ALERTA[nivelSecuencia];
+      // El responsable ya no es fijo por nivel de alerta — depende de en
+      // qué ciclo del pipeline está la guía AHORA (origen/CEDIS/destino,
+      // y si esa plaza es Oficina o Concesionario). Ver
+      // textoResponsablePorCiclo() en business-logic.ts.
       return `${i + 1}. Guía: ${g.guia} | Desc: ${g.descripcion || '—'} | Estado: ${g.estado_guia || '—'} | Destino: ${
         g.oficina_destino || '—'
-      } | Días sin mov: ${g.dias_sin_movimiento ?? '—'} | ${ACCION_CORREO[nivelSecuencia]} | Responsable: ${info.responsable}`;
+      } | Días sin mov: ${g.dias_sin_movimiento ?? '—'} | ${ACCION_CORREO[nivelSecuencia]} | Responsable: ${textoResponsablePorCiclo(g)}`;
     });
 
     const cuerpoTexto = [
@@ -115,7 +117,7 @@ export default function SemaforoAlertaModal({
       '',
       'Por favor dar seguimiento según la acción y responsable indicados para cada guía.',
       '',
-      `Generado el ${fechaGenerado} · VIGÍA Dashboard — AFIMEX`,
+      `Generado el ${fechaGenerado} · VIGÍA Panel de Control Operativo — AFIMEX`,
     ].join('\n');
 
     const asuntoTexto = `[AFIMEX] [${cliente}] Alerta de guías sin movimiento — ${lista.length} guía${lista.length === 1 ? '' : 's'} · Oficina ${oficina}`;

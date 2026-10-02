@@ -250,6 +250,8 @@ const CICLOS_POR_ESTADO_RAW: Record<string, string> = {
   'EN RUTA': 'Ruta',
   'EXCEPCION': 'Ruta',
   'EN ALMACEN': 'Resguardo',
+  'ENTREGADA': 'Cierre',
+  'DEVOLUCION': 'Cierre',
 };
 
 const CICLOS_POR_ESTADO: Record<string, string> = Object.fromEntries(
@@ -258,7 +260,60 @@ const CICLOS_POR_ESTADO: Record<string, string> = Object.fromEntries(
 
 // Orden real del pipeline operativo, usado para ordenar tablas/gráficos
 // de forma cronológica en vez de alfabética o por volumen.
-export const ORDEN_CICLOS = ['Entrada', 'Distribución', 'Recepción', 'Ruta', 'Resguardo', 'SIN CICLO'];
+export const ORDEN_CICLOS = ['Entrada', 'Distribución', 'Recepción', 'Ruta', 'Resguardo', 'Cierre', 'SIN CICLO'];
+
+// ============================================================
+// Área Responsable por Ciclo — tabla de escalamiento confirmada por el
+// usuario (sep-2026): quién debe atender una guía según en qué ciclo del
+// pipeline operativo se encuentra ahora mismo, no según un responsable
+// fijo por nivel de alerta.
+//
+//   Captura       → NO RECIBIDA (aún ni se documenta, PRE-DOCUMENTADA)
+//   Entrada       → ORIGEN (oficina/concesionario que la documentó)
+//   Distribución  → CEDIS (en tránsito entre plazas, no una oficina con
+//                   nombre propio — se identifica por el ciclo mismo)
+//   Recepción/Ruta/Resguardo/Cierre → DESTINO (oficina/concesionario
+//                   destino final)
+// ============================================================
+export type AreaResponsable = 'NO RECIBIDA' | 'ORIGEN' | 'CEDIS' | 'DESTINO';
+
+const AREA_RESPONSABLE_POR_CICLO: Record<string, AreaResponsable> = {
+  'Captura': 'NO RECIBIDA',
+  'Entrada': 'ORIGEN',
+  'Distribución': 'CEDIS',
+  'Recepción': 'DESTINO',
+  'Ruta': 'DESTINO',
+  'Resguardo': 'DESTINO',
+  'Cierre': 'DESTINO',
+};
+
+export function obtenerAreaResponsable(estado: string | null | undefined): AreaResponsable {
+  const ciclo = obtenerCiclo(estado);
+  return AREA_RESPONSABLE_POR_CICLO[ciclo] || 'DESTINO';
+}
+
+// 'Oficina' u 'Concesionario' según el catálogo de regiones (la región
+// 'CONCESIONARIOS' es la única señal que ya teníamos para esto — no hay
+// un catálogo de Tipo separado).
+export function tipoDeOficina(oficina: string | null | undefined): 'Oficina' | 'Concesionario' {
+  return obtenerRegion(oficina) === 'CONCESIONARIOS' ? 'Concesionario' : 'Oficina';
+}
+
+// Texto de responsable para el correo de alertas — combina Área
+// Responsable (de dónde depende la acción, según el ciclo actual de la
+// guía) con el nombre real y tipo (Oficina/Concesionario) de la plaza
+// correspondiente. CEDIS no tiene nombre de oficina propio — se
+// identifica con el ciclo mismo (ej. "CEDIS — Distribución").
+export function textoResponsablePorCiclo(
+  g: Pick<Guia, 'estado_guia' | 'of_origen' | 'oficina_destino'>
+): string {
+  const area = obtenerAreaResponsable(g.estado_guia);
+  const ciclo = obtenerCiclo(g.estado_guia);
+  if (area === 'NO RECIBIDA') return `Origen (aún no documentada): ${g.of_origen || '—'}`;
+  if (area === 'CEDIS') return `CEDIS — ${ciclo}`;
+  if (area === 'ORIGEN') return `${tipoDeOficina(g.of_origen)} de Origen: ${g.of_origen || '—'}`;
+  return `${tipoDeOficina(g.oficina_destino)} Destino: ${g.oficina_destino || '—'}`;
+}
 
 export function obtenerCiclo(estado: string | null | undefined): string {
   if (!estado) return 'SIN CICLO';
