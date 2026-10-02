@@ -4,6 +4,16 @@ import { useState, useMemo } from 'react';
 import { Guia, ContactoOficina, AlertaGuiaEvento } from '@/lib/types';
 import { calcularSemaforoGuia, nivelPorSecuenciaAlertas, INFO_NIVEL_ALERTA, buildMailtoUrl } from '@/lib/business-logic';
 
+// Texto de acción SIMPLIFICADO para el cuerpo del correo — INFO_NIVEL_ALERTA.accion
+// trae el detalle completo (usado en tooltips/badges dentro de la app), pero en el
+// correo basta con la instrucción corta; el destinatario no necesita el detalle
+// operativo interno (ej. "ubicar última plaza/circuito que escaneó la guía").
+const ACCION_CORREO: Record<'AMARILLO' | 'NARANJA' | 'ROJO', string> = {
+  AMARILLO: 'Iniciar investigación inmediata: Primera Alerta',
+  NARANJA: 'Segunda alerta: Guía en riesgo, posible cobro al responsable',
+  ROJO: 'Tercera y última alerta: Seguimiento crítico: 24 horas para dar respuesta, de no recibirla la guía pasará a cobro del responsable',
+};
+
 interface SemaforoAlertaModalProps {
   open: boolean;
   onClose: () => void;
@@ -49,11 +59,17 @@ export default function SemaforoAlertaModal({
 
   const porOficina = useMemo(() => {
     const grupos: Record<string, Guia[]> = {};
-    guiasSeleccionadas.forEach((g) => {
-      const of = g.oficina_destino || 'SIN OFICINA';
-      if (!grupos[of]) grupos[of] = [];
-      grupos[of].push(g);
-    });
+    guiasSeleccionadas
+      // Verde = 0-2 días, monitoreo normal, no requiere alerta — nunca
+      // debe aparecer en el correo (ver también el mismo filtro en
+      // registrar(), que ya excluía Verde del historial pero no del
+      // cuerpo del correo).
+      .filter((g) => calcularSemaforoGuia(g.dias_sin_movimiento).nivel !== 'VERDE')
+      .forEach((g) => {
+        const of = g.oficina_destino || 'SIN OFICINA';
+        if (!grupos[of]) grupos[of] = [];
+        grupos[of].push(g);
+      });
     return Object.entries(grupos).sort((a, b) => a[0].localeCompare(b[0]));
   }, [guiasSeleccionadas]);
 
@@ -87,9 +103,7 @@ export default function SemaforoAlertaModal({
       const info = INFO_NIVEL_ALERTA[nivelSecuencia];
       return `${i + 1}. Guía: ${g.guia} | Desc: ${g.descripcion || '—'} | Estado: ${g.estado_guia || '—'} | Destino: ${
         g.oficina_destino || '—'
-      } | Días sin mov: ${g.dias_sin_movimiento ?? '—'} | Nivel: ${nivelSecuencia} (${info.etiquetaAlerta}) | Acción: ${
-        info.accion
-      } | Responsable: ${info.responsable}`;
+      } | Días sin mov: ${g.dias_sin_movimiento ?? '—'} | ${ACCION_CORREO[nivelSecuencia]} | Responsable: ${info.responsable}`;
     });
 
     const cuerpoTexto = [
