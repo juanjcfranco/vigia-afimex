@@ -20,7 +20,7 @@ const ACCIONES_RAPIDAS = [
   'POSIBLE INDEMNIZACIÓN',
 ];
 
-export default function AlertasModule({ guias }: { guias: Guia[] }) {
+export default function AlertasModule({ guias, guiasTodas }: { guias: Guia[]; guiasTodas?: Guia[] }) {
   const [contactos, setContactos] = useState<ContactoOficina[]>([]);
   const [mostrarContactos, setMostrarContactos] = useState(false);
   const [nuevoContacto, setNuevoContacto] = useState({ oficina: '', email_to: '', email_cc: '', jefe: '', jefe_oficina: '' });
@@ -88,15 +88,19 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
     );
   }, [historialAlertas]);
 
-  // Datos de trazabilidad de cada guía (si sigue presente en el corte
-  // actual) para enriquecer la tabla de historial — si la guía ya no
-  // está en la carga activa (se reemplazó por un corte más nuevo), se
-  // muestra "—" en vez de fallar.
+  // Datos de trazabilidad de cada guía para enriquecer la tabla de
+  // historial. El historial de alertas es GLOBAL (vive en
+  // alertas_guia_historial, cruza todos los períodos/clientes/cargas) —
+  // por eso se usa `guiasTodas` (sin ningún filtro de la barra superior,
+  // ni siquiera cliente/oficina/entidad) en vez de `guias` (acotado al
+  // filtro actual), que dejaba casi todo en "—" salvo que la guía
+  // coincidiera con el filtro activo en ese momento. Si por algún motivo
+  // guiasTodas no llega, cae de vuelta a `guias` antes que mostrar nada.
   const datosGuiaPorNumero = useMemo(() => {
     const map = new Map<string, Guia>();
-    guias.forEach((g) => map.set(g.guia, g));
+    (guiasTodas ?? guias).forEach((g) => map.set(g.guia, g));
     return map;
-  }, [guias]);
+  }, [guias, guiasTodas]);
 
   useEffect(() => {
     fetch('/api/contactos')
@@ -224,6 +228,23 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
   // Borra el historial COMPLETO de la guía (todos sus eventos) — distinto
   // de "Cerrar caso", que solo agrega un evento sin borrar nada. Útil si
   // se registró una alerta por error o se quiere reiniciar el seguimiento.
+  async function borrarTodasLasAlertas() {
+    if (!confirm(`¿Borrar TODO el historial de alertas (${historialPorGuia.length} guía(s))? Esta acción no se puede deshacer.`)) return;
+    if (!confirm('Confirma de nuevo: esto borra el historial de alertas de TODAS las guías, no solo las que ves en este corte. ¿Continuar?')) return;
+    try {
+      const res = await fetch('/api/alertas-guia?todo=1', { method: 'DELETE' });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(`No se pudo borrar: ${j.error || `Error ${res.status}`}`);
+        return;
+      }
+    } catch {
+      alert('No se pudo borrar: error de red al contactar el servidor.');
+      return;
+    }
+    recargarHistorialAlertas();
+  }
+
   async function borrarAlerta(guia: string) {
     if (!confirm(`¿Borrar todo el historial de alertas de la guía ${guia}? Esta acción no se puede deshacer.`)) return;
     try {
@@ -276,7 +297,17 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
         </div>
 
         <div className="px-4 pb-4">
-          <div className="font-bold text-[12px] mb-2">Historial de Alertas por Guía ({historialPorGuia.length})</div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="font-bold text-[12px]">Historial de Alertas por Guía ({historialPorGuia.length})</div>
+            {historialPorGuia.length > 0 && (
+              <button
+                onClick={borrarTodasLasAlertas}
+                className="text-[10.5px] font-semibold text-[#DC2626] border border-[#FCA5A5] rounded px-2 py-1 hover:bg-[#FEF2F2]"
+              >
+                🗑 Borrar todas las alertas
+              </button>
+            )}
+          </div>
           <div className="max-h-[400px] overflow-auto vg-scroll border border-[var(--vg-border)] rounded-md">
             <table className="vg-table">
               <thead>
@@ -301,8 +332,8 @@ export default function AlertasModule({ guias }: { guias: Guia[] }) {
                       <td>{datosGuia?.cliente || '—'}</td>
                       <td>{datosGuia?.of_origen || '—'}</td>
                       <td>{datosGuia?.oficina_destino || '—'}</td>
-                      <td>{datosGuia?.f_documentacion || '—'}</td>
-                      <td>{datosGuia?.f_historia || '—'}</td>
+                      <td>{new Date(eventos[0].creado_en).toLocaleDateString('es-MX')}</td>
+                      <td>{new Date(eventos[eventos.length - 1].creado_en).toLocaleDateString('es-MX')}</td>
                       <td className="text-[11px]">
                         {eventos.map((ev, i) => (
                           <span key={ev.id}>

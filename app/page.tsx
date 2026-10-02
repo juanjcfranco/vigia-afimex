@@ -33,6 +33,7 @@ export default function Home() {
     cargaActivaId,
     setCargaActivaId,
     eliminarCarga,
+    guias: guiasSinFiltrar,
     guiasFiltradas,
     guiasFiltradasSinPeriodo,
     loading,
@@ -139,7 +140,7 @@ export default function Home() {
           {tab === 'efectividad' && <EfectividadModule guias={guiasFiltradas} guiasTendencias={guiasFiltradasSinPeriodo} />}
           {tab === 'excepciones' && <ExcepcionesModule guias={guiasFiltradas} />}
           {tab === 'acciones' && <AccionesModule guias={guiasFiltradas} />}
-          {tab === 'devoluciones' && <DevolucionesModule guias={guiasFiltradas} />}
+          {tab === 'devoluciones' && <DevolucionesModule guias={guiasFiltradas} guiasTodas={guiasFiltradasSinPeriodo} />}
           {tab === 'geo' && <GeoModule guias={guiasFiltradas} />}
           {tab === 'histograma' && <HistogramaModule guias={guiasFiltradas} />}
           {tab === 'facturacion' && <FacturacionModule guias={guiasFiltradas} />}
@@ -147,7 +148,7 @@ export default function Home() {
           {tab === 'indemnizaciones' && <IndemnizacionesModule guias={guiasFiltradas} />}
           {tab === 'conciliacion' && <ConciliacionModule cargaId={cargaActivaId} periodos={filtroPeriodos} dia={filtroDia} />}
           {tab === 'predoc' && <PredocModule guias={guiasFiltradas} />}
-          {tab === 'alertas' && <AlertasModule guias={guiasFiltradas} />}
+          {tab === 'alertas' && <AlertasModule guias={guiasFiltradas} guiasTodas={guiasSinFiltrar} />}
           {tab === 'guias' && <GuiasModule guias={guiasFiltradas} />}
           {tab === 'reporteConsolidado' && <ReporteConsolidadoModule guias={guiasFiltradas} guiasTendencias={guiasFiltradasSinPeriodo} />}
           {tab === 'historial' && (

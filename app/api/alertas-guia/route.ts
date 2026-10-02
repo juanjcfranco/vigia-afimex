@@ -54,9 +54,23 @@ export async function DELETE(req: NextRequest) {
   const db = supabaseAdmin();
   const { searchParams } = new URL(req.url);
   const guia = searchParams.get('guia');
+  // Borrado masivo: requiere el flag explícito `todo=1` además de omitir
+  // `guia` — así una llamada que simplemente olvida mandar `guia` por
+  // error (bug de cliente) nunca borra todo por accidente; hace falta
+  // pedirlo a propósito.
+  const todo = searchParams.get('todo') === '1';
+
+  if (todo) {
+    // delete sin where real borraría nada en Postgres por seguridad —
+    // se usa un filtro siempre-verdadero (creado_en no nulo) para que
+    // cuente como un delete masivo explícito.
+    const { error } = await db.from('alertas_guia_historial').delete().not('id', 'is', null);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, todo: true });
+  }
 
   if (!guia) {
-    return NextResponse.json({ error: 'guia es requerido' }, { status: 400 });
+    return NextResponse.json({ error: 'guia es requerido (o manda todo=1 para borrar todo)' }, { status: 400 });
   }
 
   const { error } = await db.from('alertas_guia_historial').delete().eq('guia', guia);
