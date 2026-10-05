@@ -46,6 +46,7 @@ export default function SemaforoAlertaModal({
   const [oficinasEnviadas, setOficinasEnviadas] = useState<Set<string>>(new Set());
   const [registrado, setRegistrado] = useState(false);
   const [enviando, setEnviando] = useState(false);
+  const [errorRegistro, setErrorRegistro] = useState<string | null>(null);
 
   // Cuántas alertas (no-cierre) tiene YA cada guía en su historial —
   // determina si la que se está a punto de registrar es la 1ª, 2ª o 3ª.
@@ -84,7 +85,6 @@ export default function SemaforoAlertaModal({
     const para = contacto?.email_to || '';
     if (!para) return;
     const cc = contacto?.email_cc || '';
-    const cliente = lista[0]?.cliente || '';
 
     // Se arma por partes (en vez de toLocaleString completo) para
     // controlar exactamente las comas: "viernes, 02/10/2026, 05:09 p.m."
@@ -103,9 +103,11 @@ export default function SemaforoAlertaModal({
       // qué ciclo del pipeline está la guía AHORA (origen/CEDIS/destino,
       // y si esa plaza es Oficina o Concesionario). Ver
       // textoResponsablePorCiclo() en business-logic.ts.
-      return `${i + 1}. Guía: ${g.guia} | Desc: ${g.descripcion || '—'} | Estado: ${g.estado_guia || '—'} | Destino: ${
-        g.oficina_destino || '—'
-      } | Días sin mov: ${g.dias_sin_movimiento ?? '—'} | ${ACCION_CORREO[nivelSecuencia]} | Responsable: ${textoResponsablePorCiclo(g)}`;
+      return `${i + 1}. Guía: ${g.guia} | Cliente: ${g.cliente || '—'} | Desc: ${g.descripcion || '—'} | Estado: ${
+        g.estado_guia || '—'
+      } | Destino: ${g.oficina_destino || '—'} | Días sin mov: ${
+        g.dias_sin_movimiento ?? '—'
+      } | ${ACCION_CORREO[nivelSecuencia]} | Responsable: ${textoResponsablePorCiclo(g)}`;
     });
 
     const cuerpoTexto = [
@@ -120,7 +122,7 @@ export default function SemaforoAlertaModal({
       `Generado el ${fechaGenerado} · VIGÍA Panel de Control Operativo — AFIMEX`,
     ].join('\n');
 
-    const asuntoTexto = `[AFIMEX] [${cliente}] Alerta de guías sin movimiento — ${lista.length} guía${lista.length === 1 ? '' : 's'} · Oficina ${oficina}`;
+    const asuntoTexto = `[AFIMEX] Alerta de guías sin movimiento — ${lista.length} guía${lista.length === 1 ? '' : 's'} · Oficina ${oficina}`;
 
     const mailto = buildMailtoUrl(para, { cc, subject: asuntoTexto, body: cuerpoTexto });
     const link = document.createElement('a');
@@ -135,14 +137,15 @@ export default function SemaforoAlertaModal({
 
   async function registrar() {
     setEnviando(true);
+    setErrorRegistro(null);
     try {
-      await Promise.all(
-        guiasSeleccionadas.map((g) => {
+      const resultados = await Promise.all(
+        guiasSeleccionadas.map(async (g) => {
           // El color de HOY solo decide si vale la pena registrar algo
           // (Verde = recién creada, 0-2 días, no necesita alerta) — pero
           // el NIVEL que se guarda (1ª/2ª/3ª) viene de la secuencia real
           // registrada, no de este color.
-          if (calcularSemaforoGuia(g.dias_sin_movimiento).nivel === 'VERDE') return Promise.resolve();
+          if (calcularSemaforoGuia(g.dias_sin_movimiento).nivel === 'VERDE') return null;
 
           const oficina = g.oficina_destino || 'SIN OFICINA';
           const contacto = contactoDe(oficina);
@@ -150,20 +153,41 @@ export default function SemaforoAlertaModal({
           const nivelSecuencia = nivelPorSecuenciaAlertas(alertasPrevias);
           const info = INFO_NIVEL_ALERTA[nivelSecuencia];
 
-          return fetch('/api/alertas-guia', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              guia: g.guia,
-              nivel: nivelSecuencia,
-              accion: info.accion,
-              enviado_a: contacto?.email_to || null,
-            }),
-          });
+          try {
+            const res = await fetch('/api/alertas-guia', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                guia: g.guia,
+                nivel: nivelSecuencia,
+                accion: info.accion,
+                enviado_a: contacto?.email_to || null,
+              }),
+            });
+            // fetch() NO lanza excepción si el servidor responde con error
+            // (400/500) — solo si falla la red. Sin este chequeo, un error
+            // real de Supabase (tabla faltante, RLS, columna incorrecta)
+            // pasaba inadvertido: el código asumía éxito y mostraba
+            // "Registrado" aunque NADA se hubiera guardado.
+            if (!res.ok) {
+              const j = await res.json().catch(() => ({}));
+              return `Guía ${g.guia}: ${j.error || `HTTP ${res.status}`}`;
+            }
+            return null;
+          } catch (e) {
+            return `Guía ${g.guia}: error de red — ${e instanceof Error ? e.message : 'desconocido'}`;
+          }
         })
       );
-      setRegistrado(true);
-      onCompletado();
+      const errores = resultados.filter((r): r is string => r !== null);
+      if (errores.length) {
+        setErrorRegistro(
+          `${errores.length} guía(s) NO se guardaron. Primer error: ${errores[0]}`
+        );
+      } else {
+        setRegistrado(true);
+        onCompletado();
+      }
     } finally {
       setEnviando(false);
     }
@@ -242,6 +266,11 @@ export default function SemaforoAlertaModal({
         {registrado && (
           <div className="text-[12px] text-[var(--vg-green)] font-semibold mb-3">
             ✅ Alertas registradas en el historial (por guía)
+          </div>
+        )}
+        {errorRegistro && (
+          <div className="text-[12px] text-[#DC2626] font-semibold mb-3 bg-[#FEF2F2] rounded-md px-3 py-2">
+            ⚠️ {errorRegistro}
           </div>
         )}
 
