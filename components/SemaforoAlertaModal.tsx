@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { Guia, ContactoOficina, AlertaGuiaEvento } from '@/lib/types';
 import { calcularSemaforoGuia, nivelPorSecuenciaAlertas, INFO_NIVEL_ALERTA, textoResponsablePorCiclo, buildMailtoUrl } from '@/lib/business-logic';
 
@@ -47,6 +47,14 @@ export default function SemaforoAlertaModal({
   const [registrado, setRegistrado] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [errorRegistro, setErrorRegistro] = useState<string | null>(null);
+  // Guías ya registradas en el historial durante ESTA sesión del modal —
+  // evita registrar dos veces la misma guía (si se envía el correo de su
+  // oficina y luego también se presiona "Registrar alerta"), lo que
+  // inflaría la secuencia 1ª→2ª→3ª sin que haya habido una alerta real
+  // nueva. Es un ref (no estado) para que el dedupe sea inmediato; el
+  // contador de abajo solo fuerza el re-render.
+  const registradasRef = useRef<Set<string>>(new Set());
+  const [registradasCount, setRegistradasCount] = useState(0);
 
   // Cuántas alertas (no-cierre) tiene YA cada guía en su historial —
   // determina si la que se está a punto de registrar es la 1ª, 2ª o 3ª.
@@ -133,61 +141,82 @@ export default function SemaforoAlertaModal({
     document.body.removeChild(link);
 
     setOficinasEnviadas((prev) => new Set(prev).add(oficina));
+    // Enviar la alerta ES el evento que se rastrea — se registra en el
+    // historial al momento, sin depender de un segundo botón aparte (antes,
+    // si solo se enviaban los correos y se cerraba el modal, no quedaba
+    // NADA guardado).
+    void registrarYAvisar(lista);
+  }
+
+  // Registra en el historial (alertas_guia_historial) las guías dadas, salvo
+  // las que están en Verde o ya se registraron en esta sesión. Devuelve la
+  // lista de errores (vacía = todo bien).
+  async function registrarGuias(lista: Guia[]): Promise<string[]> {
+    const resultados = await Promise.all(
+      lista.map(async (g) => {
+        // El color de HOY solo decide si vale la pena registrar algo
+        // (Verde = recién creada, 0-2 días, no necesita alerta) — pero
+        // el NIVEL que se guarda (1ª/2ª/3ª) viene de la secuencia real
+        // registrada, no de este color.
+        if (calcularSemaforoGuia(g.dias_sin_movimiento).nivel === 'VERDE') return null;
+        if (registradasRef.current.has(g.guia)) return null;
+        // Se marca ANTES del fetch para que un doble clic rápido no cuele
+        // dos registros; si falla, se des-marca para poder reintentar.
+        registradasRef.current.add(g.guia);
+
+        const oficina = g.oficina_destino || 'SIN OFICINA';
+        const contacto = contactoDe(oficina);
+        const alertasPrevias = alertasPreviasPorGuia.get(g.guia) || 0;
+        const nivelSecuencia = nivelPorSecuenciaAlertas(alertasPrevias);
+        const info = INFO_NIVEL_ALERTA[nivelSecuencia];
+
+        try {
+          const res = await fetch('/api/alertas-guia', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              guia: g.guia,
+              nivel: nivelSecuencia,
+              accion: info.accion,
+              enviado_a: contacto?.email_to || null,
+            }),
+          });
+          // fetch() NO lanza excepción si el servidor responde con error
+          // (400/500) — solo si falla la red. Sin este chequeo, un error
+          // real de Supabase pasaba inadvertido y se mostraba "Registrado"
+          // aunque NADA se hubiera guardado.
+          if (!res.ok) {
+            registradasRef.current.delete(g.guia);
+            const j = await res.json().catch(() => ({}));
+            return `Guía ${g.guia}: ${j.error || `HTTP ${res.status}`}`;
+          }
+          return null;
+        } catch (e) {
+          registradasRef.current.delete(g.guia);
+          return `Guía ${g.guia}: error de red — ${e instanceof Error ? e.message : 'desconocido'}`;
+        }
+      })
+    );
+    setRegistradasCount(registradasRef.current.size);
+    return resultados.filter((r): r is string => r !== null);
+  }
+
+  async function registrarYAvisar(lista: Guia[]): Promise<boolean> {
+    setErrorRegistro(null);
+    const errores = await registrarGuias(lista);
+    if (errores.length) {
+      setErrorRegistro(`${errores.length} guía(s) NO se guardaron. Primer error: ${errores[0]}`);
+      return false;
+    }
+    onCompletado();
+    return true;
   }
 
   async function registrar() {
     setEnviando(true);
-    setErrorRegistro(null);
     try {
-      const resultados = await Promise.all(
-        guiasSeleccionadas.map(async (g) => {
-          // El color de HOY solo decide si vale la pena registrar algo
-          // (Verde = recién creada, 0-2 días, no necesita alerta) — pero
-          // el NIVEL que se guarda (1ª/2ª/3ª) viene de la secuencia real
-          // registrada, no de este color.
-          if (calcularSemaforoGuia(g.dias_sin_movimiento).nivel === 'VERDE') return null;
-
-          const oficina = g.oficina_destino || 'SIN OFICINA';
-          const contacto = contactoDe(oficina);
-          const alertasPrevias = alertasPreviasPorGuia.get(g.guia) || 0;
-          const nivelSecuencia = nivelPorSecuenciaAlertas(alertasPrevias);
-          const info = INFO_NIVEL_ALERTA[nivelSecuencia];
-
-          try {
-            const res = await fetch('/api/alertas-guia', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                guia: g.guia,
-                nivel: nivelSecuencia,
-                accion: info.accion,
-                enviado_a: contacto?.email_to || null,
-              }),
-            });
-            // fetch() NO lanza excepción si el servidor responde con error
-            // (400/500) — solo si falla la red. Sin este chequeo, un error
-            // real de Supabase (tabla faltante, RLS, columna incorrecta)
-            // pasaba inadvertido: el código asumía éxito y mostraba
-            // "Registrado" aunque NADA se hubiera guardado.
-            if (!res.ok) {
-              const j = await res.json().catch(() => ({}));
-              return `Guía ${g.guia}: ${j.error || `HTTP ${res.status}`}`;
-            }
-            return null;
-          } catch (e) {
-            return `Guía ${g.guia}: error de red — ${e instanceof Error ? e.message : 'desconocido'}`;
-          }
-        })
-      );
-      const errores = resultados.filter((r): r is string => r !== null);
-      if (errores.length) {
-        setErrorRegistro(
-          `${errores.length} guía(s) NO se guardaron. Primer error: ${errores[0]}`
-        );
-      } else {
-        setRegistrado(true);
-        onCompletado();
-      }
+      const ok = await registrarYAvisar(guiasSeleccionadas);
+      setRegistrado(ok);
     } finally {
       setEnviando(false);
     }
@@ -196,6 +225,9 @@ export default function SemaforoAlertaModal({
   function cerrar() {
     setOficinasEnviadas(new Set());
     setRegistrado(false);
+    setErrorRegistro(null);
+    registradasRef.current = new Set();
+    setRegistradasCount(0);
     onClose();
   }
 
@@ -263,9 +295,9 @@ export default function SemaforoAlertaModal({
           </table>
         </div>
 
-        {registrado && (
+        {registradasCount > 0 && (
           <div className="text-[12px] text-[var(--vg-green)] font-semibold mb-3">
-            ✅ Alertas registradas en el historial (por guía)
+            ✅ {registradasCount} alerta(s) registradas en el historial (por guía)
           </div>
         )}
         {errorRegistro && (
