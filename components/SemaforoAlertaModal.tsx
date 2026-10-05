@@ -23,6 +23,14 @@ interface SemaforoAlertaModalProps {
   // saber cuántas alertas lleva cada guía y así registrar la SIGUIENTE
   // con el nivel correcto (1ª/2ª/3ª), no con el color calculado de hoy.
   historialAlertas: AlertaGuiaEvento[];
+  // Se llama tras CADA registro exitoso (p. ej. al enviar el correo de una
+  // oficina) — solo para refrescar el historial. NO debe limpiar la
+  // selección de guías del padre: las demás oficinas del modal todavía
+  // dependen de ella.
+  onRegistrado?: () => void;
+  // Se llama UNA sola vez cuando el usuario termina (presiona "Registrar
+  // alerta", o cierra el modal habiendo registrado algo) — aquí el padre
+  // sí puede limpiar su selección.
   onCompletado: () => void;
 }
 
@@ -41,6 +49,7 @@ export default function SemaforoAlertaModal({
   guiasSeleccionadas,
   contactos,
   historialAlertas,
+  onRegistrado,
   onCompletado,
 }: SemaforoAlertaModalProps) {
   const [oficinasEnviadas, setOficinasEnviadas] = useState<Set<string>>(new Set());
@@ -55,6 +64,7 @@ export default function SemaforoAlertaModal({
   // contador de abajo solo fuerza el re-render.
   const registradasRef = useRef<Set<string>>(new Set());
   const [registradasCount, setRegistradasCount] = useState(0);
+  const completadoNotificadoRef = useRef(false);
 
   // Cuántas alertas (no-cierre) tiene YA cada guía en su historial —
   // determina si la que se está a punto de registrar es la 1ª, 2ª o 3ª.
@@ -208,8 +218,14 @@ export default function SemaforoAlertaModal({
       setErrorRegistro(`${errores.length} guía(s) NO se guardaron. Primer error: ${errores[0]}`);
       return false;
     }
-    onCompletado();
+    onRegistrado?.();
     return true;
+  }
+
+  function notificarCompletadoUnaVez() {
+    if (completadoNotificadoRef.current) return;
+    completadoNotificadoRef.current = true;
+    onCompletado();
   }
 
   async function registrar() {
@@ -217,12 +233,17 @@ export default function SemaforoAlertaModal({
     try {
       const ok = await registrarYAvisar(guiasSeleccionadas);
       setRegistrado(ok);
+      if (ok) notificarCompletadoUnaVez();
     } finally {
       setEnviando(false);
     }
   }
 
   function cerrar() {
+    // Si se registró algo (p. ej. solo se enviaron correos por oficina), el
+    // padre debe enterarse al cerrar para limpiar su selección.
+    if (registradasRef.current.size > 0) notificarCompletadoUnaVez();
+    completadoNotificadoRef.current = false;
     setOficinasEnviadas(new Set());
     setRegistrado(false);
     setErrorRegistro(null);

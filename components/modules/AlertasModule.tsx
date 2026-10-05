@@ -562,6 +562,7 @@ export default function AlertasModule({ guias, guiasTodas }: { guias: Guia[]; gu
           guiasSeleccionadas={modalSemaforoGuias}
           contactos={contactos}
           historialAlertas={historialAlertas}
+          onRegistrado={recargarHistorialAlertas}
           onCompletado={() => {
             recargarHistorialAlertas();
             setMensaje('✅ Alertas de semáforo registradas');

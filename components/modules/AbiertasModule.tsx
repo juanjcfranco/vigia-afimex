@@ -873,6 +873,7 @@ export default function AbiertasModule({ guias }: { guias: Guia[] }) {
           guiasSeleccionadas={guiasSeleccionadasObj}
           contactos={contactos}
           historialAlertas={historialAlertas}
+          onRegistrado={recargarHistorialAlertas}
           onCompletado={() => {
             setSeleccionadas(new Set());
             recargarHistorialAlertas();
