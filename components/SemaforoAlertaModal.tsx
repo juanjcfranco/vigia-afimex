@@ -8,10 +8,11 @@ import { calcularSemaforoGuia, nivelPorSecuenciaAlertas, INFO_NIVEL_ALERTA, text
 // trae el detalle completo (usado en tooltips/badges dentro de la app), pero en el
 // correo basta con la instrucción corta; el destinatario no necesita el detalle
 // operativo interno (ej. "ubicar última plaza/circuito que escaneó la guía").
-const ACCION_CORREO: Record<'AMARILLO' | 'NARANJA' | 'ROJO', string> = {
+const ACCION_CORREO: Record<'AMARILLO' | 'NARANJA' | 'ROJO' | 'CERRADO', string> = {
   AMARILLO: 'Iniciar investigación inmediata: Primera Alerta',
   NARANJA: 'Segunda alerta: Guía en riesgo, posible cobro al responsable',
-  ROJO: 'Tercera y última alerta: Seguimiento crítico: 24 horas para dar respuesta, de no recibirla la guía pasará a cobro del responsable',
+  ROJO: 'Tercera alerta: Seguimiento crítico: 24 horas para dar respuesta, de no recibirla la guía pasará a cobro del responsable',
+  CERRADO: 'CIERRE DEL CASO: Cobro al responsable por falta de respuesta y/o movimiento',
 };
 
 interface SemaforoAlertaModalProps {
@@ -76,6 +77,28 @@ export default function SemaforoAlertaModal({
     return map;
   }, [historialAlertas]);
 
+  // Guías cuyo ÚLTIMO evento en el historial es el cierre del caso (morado):
+  // el caso ya terminó — no se vuelve a alertar ni a registrar nada. Se
+  // calcula con el evento más reciente (creado_en), no con el orden del
+  // arreglo.
+  const guiasCerradas = useMemo(() => {
+    const ultimo = new Map<string, { nivel: string; t: string }>();
+    historialAlertas.forEach((ev) => {
+      const a = ultimo.get(ev.guia);
+      if (!a || ev.creado_en >= a.t) ultimo.set(ev.guia, { nivel: ev.nivel, t: ev.creado_en });
+    });
+    const cerradas = new Set<string>();
+    ultimo.forEach((v, guia) => {
+      if (v.nivel === 'CERRADO') cerradas.add(guia);
+    });
+    return cerradas;
+  }, [historialAlertas]);
+
+  // Una guía cerrada se omite, SALVO que el cierre lo haya registrado esta
+  // misma sesión del modal (si no, al enviar el correo de cierre la fila de
+  // la oficina desaparecería de la lista en cuanto se recarga el historial).
+  const estaCerradaOmitida = (guia: string) => guiasCerradas.has(guia) && !registradasRef.current.has(guia);
+
   const porOficina = useMemo(() => {
     const grupos: Record<string, Guia[]> = {};
     guiasSeleccionadas
@@ -84,13 +107,22 @@ export default function SemaforoAlertaModal({
       // registrar(), que ya excluía Verde del historial pero no del
       // cuerpo del correo).
       .filter((g) => calcularSemaforoGuia(g.dias_sin_movimiento).nivel !== 'VERDE')
+      .filter((g) => !estaCerradaOmitida(g.guia))
       .forEach((g) => {
         const of = g.oficina_destino || 'SIN OFICINA';
         if (!grupos[of]) grupos[of] = [];
         grupos[of].push(g);
       });
     return Object.entries(grupos).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [guiasSeleccionadas]);
+    // registradasCount fuerza el recálculo cuando cambian las guías
+    // registradas en esta sesión (el ref por sí solo no dispara re-render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guiasSeleccionadas, guiasCerradas, registradasCount]);
+
+  // Cuántas guías seleccionadas (no verdes) se omiten por tener ya el caso cerrado.
+  const omitidasPorCerradas = guiasSeleccionadas.filter(
+    (g) => calcularSemaforoGuia(g.dias_sin_movimiento).nivel !== 'VERDE' && estaCerradaOmitida(g.guia)
+  ).length;
 
   if (!open) return null;
 
@@ -170,6 +202,7 @@ export default function SemaforoAlertaModal({
         // registrada, no de este color.
         if (calcularSemaforoGuia(g.dias_sin_movimiento).nivel === 'VERDE') return null;
         if (registradasRef.current.has(g.guia)) return null;
+        if (guiasCerradas.has(g.guia)) return null; // caso ya cerrado: no se vuelve a alertar
         // Se marca ANTES del fetch para que un doble clic rápido no cuele
         // dos registros; si falla, se des-marca para poder reintentar.
         registradasRef.current.add(g.guia);
@@ -316,6 +349,11 @@ export default function SemaforoAlertaModal({
           </table>
         </div>
 
+        {omitidasPorCerradas > 0 && (
+          <div className="text-[11.5px] font-semibold mb-3" style={{ color: '#7C3AED' }}>
+            🟣 {omitidasPorCerradas} guía(s) con el caso ya cerrado no se incluyen en el envío.
+          </div>
+        )}
         {registradasCount > 0 && (
           <div className="text-[12px] text-[var(--vg-green)] font-semibold mb-3">
             ✅ {registradasCount} alerta(s) registradas en el historial (por guía)

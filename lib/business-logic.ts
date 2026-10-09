@@ -921,7 +921,7 @@ export interface NivelSemaforo {
 // esta guía de verdad?") — son dos cosas distintas que antes se
 // mezclaban: el color de hoy NO significa que ya hubo una alerta previa.
 export const INFO_NIVEL_ALERTA: Record<
-  'AMARILLO' | 'NARANJA' | 'ROJO',
+  'AMARILLO' | 'NARANJA' | 'ROJO' | 'CERRADO',
   { etiquetaAlerta: string; accion: string; responsable: string; color: string }
 > = {
   AMARILLO: {
@@ -941,6 +941,16 @@ export const INFO_NIVEL_ALERTA: Record<
     accion: 'Cierre del caso y cobro al responsable',
     responsable: 'Gerente de operaciones',
     color: '#DC2626',
+  },
+  // 4ª etapa de la cadena (morada): se alcanza por SECUENCIA (la guía ya
+  // tiene 3 alertas registradas), no por días sin movimiento — por eso
+  // calcularSemaforoGuia() no la devuelve. Se guarda en el historial con
+  // nivel 'CERRADO' (el mismo valor que ya usaba el botón "Cerrar").
+  CERRADO: {
+    etiquetaAlerta: 'Cierre del caso',
+    accion: 'CIERRE DEL CASO: Cobro al responsable por falta de respuesta y/o movimiento',
+    responsable: 'Gerente de operaciones',
+    color: '#7C3AED',
   },
 };
 
@@ -965,10 +975,15 @@ export function calcularSemaforoGuia(dias: number | null): NivelSemaforo {
 // alerta para una guía SIEMPRE es la 1ª (Amarillo), sin importar si ya
 // lleva 8 días sin movimiento; la secuencia 1ª→2ª→3ª depende
 // exclusivamente del historial real, nunca del semáforo calculado.
-export function nivelPorSecuenciaAlertas(alertasPrevias: number): 'AMARILLO' | 'NARANJA' | 'ROJO' {
+export function nivelPorSecuenciaAlertas(
+  alertasPrevias: number
+): 'AMARILLO' | 'NARANJA' | 'ROJO' | 'CERRADO' {
   if (alertasPrevias <= 0) return 'AMARILLO';
   if (alertasPrevias === 1) return 'NARANJA';
-  return 'ROJO';
+  if (alertasPrevias === 2) return 'ROJO';
+  // Con 3 alertas ya registradas, la siguiente etapa es el CIERRE DEL CASO
+  // (morado) — antes se repetía el rojo indefinidamente.
+  return 'CERRADO';
 }
 
 // ============================================================
@@ -1005,7 +1020,7 @@ export function calcularEtiquetaSeguimiento(
   alertasRegistradas: number,
   cerrado: boolean
 ): EtiquetaSeguimiento {
-  if (cerrado) return { texto: 'Cerrado', color: '#64748B' };
+  if (cerrado) return { texto: 'Cerrado', color: '#7C3AED' };
   const semaforo = calcularSemaforoGuia(dias);
   if (alertasRegistradas > 0) {
     return {

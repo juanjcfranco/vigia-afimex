@@ -8,7 +8,7 @@ import SemaforoAlertaModal from '@/components/SemaforoAlertaModal';
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
 
-const COLOR_NIVEL: Record<string, string> = { AMARILLO: '#EAB308', NARANJA: '#EA7C1A', ROJO: '#DC2626', CERRADO: '#64748B' };
+const COLOR_NIVEL: Record<string, string> = { AMARILLO: '#EAB308', NARANJA: '#EA7C1A', ROJO: '#DC2626', CERRADO: '#7C3AED' };
 
 const ACCIONES_RAPIDAS = [
   'ESTADO CRÍTICO',
@@ -63,6 +63,38 @@ export default function AlertasModule({ guias, guiasTodas }: { guias: Guia[]; gu
     });
     return grupos;
   }, [guias]);
+
+  // Guías en 4ª etapa (morado): ya tienen 3 alertas registradas (1ª, 2ª y 3ª)
+  // y su último evento NO es un cierre. Se identifican por SECUENCIA del
+  // historial, no por días sin movimiento. Solo se consideran guías que
+  // siguen sin ser verdes en este corte.
+  const guiasParaCierre = useMemo(() => {
+    const resumen = new Map<string, { alertas: number; cerrado: boolean }>();
+    historialAlertas.forEach((ev) => {
+      const a = resumen.get(ev.guia) || { alertas: 0, cerrado: false };
+      if (ev.nivel === 'CERRADO') {
+        a.cerrado = true;
+      } else {
+        a.alertas += 1;
+        a.cerrado = false;
+      }
+      resumen.set(ev.guia, a);
+    });
+    const candidatas = [...guiasPorNivelSemaforo.AMARILLO, ...guiasPorNivelSemaforo.NARANJA, ...guiasPorNivelSemaforo.ROJO];
+    return candidatas.filter((g) => {
+      const r = resumen.get(g.guia);
+      return !!r && r.alertas >= 3 && !r.cerrado;
+    });
+  }, [guiasPorNivelSemaforo, historialAlertas]);
+
+  function abrirCierreDelCaso() {
+    if (!guiasParaCierre.length) {
+      setMensaje('Sin guías pendientes de cierre del caso (ninguna tiene 3 alertas sin cerrar).');
+      return;
+    }
+    setModalSemaforoGuias(guiasParaCierre);
+    setModalSemaforo(true);
+  }
 
   function abrirSemaforoPorNivel(nivel: string) {
     const lista = guiasPorNivelSemaforo[nivel] || [];
@@ -268,7 +300,7 @@ export default function AlertasModule({ guias, guiasTodas }: { guias: Guia[]; gu
           <div>
             <div className="font-bold text-[13px]">🚦 Semáforo de Escalamiento — Guías Abiertas</div>
             <div className="text-[11px] text-[var(--vg-text2)]">
-              Verde 1-2d (monitoreo) · Amarillo 3d (1ª alerta) · Naranja 4d (2ª alerta) · Rojo 5+d (3ª alerta, cierre de caso)
+              Verde 1-2d (monitoreo) · Amarillo 3d (1ª alerta) · Naranja 4d (2ª alerta) · Rojo 5+d (3ª alerta) · Morado: cierre del caso (cobro al responsable, tras la 3ª alerta sin respuesta)
             </div>
           </div>
         </div>
@@ -293,6 +325,14 @@ export default function AlertasModule({ guias, guiasTodas }: { guias: Guia[]; gu
             style={{ backgroundColor: COLOR_NIVEL.ROJO }}
           >
             🔴 Rojo — 3ª alerta ({guiasPorNivelSemaforo.ROJO.length})
+          </button>
+          <button
+            onClick={abrirCierreDelCaso}
+            className="text-[11px] font-bold text-white rounded-md px-2.5 py-1"
+            style={{ backgroundColor: COLOR_NIVEL.CERRADO }}
+            title="Guías con 3 alertas ya registradas y sin cierre: toca el cierre del caso y cobro al responsable"
+          >
+            🟣 Cierre del caso ({guiasParaCierre.length})
           </button>
         </div>
 
@@ -342,7 +382,7 @@ export default function AlertasModule({ guias, guiasTodas }: { guias: Guia[]; gu
                               style={{ backgroundColor: COLOR_NIVEL[ev.nivel] || '#6B7280' }}
                               title={ev.accion || ''}
                             >
-                              {ev.nivel}
+                              {ev.nivel === 'CERRADO' ? 'CIERRE' : ev.nivel}
                             </span>
                             {i < eventos.length - 1 && <span className="text-[var(--vg-text3)] mx-0.5">→</span>}
                           </span>
