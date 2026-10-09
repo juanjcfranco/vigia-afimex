@@ -8,23 +8,73 @@ import { supabaseAdmin } from '@/lib/supabase';
 // POST: registra un evento nuevo (1ª/2ª/3ª alerta, o cierre de caso).
 // ============================================================
 
+// Supabase/PostgREST devuelve como MÁXIMO 1,000 filas por consulta, sin
+// importar el .limit() que se pida (el tope lo fija el proyecto). Con el
+// historial ordenado de la más antigua a la más reciente, una consulta sola
+// devolvía únicamente las primeras 1,000 — y cuando el 05/10 acumuló 1,377
+// registros, las alertas posteriores (06/10, 09/10...) dejaron de aparecer
+// aunque SÍ estaban guardadas. Por eso se lee por páginas con .range()
+// hasta agotar la tabla, con un orden estable (creado_en + id) para que
+// ninguna fila se repita ni se salte entre página y página.
+const TAMANO_PAGINA = 1000;
+const MAX_PAGINAS = 200; // tope de seguridad: 200,000 eventos
+const TAMANO_BLOQUE_GUIAS = 200; // para ?guias=: URLs cortas
+
+async function leerEventos(db: ReturnType<typeof supabaseAdmin>, guias?: string[]) {
+  const eventos: Record<string, unknown>[] = [];
+  for (let i = 0; i < MAX_PAGINAS; i++) {
+    let q = db
+      .from('alertas_guia_historial')
+      .select('*')
+      .order('creado_en', { ascending: true })
+      .order('id', { ascending: true })
+      .range(i * TAMANO_PAGINA, i * TAMANO_PAGINA + TAMANO_PAGINA - 1);
+    if (guias) q = q.in('guia', guias);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    const lote = (data || []) as Record<string, unknown>[];
+    eventos.push(...lote);
+    if (lote.length < TAMANO_PAGINA) break;
+  }
+  return eventos;
+}
+
 export async function GET(req: NextRequest) {
   const db = supabaseAdmin();
   const { searchParams } = new URL(req.url);
   const guiasParam = searchParams.get('guias');
 
-  let query = db.from('alertas_guia_historial').select('*').order('creado_en', { ascending: true });
-  if (guiasParam) {
+  try {
     const lista = guiasParam
-      .split(',')
-      .map((g) => g.trim())
-      .filter(Boolean);
-    if (lista.length) query = query.in('guia', lista);
-  }
+      ? guiasParam
+          .split(',')
+          .map((g) => g.trim())
+          .filter(Boolean)
+      : [];
 
-  const { data, error } = await query.limit(5000);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ eventos: data || [] });
+    let eventos: Record<string, unknown>[];
+    if (lista.length) {
+      // Una lista larga de guías en un solo .in() vuelve la URL demasiado
+      // larga y falla — se parte en bloques y se unen los resultados.
+      eventos = [];
+      for (let i = 0; i < lista.length; i += TAMANO_BLOQUE_GUIAS) {
+        eventos.push(...(await leerEventos(db, lista.slice(i, i + TAMANO_BLOQUE_GUIAS))));
+      }
+      eventos.sort((a, b) =>
+        String(a.creado_en) === String(b.creado_en)
+          ? String(a.id).localeCompare(String(b.id))
+          : String(a.creado_en).localeCompare(String(b.creado_en))
+      );
+    } else {
+      eventos = await leerEventos(db);
+    }
+    // Siempre en orden cronológico ascendente: AlertasModule y
+    // AbiertasModule recorren el arreglo en ese orden para reconstruir la
+    // secuencia 1ª → 2ª → 3ª → cierre de cada guía.
+    return NextResponse.json({ eventos });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Error al leer el historial' }, { status: 500 });
+  }
 }
 
 export async function POST(req: NextRequest) {
