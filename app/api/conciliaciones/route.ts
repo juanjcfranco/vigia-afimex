@@ -70,12 +70,23 @@ export async function POST(req: NextRequest) {
     actualizado_en: new Date().toISOString(),
   }));
 
+  // Si la MISMA guía viene más de una vez en el archivo, Postgres rechaza
+  // el lote completo ("ON CONFLICT DO UPDATE command cannot affect row a
+  // second time") y la carga quedaba a medias (los lotes anteriores ya
+  // guardados, el resto no). Se depura aquí, en el servidor, conservando
+  // la ÚLTIMA aparición de cada guía (la más reciente del archivo gana,
+  // igual que pasaría si se hubieran subido una tras otra).
+  const porGuia = new Map<string, (typeof registros)[number]>();
+  for (const r of registros) porGuia.set(r.guia, r);
+  const unicos = Array.from(porGuia.values());
+  const repetidasEnArchivo = registros.length - unicos.length;
+
   // Supabase/Postgres exige lotes razonables para upsert; 500 es un margen
   // seguro para archivos grandes sin acercarse a límites de payload.
   const TAMANO_LOTE = 500;
   let totalProcesadas = 0;
-  for (let i = 0; i < registros.length; i += TAMANO_LOTE) {
-    const lote = registros.slice(i, i + TAMANO_LOTE);
+  for (let i = 0; i < unicos.length; i += TAMANO_LOTE) {
+    const lote = unicos.slice(i, i + TAMANO_LOTE);
     const { error } = await db.from('conciliaciones').upsert(lote, { onConflict: 'guia' });
     if (error) {
       return NextResponse.json(
@@ -86,7 +97,12 @@ export async function POST(req: NextRequest) {
     totalProcesadas += lote.length;
   }
 
-  return NextResponse.json({ ok: true, procesadas: totalProcesadas, omitidas: filas.length - filasValidas.length });
+  return NextResponse.json({
+    ok: true,
+    procesadas: totalProcesadas,
+    omitidas: filas.length - filasValidas.length,
+    repetidasEnArchivo,
+  });
 }
 
 // Elimina uno o más registros de conciliación (por si se subió algo por

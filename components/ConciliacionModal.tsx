@@ -97,9 +97,13 @@ export default function ConciliacionModal({ open, onClose, onSubido }: Conciliac
       if (!res.ok) throw new Error(json.error || 'Error al subir la conciliación');
 
       const omitidas = rows.length - filas.length;
+      const repetidas = Number(json.repetidasEnArchivo) || 0;
       setResultado(
         `✅ ${json.procesadas.toLocaleString('es-MX')} guía(s) conciliada(s) correctamente.` +
-          (omitidas > 0 ? ` ${omitidas} fila(s) se omitieron por no traer número de guía.` : '')
+          (omitidas > 0 ? ` ${omitidas} fila(s) se omitieron por no traer número de guía.` : '') +
+          (repetidas > 0
+            ? ` ${repetidas.toLocaleString('es-MX')} fila(s) venían repetidas en el archivo; se conservó la última aparición de cada guía.`
+            : '')
       );
       setFile(null);
       if (inputRef.current) inputRef.current.value = '';
