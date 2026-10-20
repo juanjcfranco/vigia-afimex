@@ -5,6 +5,8 @@ import { Guia, Indemnizacion, EstadoIndemnizacion, ContactoOficina } from '@/lib
 import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
 import IndemnizacionModal from '@/components/IndemnizacionModal';
+import { exportIndemnizacionPDF } from '@/lib/export';
+import { enviarIndemnizacionPorCorreo } from '@/lib/indemnizacionCorreo';
 
 const ESTADO_COLOR: Record<EstadoIndemnizacion, string> = {
   PENDIENTE: '#EA7C1A',
@@ -302,12 +304,13 @@ export default function IndemnizacionesModule({ guias }: { guias: Guia[] }) {
                 <SortableTh label="Cargo AFIMEX" sortKey="cargo" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Estado" sortKey="estado" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
                 <SortableTh label="Fecha" sortKey="fecha" currentKey={sortKey} currentDir={sortDir} onSort={requestSort} />
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {cargando && (
                 <tr>
-                  <td colSpan={10} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={11} className="text-center text-[var(--vg-text3)] py-6">
                     Cargando casos...
                   </td>
                 </tr>
@@ -331,11 +334,27 @@ export default function IndemnizacionesModule({ guias }: { guias: Guia[] }) {
                       <EstadoBadge estado={i.estado} />
                     </td>
                     <td>{i.fecha || '—'}</td>
+                    <td className="whitespace-nowrap">
+                      <button
+                        onClick={() => exportIndemnizacionPDF(i)}
+                        className="text-[10.5px] font-semibold border border-[var(--vg-border)] rounded px-2 py-0.5 mr-1 hover:bg-[var(--vg-bg)]"
+                        title="Imprimir / guardar el PDF de este caso"
+                      >
+                        🖨 PDF
+                      </button>
+                      <button
+                        onClick={() => enviarIndemnizacionPorCorreo(i, contactos)}
+                        className="text-[10.5px] font-semibold text-white bg-[#7C3AED] rounded px-2 py-0.5"
+                        title="Abre tu correo con el resumen del caso y el PDF en otra pestaña para adjuntarlo"
+                      >
+                        📧 Correo
+                      </button>
+                    </td>
                   </tr>
                 ))}
               {!cargando && !filas.length && (
                 <tr>
-                  <td colSpan={10} className="text-center text-[var(--vg-text3)] py-6">
+                  <td colSpan={11} className="text-center text-[var(--vg-text3)] py-6">
                     No hay casos de indemnización con este filtro
                   </td>
                 </tr>

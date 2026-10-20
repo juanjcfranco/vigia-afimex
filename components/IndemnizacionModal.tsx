@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Guia, Indemnizacion, EstadoIndemnizacion, ContactoOficina } from '@/lib/types';
-import { buildMailtoUrl } from '@/lib/business-logic';
+import { enviarIndemnizacionPorCorreo } from '@/lib/indemnizacionCorreo';
 import { exportIndemnizacionPDF } from '@/lib/export';
 
 interface IndemnizacionModalProps {
@@ -177,73 +177,11 @@ export default function IndemnizacionModal({
 
   if (!open) return null;
 
-  // Arma el correo con el resumen de la incidencia (mismo espíritu del
-  // formato que ya usaban) y abre el PDF aparte — un mailto NO puede
-  // traer un adjunto automático, así que el PDF se abre en otra pestaña
-  // para que el usuario le dé "Guardar como PDF" y lo arrastre al correo.
-  // Usa el caso YA GUARDADO (existente), no lo que esté a medio editar en
-  // el formulario — por eso solo está disponible al editar un caso ya
-  // creado, nunca al capturar uno nuevo sin guardar primero.
+  // El correo se arma en lib/indemnizacionCorreo.ts (compartido con los botones
+  // de cada fila de la tabla). Solo disponible al editar un caso ya guardado.
   function enviarPorCorreo() {
     if (!existente) return;
-    const contacto = contactos.find(
-      (c) => c.oficina === existente.oficina || c.oficina === existente.oficina_incidencia
-    );
-    const para = contacto?.email_to || '';
-    const cc = contacto?.email_cc || '';
-
-    const asunto = `Solicitud de autorización de indemnización — ${existente.folio} — ${existente.cliente || ''}`;
-
-    const cuerpo = [
-      'Estimado equipo,',
-      '',
-      'Te comparto el siguiente caso de incidencia para tu revisión y autorización de la indemnización correspondiente:',
-      '',
-      'RESUMEN DE INCIDENCIA',
-      '----------------------------------------',
-      `Folio:                    ${existente.folio}`,
-      `Cliente:                  ${existente.cliente || '—'}`,
-      `Guía(s):                  ${existente.guias.join(', ')}`,
-      `Destino:                  ${existente.oficina || '—'}${existente.tipo_destino ? ` (${existente.tipo_destino})` : ''}`,
-      `Oficina de incidencia:    ${existente.oficina_incidencia || '—'}`,
-      `Fecha de registro:        ${existente.fecha || '—'}`,
-      `Fecha último movimiento:  ${existente.fecha_mov || '—'}`,
-      '',
-      'INCIDENCIA',
-      '----------------------------------------',
-      `Tipo:                     ${existente.tipo_incidencia || '—'}`,
-      `Último escaneo:           ${existente.scan_estatus || '—'}`,
-      `Ubicación escaneo:        ${existente.scan_loc || '—'}`,
-      `Usuario escaneo:          ${existente.scan_user || '—'}`,
-      '',
-      'INVESTIGACIÓN',
-      '----------------------------------------',
-      existente.investigacion || 'Sin detalle registrado.',
-      '',
-      'RESOLUCIÓN ECONÓMICA',
-      '----------------------------------------',
-      `Importe declarado:        $${(existente.importe || 0).toLocaleString('es-MX')}`,
-      `Indemnización:            $${(existente.indemnizacion || 0).toLocaleString('es-MX')}`,
-      `Importe recuperable:      $${(existente.recuperable || 0).toLocaleString('es-MX')}`,
-      `Cargo a Afimex:           $${(existente.cargo_afimex || 0).toLocaleString('es-MX')}`,
-      `Tipo de indemnización:    ${existente.tipo_indemnizacion || '—'}`,
-      '',
-      'Se adjunta el formato de incidencia en PDF con toda la documentación del caso (se abrió en otra pestaña — guárdalo y arrástralo aquí).',
-      '',
-      'Quedo en espera de tu autorización para proceder.',
-      '',
-      'Saludos,',
-    ].join('\n');
-
-    const mailto = buildMailtoUrl(para, { cc, subject: asunto, body: cuerpo });
-    const link = document.createElement('a');
-    link.href = mailto;
-    link.rel = 'noopener';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    exportIndemnizacionPDF(existente);
+    enviarIndemnizacionPorCorreo(existente, contactos);
   }
 
   async function guardar() {
@@ -568,13 +506,22 @@ export default function IndemnizacionModal({
         <div className="flex justify-between items-center gap-2">
           <div>
             {existente && (
-              <button
-                onClick={enviarPorCorreo}
-                className="text-[12px] font-semibold text-white bg-[#7C3AED] rounded-md px-3 py-1.5"
-                title="Abre tu correo con el resumen redactado, y el PDF en otra pestaña para adjuntarlo manualmente"
-              >
-                📧 Enviar por correo
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => exportIndemnizacionPDF(existente)}
+                  className="text-[12px] font-semibold text-[var(--vg-text)] border border-[var(--vg-border)] rounded-md px-3 py-1.5"
+                  title="Abre el formato de incidencia en PDF listo para imprimir o guardar"
+                >
+                  🖨 Imprimir PDF
+                </button>
+                <button
+                  onClick={enviarPorCorreo}
+                  className="text-[12px] font-semibold text-white bg-[#7C3AED] rounded-md px-3 py-1.5"
+                  title="Abre tu correo con el resumen redactado, y el PDF en otra pestaña para adjuntarlo manualmente"
+                >
+                  📧 Enviar por correo
+                </button>
+              </div>
             )}
           </div>
           <div className="flex gap-2">
