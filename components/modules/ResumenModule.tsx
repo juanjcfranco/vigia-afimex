@@ -773,7 +773,7 @@ export default function ResumenModule({
           <KpiCard
             title="Plataforma → Confirmación"
             value={resumenTemporalidad?.plataformaConfirmacion != null ? `${resumenTemporalidad.plataformaConfirmacion}d` : '—'}
-            subtitle={`Promedio · Entregadas: F_Confirmación · Abiertas: hoy · ${(resumenTemporalidad?.nPlataformaConfirmacion ?? 0).toLocaleString('es-MX')} guía(s) con dato`}
+            subtitle={`Promedio · Entregadas/Devoluciones: F_Confirmación · Abiertas: hoy · ${(resumenTemporalidad?.nPlataformaConfirmacion ?? 0).toLocaleString('es-MX')} guía(s) con dato`}
             accentColor="#7C3AED"
           />
           <KpiCard

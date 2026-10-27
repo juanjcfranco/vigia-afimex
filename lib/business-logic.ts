@@ -520,22 +520,17 @@ export function temporalidadDe(
     // no duplicar el criterio en dos lugares.
     const cConf = diasRecibidoOficinaHastaResolucion(g);
     if (cConf !== null) acc.recibofConfirmacion.push(cConf);
-    // "Plataforma → Confirmación": mismo criterio de resolución que usa
-    // "Vida" (fechaFinDevolucion) para devoluciones — entregadas usan su
-    // F_Confirmación, devoluciones usan la entrega de su retorno vinculado
-    // (u hoy si aún no tiene retorno), y todo lo demás (sigue abierta) se
-    // mide contra HOY. Antes las devoluciones se excluían por completo
-    // (quedaban en null) — eso hacía que esta columna saliera vacía en
-    // cualquier grupo (región/cliente) dominado por devoluciones, aunque
-    // sí hubiera fecha de plataforma y de confirmación disponibles.
-    let fechaConfirmacionOAbierta: string | null;
-    if (isEntregada(g.estado_guia)) {
-      fechaConfirmacionOAbierta = g.f_confirmacion;
-    } else if (g.es_devolucion) {
-      fechaConfirmacionOAbierta = fechaFinDevolucion(g, retornoPorGuia, hoyIso);
-    } else {
-      fechaConfirmacionOAbierta = hoyIso;
-    }
+    // "Plataforma → Confirmación": mismo criterio que "RecibOf → Confirmación"
+    // (diasRecibidoOficinaHastaResolucion) — entregada o devolución usa la
+    // F_Confirmación PROPIA de la guía (en una devolución es la fecha en que
+    // se confirmó la devolución), y todo lo demás (sigue abierta) se mide
+    // contra HOY. A diferencia de "Vida", NO espera a que se entregue el
+    // retorno: Vida = Plataforma → entrega del retorno ligado, así que en
+    // las devoluciones Vida es siempre >= Plataforma → Confirmación. Antes
+    // esta columna copiaba el criterio de Vida (fechaFinDevolucion) y los
+    // dos indicadores salían idénticos.
+    const resueltaPropia = isEntregada(g.estado_guia) || g.es_devolucion;
+    const fechaConfirmacionOAbierta = resueltaPropia ? g.f_confirmacion : hoyIso;
     const d = diasEntreFechas(g.fecha_plataforma, fechaConfirmacionOAbierta);
     if (d !== null) acc.plataformaConfirmacion.push(d);
 

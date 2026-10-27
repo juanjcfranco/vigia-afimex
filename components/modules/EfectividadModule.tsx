@@ -617,7 +617,7 @@ export default function EfectividadModule({ guias, guiasTendencias }: { guias: G
         <KpiCard
           title="Plataforma → Confirmación"
           value={temporalidadResumenGeneral?.plataformaConfirmacion != null ? `${temporalidadResumenGeneral.plataformaConfirmacion}d` : '—'}
-          subtitle="Entregadas: F_Confirmación · Abiertas: hoy"
+          subtitle="Entregadas/Devoluciones: F_Confirmación · Abiertas: hoy"
           accentColor="#7C3AED"
         />
         <KpiCard
