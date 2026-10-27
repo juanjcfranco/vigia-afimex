@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { Guia } from '@/lib/types';
 import { isEntregada, isAbiertaPorEstado, isCancelada, esGuiaOriginal, esRetornoAmplio, colorEfectividad, calcularEfectividad, getExcepciones, calcularTiempoPromedioEntrega, calcularResumenExcepciones, calcularResumenDevoluciones, retornoEstaEntregado, formatearPeriodo, topPorCampo, categoriaExcepcion, diasEntreFechas, temporalidadPorCampo, topCiudadesPorDiasEntrega, topCodigosPostalesPorDiasEntrega, topCiudadesPorRechazosCliente } from '@/lib/business-logic';
+import { guiasDelPeriodoParaIndemnizaciones } from '@/lib/indemnizacionesPeriodo';
 import { exportInformeLogisticoPDF, InformeLogisticoData } from '@/lib/export';
 import TopListPanel from '@/components/TopListPanel';
 import KpiCard from '@/components/KpiCard';
@@ -498,15 +499,13 @@ export default function ResumenModule({
     // desfases: primero faltó período/día, luego faltó cliente).
     const guiasConCod = guiasOriginales.filter((g) => isEntregada(g.estado_guia) && g.cod !== null && g.cod > 0).map((g) => g.guia);
 
-    // Incluye tanto los números de guía originales del período como los
-    // de RETORNO ligados a ellas (aunque el retorno esté documentado en
-    // otro mes) — una indemnización puede estar registrada contra el
-    // folio del retorno, no del original, y debe seguir apareciendo en
-    // el informe del mes al que pertenece la guía original.
-    const guiasDelPeriodo = new Set([
-      ...guias.map((g) => g.guia),
-      ...guiasOriginales.filter((g) => g.retorno_guia).map((g) => g.retorno_guia as string),
-    ]);
+    // Una indemnización pertenece al período de la guía ORIGINAL: cuenta si
+    // alguna de sus guías es una guía no-retorno del período, o el folio de
+    // retorno ligado a una de ellas (aunque el retorno se documentara en
+    // otro mes). NUNCA se usa la fecha en que se creó el caso, ni se cuenta
+    // un retorno solo porque se documentó en este período (su original es de
+    // otro mes) — ver guiasDelPeriodoParaIndemnizaciones().
+    const guiasDelPeriodo = guiasDelPeriodoParaIndemnizaciones(guias);
 
     const [conciliacion, conciliacionDetallePendienteYDiferencia, indemnizacionesPeriodo] = await Promise.all([
       fetch('/api/conciliaciones/resumen-por-guias', {
