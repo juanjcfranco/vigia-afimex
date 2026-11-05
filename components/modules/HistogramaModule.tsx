@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { formatearDia, formatearPeriodo, topPorCampo, isCancelada, esRetornoAmplio } from '@/lib/business-logic';
+import { formatearDia, formatearPeriodo, topPorCampo, isCancelada, esRetornoAmplio, esGuiaOriginal } from '@/lib/business-logic';
 import {
   AreaChart,
   Area,
@@ -20,9 +20,16 @@ import { useSortableTable } from '@/lib/useSortableTable';
 import SortableTh from '@/components/SortableTh';
 import KpiCard from '@/components/KpiCard';
 
-type Vista = 'total' | 'oficina' | 'entidad';
+type Vista = 'total' | 'oficina' | 'entidad' | 'cliente';
+// Fecha con la que se ubica cada guía en el eje X: cuándo la recibió Afimex
+// en plataforma, o cuándo la documentó el cliente (comportamiento anterior).
+type BaseFecha = 'plataforma' | 'documentacion';
+// En la vista por cliente se muestran más series (hay pocos clientes y
+// interesa verlos todos); oficina/entidad siguen en Top 8.
+type ModoCliente = 'comparativo' | 'separado';
 
 const TOP_N = 8;
+const TOP_CLIENTES = 12;
 const COLORES = [
   '#1E3A8A', '#0B9B67', '#DC2626', '#B45309',
   '#7C3AED', '#0891B2', '#BE185D', '#4D7C0F',
@@ -36,6 +43,7 @@ const COLOR_SIN_DATO = '#CBD5E1';
 function campoParaVista(vista: Vista, g: Guia): string | null | undefined {
   if (vista === 'oficina') return g.oficina_destino;
   if (vista === 'entidad') return g.entidad_destinatario;
+  if (vista === 'cliente') return g.cliente;
   return null;
 }
 
@@ -55,17 +63,27 @@ function colorDeSerie(serie: string, i: number): string {
 
 export default function HistogramaModule({ guias }: { guias: Guia[] }) {
   const [vista, setVista] = useState<Vista>('total');
+  const [base, setBase] = useState<BaseFecha>('plataforma');
+  const [modoCliente, setModoCliente] = useState<ModoCliente>('comparativo');
 
-  // Guías originales asignadas por el cliente: con F_Documentacion válida,
-  // excluyendo canceladas, pre-documentadas y retornos (explícitos o
-  // posible retorno de otro periodo) — estas últimas no son asignación
-  // nueva del cliente, sino el regreso de una guía ya asignada antes.
+  // Fecha de cada guía según la base elegida. Devuelve siempre 'YYYY-MM-DD'
+  // (las guías ya se filtran abajo para garantizar que existe).
+  const fechaDe = (g: Guia): string => ((base === 'plataforma' ? g.fecha_plataforma : g.f_documentacion) as string);
+
+  // Plataforma (por defecto): guías ORIGINALES (esGuiaOriginal: sin retornos,
+  // posibles retornos, pre-documentadas, documentadas ni canceladas — la
+  // misma definición del resto de la app) con Fecha Plataforma, es decir,
+  // el volumen que Afimex realmente recibió cada día.
+  // Documentación: comportamiento anterior — guías asignadas por el cliente,
+  // con F_Documentacion válida, sin canceladas, pre-documentadas ni retornos.
   const guiasConFecha = useMemo(
     () =>
-      guias.filter(
-        (g) => !!g.f_documentacion && !g.es_predoc && !isCancelada(g.estado_guia) && !esRetornoAmplio(g)
-      ),
-    [guias]
+      base === 'plataforma'
+        ? guias.filter((g) => !!g.fecha_plataforma && esGuiaOriginal(g))
+        : guias.filter(
+            (g) => !!g.f_documentacion && !g.es_predoc && !isCancelada(g.estado_guia) && !esRetornoAmplio(g)
+          ),
+    [guias, base]
   );
 
   // Top N categorías (oficina o entidad) para no saturar el gráfico con
@@ -74,7 +92,7 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
   // y significado tanto en la vista diaria como en la mensual.
   const seriesTop = useMemo(() => {
     if (vista === 'total') return [];
-    return topPorCampo(guiasConFecha, (g) => campoParaVista(vista, g), TOP_N).map((t) => t.key);
+    return topPorCampo(guiasConFecha, (g) => campoParaVista(vista, g), vista === 'cliente' ? TOP_CLIENTES : TOP_N).map((t) => t.key);
   }, [guiasConFecha, vista]);
 
   // ============================================================
@@ -83,7 +101,7 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
   const datosPorDia = useMemo(() => {
     const grupos: Record<string, Record<string, number>> = {};
     guiasConFecha.forEach((g) => {
-      const fecha = g.f_documentacion as string;
+      const fecha = fechaDe(g);
       if (!grupos[fecha]) grupos[fecha] = {};
       if (vista === 'total') {
         grupos[fecha].total = (grupos[fecha].total || 0) + 1;
@@ -100,7 +118,7 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
         total: Object.values(valores).reduce((s, v) => s + v, 0),
       }))
       .sort((a, b) => a.fecha.localeCompare(b.fecha));
-  }, [guiasConFecha, vista, seriesTop]);
+  }, [guiasConFecha, vista, seriesTop, base]);
 
   const hayOtras = useMemo(() => datosPorDia.some((d) => 'Otras' in d), [datosPorDia]);
   const haySinDato = useMemo(() => datosPorDia.some((d) => 'Sin dato' in d), [datosPorDia]);
@@ -152,7 +170,7 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
   const datosPorMes = useMemo(() => {
     const grupos: Record<string, Record<string, number>> = {};
     guiasConFecha.forEach((g) => {
-      const mes = (g.f_documentacion as string).slice(0, 7);
+      const mes = fechaDe(g).slice(0, 7);
       if (!grupos[mes]) grupos[mes] = {};
       if (vista === 'total') {
         grupos[mes].total = (grupos[mes].total || 0) + 1;
@@ -169,17 +187,29 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
         total: Object.values(valores).reduce((s, v) => s + v, 0),
       }))
       .sort((a, b) => a.mes.localeCompare(b.mes));
-  }, [guiasConFecha, vista, seriesTop]);
+  }, [guiasConFecha, vista, seriesTop, base]);
 
   const hayMasDeUnPeriodo = datosPorMes.length > 1;
+
+  const etiquetaDesglose =
+    vista === 'oficina'
+      ? 'Oficina Destino (Top 8)'
+      : vista === 'entidad'
+        ? 'Entidad (Top 8)'
+        : `Cliente${columnasSerie.includes('Otras') ? ` (Top ${TOP_CLIENTES})` : ''}`;
+  const tituloBase = base === 'plataforma' ? 'Guías por Día — Fecha Plataforma' : 'Guías Asignadas por Día — Fecha Documentación';
 
   return (
     <div className="p-4 space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard
-          title="Guías Asignadas"
+          title={base === 'plataforma' ? 'Guías Recibidas' : 'Guías Asignadas'}
           value={kpis.total.toLocaleString('es-MX')}
-          subtitle={`Originales · excluye canceladas, predoc y retornos · ${kpis.dias} día(s)`}
+          subtitle={
+            base === 'plataforma'
+              ? `Originales · por Fecha Plataforma · sin retornos, predoc, documentadas ni canceladas · ${kpis.dias} día(s)`
+              : `Originales · por Fecha Documentación · excluye canceladas, predoc y retornos · ${kpis.dias} día(s)`
+          }
           accentColor="#1E3A8A"
         />
         <KpiCard
@@ -205,8 +235,23 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
       <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
         <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
           <div className="font-bold text-[12.5px]">
-            Guías Asignadas por Día
-            {vista !== 'total' && ` — Desglose por ${vista === 'oficina' ? 'Oficina Destino (Top 8)' : 'Entidad (Top 8)'}`}
+            {tituloBase}
+            {vista !== 'total' && ` — Desglose por ${etiquetaDesglose}`}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex gap-1 bg-[var(--vg-bg)] p-1 rounded-md" title="Fecha con la que se ubica cada guía en el gráfico">
+            <button
+              onClick={() => setBase('plataforma')}
+              className={`text-[11.5px] font-semibold px-3 py-1 rounded ${base === 'plataforma' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+            >
+              Fecha Plataforma
+            </button>
+            <button
+              onClick={() => setBase('documentacion')}
+              className={`text-[11.5px] font-semibold px-3 py-1 rounded ${base === 'documentacion' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+            >
+              Fecha Documentación
+            </button>
           </div>
           <div className="flex gap-1 bg-[var(--vg-bg)] p-1 rounded-md">
             <button
@@ -227,8 +272,76 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
             >
               Por Entidad
             </button>
+            <button
+              onClick={() => setVista('cliente')}
+              className={`text-[11.5px] font-semibold px-3 py-1 rounded ${vista === 'cliente' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+            >
+              Por Cliente
+            </button>
+          </div>
+          {vista === 'cliente' && (
+            <div className="flex gap-1 bg-[var(--vg-bg)] p-1 rounded-md">
+              <button
+                onClick={() => setModoCliente('comparativo')}
+                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${modoCliente === 'comparativo' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+                title="Todos los clientes en una sola gráfica para compararlos"
+              >
+                Comparativo
+              </button>
+              <button
+                onClick={() => setModoCliente('separado')}
+                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${modoCliente === 'separado' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+                title="Una gráfica por cliente, cada una con su propia escala"
+              >
+                Separado
+              </button>
+            </div>
+          )}
           </div>
         </div>
+        {vista === 'cliente' && modoCliente === 'separado' ? (
+          // Una gráfica por cliente con su PROPIA escala vertical: en el
+          // comparativo los clientes chicos se aplastan junto a los grandes.
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-testid="clientes-separados">
+            {columnasSerie.map((s, i) => {
+              const color = colorDeSerie(s, i);
+              const totalSerie = datosPorDia.reduce((sum, d) => sum + ((d as unknown as Record<string, number>)[s] || 0), 0);
+              const datosSerie = datosPorDia.map((d) => ({
+                fecha: d.fecha,
+                valor: (d as unknown as Record<string, number>)[s] || 0,
+              }));
+              return (
+                <div key={s} className="border border-[var(--vg-border)] rounded-md p-3">
+                  <div className="flex items-baseline justify-between mb-1">
+                    <div className="font-bold text-[12px]" style={{ color }}>
+                      {s}
+                    </div>
+                    <div className="text-[11px] text-[var(--vg-text2)]">{totalSerie.toLocaleString('es-MX')} guías</div>
+                  </div>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <AreaChart data={datosSerie} margin={{ left: -10, right: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="fecha" tickFormatter={formatearFechaCorta} fontSize={9} interval="preserveStartEnd" />
+                      <YAxis fontSize={10} allowDecimals={false} />
+                      <Tooltip labelFormatter={(v) => formatearDia(String(v))} />
+                      <Area
+                        type="monotone"
+                        dataKey="valor"
+                        name={s}
+                        stroke={color}
+                        strokeWidth={2}
+                        fill={color}
+                        fillOpacity={0.15}
+                        dot={{ r: 2, fill: color, strokeWidth: 0 }}
+                        activeDot={{ r: 4 }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
         <ResponsiveContainer width="100%" height={360}>
           {vista === 'total' ? (
             <AreaChart data={datosPorDia} margin={{ bottom: 40 }}>
@@ -296,13 +409,14 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
             </LineChart>
           )}
         </ResponsiveContainer>
+        )}
       </div>
 
       {hayMasDeUnPeriodo && (
         <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
           <div className="font-bold text-[12.5px] mb-3">
             Comparativo Mensual
-            {vista !== 'total' && ` — Desglose por ${vista === 'oficina' ? 'Oficina Destino (Top 8)' : 'Entidad (Top 8)'}`}
+            {vista !== 'total' && ` — Desglose por ${etiquetaDesglose}`}
           </div>
           <ResponsiveContainer width="100%" height={320}>
             <LineChart data={datosPorMes} margin={{ bottom: 20 }}>
@@ -349,13 +463,13 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
           <div className="font-bold text-[13px]">Detalle por Día</div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => exportToExcel(datosPorDia, columnasExport, `Histograma_${vista}`)}
+              onClick={() => exportToExcel(datosPorDia, columnasExport, `Histograma_${vista}_${base}`)}
               className="text-[11px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
             >
               ⬇ Excel
             </button>
             <button
-              onClick={() => exportToPDF(datosPorDia, columnasExport, `Guías Asignadas por Día`)}
+              onClick={() => exportToPDF(datosPorDia, columnasExport, tituloBase)}
               className="text-[11px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
             >
               🖨 PDF
@@ -386,7 +500,7 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
               {!sorted.length && (
                 <tr>
                   <td colSpan={columnasSerie.length + 2} className="text-center text-[var(--vg-text3)] py-6">
-                    No hay guías asignadas (originales) en este corte
+                    No hay guías originales con esa fecha en este corte
                   </td>
                 </tr>
               )}
