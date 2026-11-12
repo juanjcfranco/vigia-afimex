@@ -14,6 +14,10 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  BarChart,
+  Bar,
+  LabelList,
+  Cell,
 } from 'recharts';
 import { exportToExcel, exportToPDF } from '@/lib/export';
 import { useSortableTable } from '@/lib/useSortableTable';
@@ -27,6 +31,8 @@ type BaseFecha = 'plataforma' | 'documentacion';
 // Comparativo: todas las series en una sola gráfica. Separado: una gráfica
 // por serie, cada una con su propia escala (aplica a cliente/oficina/entidad).
 type ModoDesglose = 'comparativo' | 'separado';
+// Guías: conteos. Porcentaje: cada serie como % del volumen total de ese día/mes.
+type Unidad = 'guias' | 'pct';
 
 const TOP_N = 8;
 const TOP_CLIENTES = 12;
@@ -69,6 +75,7 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
   const [base, setBase] = useState<BaseFecha>('plataforma');
   const [modoDesglose, setModoDesglose] = useState<ModoDesglose>('comparativo');
   const [topOficinas, setTopOficinas] = useState<number>(TOP_N);
+  const [unidad, setUnidad] = useState<Unidad>('guias');
 
   // Fecha de cada guía según la base elegida. Devuelve siempre 'YYYY-MM-DD'
   // (las guías ya se filtran abajo para garantizar que existe).
@@ -196,6 +203,39 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
 
   const hayMasDeUnPeriodo = datosPorMes.length > 1;
 
+  // ---- Unidad % -------------------------------------------------------
+  // En modo % cada serie (cliente/oficina/entidad) se expresa como parte del
+  // volumen TOTAL de ese día (o mes): cada día suma 100%. `total` (conteo de
+  // guías) se conserva en la fila para poder mostrarlo en el tooltip.
+  const enPct = unidad === 'pct' && vista !== 'total';
+  const aPorcentaje = (filas: Array<Record<string, unknown> & { total: number }>) =>
+    filas.map((r) => {
+      const o: Record<string, unknown> = { ...r };
+      columnasSerie.forEach((c) => {
+        o[c] = r.total ? (((r[c] as number) || 0) / r.total) * 100 : 0;
+      });
+      return o;
+    });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const datosGrafica: any[] = useMemo(
+    () => (enPct ? aPorcentaje(datosPorDia as never) : datosPorDia),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [enPct, datosPorDia, columnasSerie]
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const datosMesGrafica: any[] = useMemo(
+    () => (enPct ? aPorcentaje(datosPorMes as never) : datosPorMes),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [enPct, datosPorMes, columnasSerie]
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tooltipPct = ((v: any, name: any, item: any) => {
+    const total = item?.payload?.total || 0;
+    return [`${Number(v).toFixed(1)}% (${Math.round((Number(v) / 100) * total).toLocaleString('es-MX')} guías)`, name];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any;
+  const formatoPct = (v: number | string) => `${v}%`;
+
   // Ranking de volumen HACIA cada oficina destino (todas, no solo el Top N
   // de la gráfica): mismas guías que el resto del histograma (originales,
   // con la fecha base elegida), de mayor a menor volumen.
@@ -216,6 +256,31 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
       .sort((a, b) => b.guias - a.guias || a.oficina.localeCompare(b.oficina));
   }, [guiasConFecha]);
   const maxOficina = rankingOficinas[0]?.guias || 1;
+  // Participación (% del volumen) de las Top N oficinas, el resto sumado en
+  // 'Otras' — misma regla y mismos colores que las series de la gráfica.
+  const participacionOficinas = useMemo(() => {
+    const top = rankingOficinas.slice(0, topOficinas);
+    const resto = rankingOficinas.slice(topOficinas);
+    const filas = top.map((r, i) => ({
+      oficina: r.oficina,
+      guias: r.guias,
+      pct: r.pct,
+      etiqueta: `${r.pct.toFixed(1)}%`,
+      color: r.oficina === 'Sin dato' ? COLOR_SIN_DATO : colorDeSerie(r.oficina, i),
+    }));
+    if (resto.length) {
+      const guiasResto = resto.reduce((sum, r) => sum + r.guias, 0);
+      const pctResto = resto.reduce((sum, r) => sum + r.pct, 0);
+      filas.push({
+        oficina: `Otras (${resto.length})`,
+        guias: guiasResto,
+        pct: pctResto,
+        etiqueta: `${pctResto.toFixed(1)}%`,
+        color: COLOR_OTRAS,
+      });
+    }
+    return filas;
+  }, [rankingOficinas, topOficinas]);
   const columnasRanking = [
     { header: 'Oficina Destino', value: (r: (typeof rankingOficinas)[0]) => r.oficina },
     { header: 'Región', value: (r: (typeof rankingOficinas)[0]) => r.region },
@@ -269,6 +334,7 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
           <div className="font-bold text-[12.5px]">
             {tituloBase}
             {vista !== 'total' && ` — Desglose por ${etiquetaDesglose}`}
+            {enPct && ' — % del volumen de cada día'}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
           <div className="flex gap-1 bg-[var(--vg-bg)] p-1 rounded-md" title="Fecha con la que se ubica cada guía en el gráfico">
@@ -343,6 +409,22 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
               </button>
             </div>
           )}
+          {vista !== 'total' && (
+            <div className="flex gap-1 bg-[var(--vg-bg)] p-1 rounded-md" title="Ver el volumen en guías o como % del total de cada día">
+              <button
+                onClick={() => setUnidad('guias')}
+                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${unidad === 'guias' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+              >
+                Guías
+              </button>
+              <button
+                onClick={() => setUnidad('pct')}
+                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${unidad === 'pct' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+              >
+                % del volumen
+              </button>
+            </div>
+          )}
           </div>
         </div>
         {vista !== 'total' && modoDesglose === 'separado' ? (
@@ -352,24 +434,25 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
             {columnasSerie.map((s, i) => {
               const color = colorDeSerie(s, i);
               const totalSerie = datosPorDia.reduce((sum, d) => sum + ((d as unknown as Record<string, number>)[s] || 0), 0);
-              const datosSerie = datosPorDia.map((d) => ({
-                fecha: d.fecha,
-                valor: (d as unknown as Record<string, number>)[s] || 0,
-              }));
+              const datosSerie = datosGrafica.map((d) => ({ fecha: d.fecha as string, valor: (d[s] as number) || 0 }));
+              const pctSerie = kpis.total ? (totalSerie / kpis.total) * 100 : 0;
               return (
                 <div key={s} className="border border-[var(--vg-border)] rounded-md p-3">
                   <div className="flex items-baseline justify-between mb-1">
                     <div className="font-bold text-[12px]" style={{ color }}>
                       {s}
                     </div>
-                    <div className="text-[11px] text-[var(--vg-text2)]">{totalSerie.toLocaleString('es-MX')} guías</div>
+                    <div className="text-[11px] text-[var(--vg-text2)]">{totalSerie.toLocaleString('es-MX')} guías · {pctSerie.toFixed(1)}% del total</div>
                   </div>
                   <ResponsiveContainer width="100%" height={180}>
                     <AreaChart data={datosSerie} margin={{ left: -10, right: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
                       <XAxis dataKey="fecha" tickFormatter={formatearFechaCorta} fontSize={9} interval="preserveStartEnd" />
-                      <YAxis fontSize={10} allowDecimals={false} />
-                      <Tooltip labelFormatter={(v) => formatearDia(String(v))} />
+                      <YAxis fontSize={10} allowDecimals={enPct} tickFormatter={enPct ? formatoPct : undefined} />
+                      <Tooltip
+                        labelFormatter={(v) => formatearDia(String(v))}
+                        formatter={enPct ? tooltipPct : undefined}
+                      />
                       <Area
                         type="monotone"
                         dataKey="valor"
@@ -419,6 +502,37 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
                 dot={{ r: 3, fill: '#1E3A8A', strokeWidth: 0 }}
                 activeDot={{ r: 5 }}
               />
+            </AreaChart>
+          ) : enPct ? (
+            // % del volumen: área apilada al 100% — cada día suma 100% y se ve
+            // cómo se reparte entre las series (y cómo cambia ese reparto).
+            <AreaChart data={datosGrafica} margin={{ bottom: 40 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="fecha"
+                tickFormatter={formatearFechaCorta}
+                angle={-40}
+                textAnchor="end"
+                interval={0}
+                fontSize={10}
+                height={50}
+              />
+              <YAxis fontSize={11} domain={[0, 100]} tickFormatter={formatoPct} />
+              <Tooltip labelFormatter={(v) => formatearDia(String(v))} formatter={tooltipPct} />
+              <Legend />
+              {columnasSerie.map((s, i) => (
+                <Area
+                  key={s}
+                  type="monotone"
+                  dataKey={s}
+                  name={s}
+                  stackId="pct"
+                  stroke={colorDeSerie(s, i)}
+                  fill={colorDeSerie(s, i)}
+                  fillOpacity={0.8}
+                  strokeWidth={1}
+                />
+              ))}
             </AreaChart>
           ) : (
             // Líneas en vez de barras apiladas: con muchos días en el eje X,
@@ -483,6 +597,33 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
               </button>
             </div>
           </div>
+          <div className="px-4 pt-3" data-testid="participacion-oficinas">
+            <div className="font-bold text-[12px]">Participación en el volumen — % por oficina</div>
+            <div className="text-[11px] text-[var(--vg-text2)] mb-2">
+              Top {topOficinas} oficinas; el resto se suma en «Otras». Cambia el Top arriba.
+            </div>
+            <ResponsiveContainer width="100%" height={Math.max(160, participacionOficinas.length * 26 + 30)}>
+              <BarChart data={participacionOficinas} layout="vertical" margin={{ left: 10, right: 56 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" domain={[0, 'auto']} tickFormatter={formatoPct} fontSize={10} />
+                <YAxis type="category" dataKey="oficina" width={140} fontSize={10} interval={0} />
+                <Tooltip
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={((v: any, _n: any, item: any) => [
+                    `${Number(v).toFixed(1)}% (${(item?.payload?.guias ?? 0).toLocaleString('es-MX')} guías)`,
+                    '% del volumen',
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  ]) as any}
+                />
+                <Bar dataKey="pct" name="% del volumen">
+                  {participacionOficinas.map((r) => (
+                    <Cell key={r.oficina} fill={r.color} />
+                  ))}
+                  <LabelList dataKey="etiqueta" position="right" fontSize={10} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
           <div className="max-h-[420px] overflow-y-auto vg-scroll">
             <table className="vg-table">
               <thead>
@@ -530,11 +671,11 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
             {vista !== 'total' && ` — Desglose por ${etiquetaDesglose}`}
           </div>
           <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={datosPorMes} margin={{ bottom: 20 }}>
+            <LineChart data={datosMesGrafica} margin={{ bottom: 20 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="mes" tickFormatter={(v) => formatearPeriodo(String(v))} fontSize={11} />
-              <YAxis fontSize={11} />
-              <Tooltip labelFormatter={(v) => formatearPeriodo(String(v))} />
+              <YAxis fontSize={11} domain={enPct ? [0, 100] : undefined} tickFormatter={enPct ? formatoPct : undefined} />
+              <Tooltip labelFormatter={(v) => formatearPeriodo(String(v))} formatter={enPct ? tooltipPct : undefined} />
               {vista !== 'total' && <Legend />}
               {vista === 'total' ? (
                 <Line
