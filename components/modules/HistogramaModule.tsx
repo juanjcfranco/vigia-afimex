@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Guia } from '@/lib/types';
-import { formatearDia, formatearPeriodo, topPorCampo, isCancelada, esRetornoAmplio, esGuiaOriginal } from '@/lib/business-logic';
+import { formatearDia, formatearPeriodo, topPorCampo, isCancelada, esRetornoAmplio, esGuiaOriginal, obtenerRegion } from '@/lib/business-logic';
 import {
   AreaChart,
   Area,
@@ -24,12 +24,15 @@ type Vista = 'total' | 'oficina' | 'entidad' | 'cliente';
 // Fecha con la que se ubica cada guía en el eje X: cuándo la recibió Afimex
 // en plataforma, o cuándo la documentó el cliente (comportamiento anterior).
 type BaseFecha = 'plataforma' | 'documentacion';
-// En la vista por cliente se muestran más series (hay pocos clientes y
-// interesa verlos todos); oficina/entidad siguen en Top 8.
-type ModoCliente = 'comparativo' | 'separado';
+// Comparativo: todas las series en una sola gráfica. Separado: una gráfica
+// por serie, cada una con su propia escala (aplica a cliente/oficina/entidad).
+type ModoDesglose = 'comparativo' | 'separado';
 
 const TOP_N = 8;
 const TOP_CLIENTES = 12;
+// Cuántas oficinas dibujar en la gráfica (el resto se agrupa en 'Otras').
+// El ranking completo de volumen por oficina está en su propia tabla.
+const OPCIONES_TOP_OFICINAS = [8, 15, 30];
 const COLORES = [
   '#1E3A8A', '#0B9B67', '#DC2626', '#B45309',
   '#7C3AED', '#0891B2', '#BE185D', '#4D7C0F',
@@ -64,7 +67,8 @@ function colorDeSerie(serie: string, i: number): string {
 export default function HistogramaModule({ guias }: { guias: Guia[] }) {
   const [vista, setVista] = useState<Vista>('total');
   const [base, setBase] = useState<BaseFecha>('plataforma');
-  const [modoCliente, setModoCliente] = useState<ModoCliente>('comparativo');
+  const [modoDesglose, setModoDesglose] = useState<ModoDesglose>('comparativo');
+  const [topOficinas, setTopOficinas] = useState<number>(TOP_N);
 
   // Fecha de cada guía según la base elegida. Devuelve siempre 'YYYY-MM-DD'
   // (las guías ya se filtran abajo para garantizar que existe).
@@ -92,8 +96,9 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
   // y significado tanto en la vista diaria como en la mensual.
   const seriesTop = useMemo(() => {
     if (vista === 'total') return [];
-    return topPorCampo(guiasConFecha, (g) => campoParaVista(vista, g), vista === 'cliente' ? TOP_CLIENTES : TOP_N).map((t) => t.key);
-  }, [guiasConFecha, vista]);
+    const n = vista === 'cliente' ? TOP_CLIENTES : vista === 'oficina' ? topOficinas : TOP_N;
+    return topPorCampo(guiasConFecha, (g) => campoParaVista(vista, g), n).map((t) => t.key);
+  }, [guiasConFecha, vista, topOficinas]);
 
   // ============================================================
   // Vista diaria
@@ -191,9 +196,36 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
 
   const hayMasDeUnPeriodo = datosPorMes.length > 1;
 
+  // Ranking de volumen HACIA cada oficina destino (todas, no solo el Top N
+  // de la gráfica): mismas guías que el resto del histograma (originales,
+  // con la fecha base elegida), de mayor a menor volumen.
+  const rankingOficinas = useMemo(() => {
+    const conteo: Record<string, number> = {};
+    guiasConFecha.forEach((g) => {
+      const k = (g.oficina_destino || '').trim() || 'Sin dato';
+      conteo[k] = (conteo[k] || 0) + 1;
+    });
+    const total = guiasConFecha.length;
+    return Object.entries(conteo)
+      .map(([oficina, guias]) => ({
+        oficina,
+        region: oficina === 'Sin dato' ? '—' : obtenerRegion(oficina),
+        guias,
+        pct: total ? (guias / total) * 100 : 0,
+      }))
+      .sort((a, b) => b.guias - a.guias || a.oficina.localeCompare(b.oficina));
+  }, [guiasConFecha]);
+  const maxOficina = rankingOficinas[0]?.guias || 1;
+  const columnasRanking = [
+    { header: 'Oficina Destino', value: (r: (typeof rankingOficinas)[0]) => r.oficina },
+    { header: 'Región', value: (r: (typeof rankingOficinas)[0]) => r.region },
+    { header: 'Guías', value: (r: (typeof rankingOficinas)[0]) => r.guias },
+    { header: '% del total', value: (r: (typeof rankingOficinas)[0]) => `${r.pct.toFixed(1)}%` },
+  ];
+
   const etiquetaDesglose =
     vista === 'oficina'
-      ? 'Oficina Destino (Top 8)'
+      ? `Oficina Destino (Top ${topOficinas})`
       : vista === 'entidad'
         ? 'Entidad (Top 8)'
         : `Cliente${columnasSerie.includes('Otras') ? ` (Top ${TOP_CLIENTES})` : ''}`;
@@ -279,19 +311,33 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
               Por Cliente
             </button>
           </div>
-          {vista === 'cliente' && (
+          {vista === 'oficina' && (
+            <div className="flex items-center gap-1 bg-[var(--vg-bg)] p-1 rounded-md" title="Cuántas oficinas dibujar; el resto se agrupa en 'Otras'">
+              <span className="text-[11px] text-[var(--vg-text2)] px-2">Mostrar Top</span>
+              {OPCIONES_TOP_OFICINAS.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setTopOficinas(n)}
+                  className={`text-[11.5px] font-semibold px-2.5 py-1 rounded ${topOficinas === n ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          )}
+          {vista !== 'total' && (
             <div className="flex gap-1 bg-[var(--vg-bg)] p-1 rounded-md">
               <button
-                onClick={() => setModoCliente('comparativo')}
-                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${modoCliente === 'comparativo' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
-                title="Todos los clientes en una sola gráfica para compararlos"
+                onClick={() => setModoDesglose('comparativo')}
+                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${modoDesglose === 'comparativo' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+                title="Todas las series en una sola gráfica para compararlas"
               >
                 Comparativo
               </button>
               <button
-                onClick={() => setModoCliente('separado')}
-                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${modoCliente === 'separado' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
-                title="Una gráfica por cliente, cada una con su propia escala"
+                onClick={() => setModoDesglose('separado')}
+                className={`text-[11.5px] font-semibold px-3 py-1 rounded ${modoDesglose === 'separado' ? 'bg-white shadow-sm text-[var(--vg-blue)]' : 'text-[var(--vg-text2)]'}`}
+                title="Una gráfica por serie, cada una con su propia escala"
               >
                 Separado
               </button>
@@ -299,10 +345,10 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
           )}
           </div>
         </div>
-        {vista === 'cliente' && modoCliente === 'separado' ? (
-          // Una gráfica por cliente con su PROPIA escala vertical: en el
-          // comparativo los clientes chicos se aplastan junto a los grandes.
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-testid="clientes-separados">
+        {vista !== 'total' && modoDesglose === 'separado' ? (
+          // Una gráfica por serie (cliente/oficina/entidad) con su PROPIA escala
+          // vertical: en el comparativo las chicas se aplastan junto a las grandes.
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-testid="series-separadas">
             {columnasSerie.map((s, i) => {
               const color = colorDeSerie(s, i);
               const totalSerie = datosPorDia.reduce((sum, d) => sum + ((d as unknown as Record<string, number>)[s] || 0), 0);
@@ -411,6 +457,71 @@ export default function HistogramaModule({ guias }: { guias: Guia[] }) {
         </ResponsiveContainer>
         )}
       </div>
+
+      {vista === 'oficina' && (
+        <div className="bg-white rounded-lg border border-[var(--vg-border)] overflow-hidden" data-testid="ranking-oficinas">
+          <div className="px-4 py-3 border-b border-[var(--vg-border)] flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <div className="font-bold text-[13px]">Volumen hacia Oficinas Destino</div>
+              <div className="text-[11px] text-[var(--vg-text2)]">
+                {rankingOficinas.length.toLocaleString('es-MX')} oficina(s) · {kpis.total.toLocaleString('es-MX')} guías originales ·{' '}
+                {base === 'plataforma' ? 'por Fecha Plataforma' : 'por Fecha Documentación'}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => exportToExcel(rankingOficinas, columnasRanking, `Volumen_Oficinas_${base}`)}
+                className="text-[11px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
+              >
+                ⬇ Excel
+              </button>
+              <button
+                onClick={() => exportToPDF(rankingOficinas, columnasRanking, 'Volumen hacia Oficinas Destino')}
+                className="text-[11px] font-semibold text-[var(--vg-text2)] border border-[var(--vg-border)] rounded-md px-2.5 py-1.5 bg-white"
+              >
+                🖨 PDF
+              </button>
+            </div>
+          </div>
+          <div className="max-h-[420px] overflow-y-auto vg-scroll">
+            <table className="vg-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Oficina Destino</th>
+                  <th>Región</th>
+                  <th>Guías</th>
+                  <th>% del total</th>
+                  <th style={{ width: '32%' }}>Volumen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rankingOficinas.map((r, i) => (
+                  <tr key={r.oficina}>
+                    <td>{i + 1}</td>
+                    <td className="font-medium">{r.oficina}</td>
+                    <td>{r.region}</td>
+                    <td className="font-bold">{r.guias.toLocaleString('es-MX')}</td>
+                    <td>{r.pct.toFixed(1)}%</td>
+                    <td>
+                      <div style={{ background: '#E2E8F0', borderRadius: 3, height: 8 }}>
+                        <div style={{ width: `${(r.guias / maxOficina) * 100}%`, background: '#1E3A8A', height: 8, borderRadius: 3 }} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!rankingOficinas.length && (
+                  <tr>
+                    <td colSpan={6} className="text-center text-[var(--vg-text3)] py-6">
+                      No hay guías originales con esa fecha en este corte
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {hayMasDeUnPeriodo && (
         <div className="bg-white rounded-lg border border-[var(--vg-border)] p-4">
